@@ -5,6 +5,7 @@ const {
   Footer, PageNumber, TabStopType, TabStopPosition,
 } = require('docx');
 const fs = require('fs');
+const path = require('path');
 
 const W = 9026;                 // szerokosc kolumny tekstu A4 przy marginesach 1"
 const C = {
@@ -817,6 +818,7 @@ const doc = new Document({
 });
 
 Packer.toBuffer(doc).then((buf) => {
-  fs.writeFileSync('/home/claude/adres-pl/docs/raport-baza-mikroserwis.docx', buf);
-  console.log('OK', (buf.length / 1024).toFixed(0), 'KB');
+  const out = path.join(__dirname, 'raport-baza-mikroserwis.docx');
+  fs.writeFileSync(out, buf);
+  console.log('OK', (buf.length / 1024).toFixed(0), 'KB ->', out);
 });
