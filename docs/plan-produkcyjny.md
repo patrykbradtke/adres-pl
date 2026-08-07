@@ -146,8 +146,8 @@ Z rozpoznania rynku, uporządkowane wg pilności.
 
 | # | zadanie | nakład | uwagi |
 |---|---|---|---|
-| 6.1 | **Uwierzytelnianie klientów API** | 2 d | dziś `x-api-key` służy tylko do limitowania — nikt go nie sprawdza, API jest otwarte |
-| 6.2 | Klucze testowe i produkcyjne, limity per klient | 1,5 d | standard w usługach tej klasy |
+| 6.1 | **Uwierzytelnianie klientów API** | — | rozwinięte w etapie 8A wraz z licencjami; nie planować podwójnie |
+| 6.2 | Klucze testowe i produkcyjne, limity per klient | — | jw., etap 8A |
 | 6.3 | Retencja i anonimizacja logów zapytań | 1 d | zapytania zawierają adresy — to dane osobowe |
 | 6.4 | Rejestr czynności przetwarzania (RODO) | 1 d | wymagane przed produkcją |
 
@@ -218,6 +218,110 @@ stosu — inaczej regres jakości wyjdzie dopiero od klienta.
 serwisach o prostym przepływie daje niewiele. Sens pojawi się, gdy dojdzie
 panel administracyjny i kolejki zadań; wtedy warto wrócić, tym bardziej że
 instrumentacja jest wtedy neutralna wobec wyboru dostawcy.
+
+---
+
+## Etap 8. Komercjalizacja — 18–24 dni
+
+Trzy obszary rozpoznane 7.08.2026. Każda rekomendacja przeszła weryfikację
+adwersaryjną — zastrzeżenia zapisano, bo część przesłanek okazała się fałszywa.
+
+### 8A. Uwierzytelnianie i licencje — 9–11 dni
+
+**Rekomendacja:** nieprzezroczyste klucze API z prefiksem i sumą kontrolną
+(`adr_live_<24 bajty base64url>_<suma>`), przechowywane jako **HMAC-SHA256
+z pieprzem** trzymanym poza bazą. Bez bramy API i bez OAuth2 w pierwszej wersji.
+
+Dlaczego HMAC, a nie bcrypt/argon2: klucz o entropii 128 bitów jest nie do
+złamania siłowo niezależnie od szybkości funkcji skrótu — powolne hashowanie
+chroni przed słabymi hasłami ludzi, nie przed 24 bajtami z generatora. HMAC jest
+deterministyczny, więc kolumnę można zaindeksować unikatowo i trafiać jednym
+zapytaniem, bez skanu tabeli.
+
+| # | zadanie | nakład |
+|---|---|---|
+| 8.1 | **PILNE:** poprawka `keyGenerator` — limitowanie po IP do czasu wdrożenia uwierzytelniania | 0,25 d |
+| 8.2 | Model danych: `klient`, `klucz_api` (prefiks, hash, ważność, limity, status) | 1,5 d |
+| 8.3 | Generowanie i weryfikacja klucza w `@adres-pl/core` | 1 d |
+| 8.4 | Plugin uwierzytelniający Fastify jako `preHandler`, cache w procesie | 2 d |
+| 8.5 | Limity i kwoty per klient, magazyn współdzielony między instancjami | 1,5 d |
+| 8.6 | Cykl życia klucza: rotacja bezprzerwowa, okres przejściowy, unieważnianie | 1,5 d |
+| 8.7 | Endpointy administracyjne pod panel (klucz jawny pokazywany raz) | 1,5 d |
+| 8.8 | Test wydajnościowy: próg regresji nie więcej niż +0,3 ms do p99 | 1,5 d |
+| 8.9 | Zgłoszenie prefiksu do wykrywania wycieków, dokumentacja dla integratorów | 0,75 d |
+
+**Zastrzeżenie weryfikacji — nie budować cache w Redisie.** Rekomendacja
+proponowała dwa poziomy cache (w procesie + Redis). Weryfikator wykazał błąd:
+obieg do Redisa po sieci w klastrze to 0,2–1 ms, czyli tyle samo albo więcej niż
+odrzucone zapytanie do Postgresa. Drugi poziom nie daje nic poza złożonością.
+Zostaje cache w procesie plus kanał powiadomień o unieważnieniu.
+
+**Znaleziona przy okazji czynna luka:** dzisiejszy limiter używa
+`keyGenerator: req.headers['x-api-key'] ?? req.ip`. Klient wysyłający losową
+wartość nagłówka przy każdym żądaniu dostaje świeży licznik i **całkowicie omija
+limitowanie**. To nie jest brak funkcji, to działający mechanizm obejścia —
+stąd zadanie 8.1 z najwyższym priorytetem.
+
+### 8B. Model wielodostępności — 4–6 dni (+3 d wariant on-premise)
+
+**Rekomendacja: jedna wspólna instalacja, nie instancja per klient.**
+
+Uzasadnienie wprost odpowiada na pytanie o izolację: dane adresowe są
+**identyczne dla wszystkich klientów** — to nie jest przypadek izolacji danych,
+tylko wydajności. Instancja per klient oznaczałaby trzymanie tego samego
+artefaktu w pamięci tyle razy, ilu jest klientów, przy 400+ MB na instancję.
+Przy 50 klientach to ponad 20 GB pamięci na dane, które są kopią tego samego.
+
+Izolację wydajności taniej osiąga się inaczej:
+
+| # | zadanie | nakład |
+|---|---|---|
+| 8.10 | Bulkhead na puli bazy: limit równoczesnych zapytań per klient | 1 d |
+| 8.11 | Rozdzielenie sond: `/health` niezależne od bazy, `/ready` degradujące się częściowo | 1 d |
+| 8.12 | Metryki z wymiarem klienta, cele SLO i budżety błędu per pakiet | 1,5 d |
+| 8.13 | Zawór bezpieczeństwa odrzucający najpierw ruch ponadlimitowy | 1,5 d |
+| 8.14 | Wydzielona pula instancji dla klientów z twardym SLA (opcjonalnie) | 2 d |
+| 8.15 | Wariant on-premise — tylko na podpisany kontrakt | 3 d |
+
+**Zastrzeżenia weryfikacji:** rekomendacja opierała arytmetykę przepustowości na
+liczbach z README (p50 0,114 ms), które **projekt sam wycofał** — pomiar na
+danych rzeczywistych daje ~4 ms. Podobnie zużycie pamięci 281 MB pochodziło
+z testu z artefaktem 10 MB, a dzisiejszy artefakt ma 66 MB. Przed decyzją
+o wydzielonych pulach trzeba przeliczyć wydajność na aktualnych pomiarach.
+
+### 8C. Kopie zapasowe na osobną maszynę — 5–7 dni
+
+**Rekomendacja:** `pg_dump -Fc` plus wysyłka do zewnętrznego magazynu obiektowego
+w UE (rząd wielkości 1–5 EUR miesięcznie przy tym wolumenie), zamiast lokalnego
+MinIO. Blokada zapisu na archiwum PRG sprzed 1.09.2026 — ono jest
+**nieodtwarzalne**, bo po tej dacie stara struktura znika ze źródła.
+
+| # | zadanie | nakład |
+|---|---|---|
+| 8.16 | Zamrożenie archiwum sprzed 1.09.2026: pełne pobranie, sumy kontrolne, wysyłka | 0,5 d |
+| 8.17 | Wybór dostawcy magazynu w UE, kubełki, rozdzielenie poświadczeń | 0,5 d |
+| 8.18 | Zadanie cykliczne kopii bazy: zrzut, suma kontrolna, szyfrowanie, wysyłka | 1 d |
+| 8.19 | Wysyłka archiwów i artefaktów w ramach cyklu ETL | 0,5 d |
+| 8.20 | Reguły cyklu życia kopii i blokada zapisu na zamrożonym archiwum | 0,5 d |
+| 8.21 | Kopia offline zamrożonego archiwum na dwóch nośnikach, dwie lokalizacje | 0,25 d |
+| 8.22 | Kopia sekretów Kubernetesa, szyfrowana, klucz w menedżerze | 0,5 d |
+| 8.23 | **Cotygodniowy test odtworzenia** — automatyczny, z testami akceptacyjnymi | 1,5 d |
+| 8.24 | Pomiar czasu odtworzenia na pełnym kraju, dobór równoległości | 0,5 d |
+| 8.25 | Alerty: brak kopii ponad 26 h, kopia podejrzanie mała, nieudane odtworzenie | 0,25 d |
+| 8.26 | Runbook z trzema ścieżkami odtworzenia: artefakt, zrzut bazy, pełne przetworzenie | 1 d |
+
+**Zastrzeżenia weryfikacji — dwa istotne:**
+
+Po pierwsze, **nie wykluczać schematu `staging` ze zrzutu bez zmiany sposobu
+migracji**. Jego definicja istnieje wyłącznie w `002_staging.sql`, a migracje
+uruchamiają się tylko przy inicjalizacji kontenera — odtworzenie z takiego
+zrzutu dałoby bazę bez obszaru przejściowego i bez funkcji publikującej.
+Wiąże się to z luką „narzędzie do migracji” opisaną niżej.
+
+Po drugie, teza „awaria bazy nie jest awarią całej usługi” jest **nieprawdziwa
+w obecnym kodzie**: `/ready` wykonuje zapytanie do bazy i zwraca 503, gdy ono
+zawiedzie — czyli pod zostaje wyłączony z ruchu, mimo że wyszukiwanie działa
+z pamięci. Stąd zadanie 8.11.
 
 ---
 
@@ -299,11 +403,16 @@ zabezpieczeń.
 | 5 | Audyt zmian | 5–7 d |
 | 6 | Braki blokujące (bez 6.12–6.15) | 8–10 d |
 | 7 | Monitorowanie i obserwowalność | 6–8 d |
+| 8 | Komercjalizacja: klucze i licencje, wielodostępność, kopie zapasowe | 18–24 d |
 | — | Narzędzie migracji | 1,5 d |
-| **razem** | | **37–49 dni** |
+| **razem** | | **55–73 dni** |
 
-Około **7,5–10 tygodni** pracy jednej osoby na sam back-end. Panel
+Około **11–15 tygodni** pracy jednej osoby na sam back-end. Panel
 administracyjny doliczyć osobno po zaplanowaniu.
+
+Jeśli komercjalizacja nie jest celem pierwszego wdrożenia, etap 8 można odłożyć
+w całości poza zadaniem 8.1 — poprawką limitera, która zamyka czynną lukę
+i kosztuje ćwierć dnia.
 
 ## Kolejność
 

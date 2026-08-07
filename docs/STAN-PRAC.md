@@ -33,7 +33,7 @@ nieprzetworzonych — to pierwsze zadanie z planu (etap 1.1).
 | macOS | 12 (Monterey), Intel. **Homebrew nie zbuduje nowych formuł** — Command Line Tools za stare, naprawa wymaga `sudo` |
 | `psql` | jest, ale **poza PATH**: `/usr/local/opt/libpq/bin/psql` |
 | Docker | Desktop 28.0.4, 8 rdzeni, 7,75 GB RAM |
-| git | repozytorium w `adres-pl`, pierwszy commit `e36fc1e`, brak zdalnego |
+| git | `patrykbradtke/adres-pl` (prywatne), gałąź `master` |
 
 **Uwaga o Dockerze:** przy trzech równoległych kontenerach plus ładowaniu
 Docker Desktop raz podniósł bazę od zera (wolumen wyczyszczony, migracje
@@ -58,10 +58,9 @@ Poza tym: naprawiony niekompletny `package-lock.json`, dodany `.dockerignore`,
 `build-index` tworzy teraz stabilną nazwę `current.bin`, loader API czyta
 wskaźnik wersji już przy starcie, dodano `ANALYZE` po masowym wstawieniu.
 
-**Zacommitowane** — repozytorium założone 7.08.2026, commit `e36fc1e`
-(68 plików). Pozostaje podpięcie zdalnego repozytorium na GitHubie (prywatne).
-Katalog `data/` jest wykluczony z historii: 1,8 GB archiwów i zrzut bazy
-odtwarza się z zewnątrz albo z kopii zapasowej.
+**Zacommitowane i wypchnięte** — prywatne repozytorium
+`patrykbradtke/adres-pl`, 68 plików. Katalog `data/` wykluczony z historii:
+1,8 GB archiwów i zrzut bazy odtwarza się z zewnątrz albo z kopii zapasowej.
 
 ---
 
@@ -162,11 +161,15 @@ Wersje 1.0 i 1.1 leżą obok w `~/Downloads`.
 
 ## 8. Od czego zacząć w nowej sesji
 
-1. **Etap 0 (reszta)** — podpiąć prywatne repozytorium na GitHubie i wypchnąć
-   commit `e36fc1e`. Reszta etapu 0 wykonana.
+1. **Etap 0 — wykonany.** Repozytorium prywatne `patrykbradtke/adres-pl`,
+   cztery commity, katalog `data/` poza historią.
 2. **Etap 1.1** — dołożyć 12 pozostałych województw. Dane są na dysku, więc to
    samo przetwarzanie: ~1–1,5 h przy `--rownolegle 4`.
-3. Dalej wg `plan-produkcyjny.md`.
+3. Dalej wg `plan-produkcyjny.md`. Etap 8 (komercjalizacja) został dopisany
+   7.08.2026 na podstawie rozpoznania: klucze API z terminem ważności
+   i licencjami, model wielodostępności, kopie zapasowe poza maszyną.
+   Zadanie 8.1 warto wykonać niezależnie od reszty — to ćwierć dnia,
+   a zamyka czynną lukę w limitowaniu zapytań.
 
 Odtworzenie bazy bez ponownego przetwarzania — z kopii w `data/backup/`:
 
