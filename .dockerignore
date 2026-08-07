@@ -1,0 +1,13 @@
+# Bez tego `COPY . .` wciaga node_modules z hosta NA WIERZCH instalacji
+# zrobionej w obrazie - mieszanka drzew z dwoch systemow potrafi dac
+# MODULE_NOT_FOUND na paczce, ktora w obrazie byla poprawnie zainstalowana.
+node_modules
+**/node_modules
+
+# Artefakty i archiwum montujemy wolumenem, nie pieczemy w obrazie
+# (pelny PRG to ~900 MB ZIP-ow i ~500 MB indeksu).
+data
+
+.git
+.gitignore
+*.log

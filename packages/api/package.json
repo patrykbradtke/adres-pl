@@ -1,0 +1,15 @@
+{
+  "name": "@adres-pl/api",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/server.ts",
+  "dependencies": {
+    "@adres-pl/core": "*",
+    "@adres-pl/index-format": "*",
+    "fastify": "^5.1.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/rate-limit": "^10.2.0",
+    "pg": "^8.13.0",
+    "pino": "^9.5.0"
+  }
+}

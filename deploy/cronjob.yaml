@@ -1,0 +1,99 @@
+# Cykl aktualizacji bazy adresowej.
+#
+# KODY WYJSCIA I CO Z NIMI ROBIC:
+#   0  opublikowano              - normalne zakonczenie
+#   5  brak zmian w zrodle       - NIE jest bledem, PRG po prostu sie nie zmienil
+#   3  wstrzymane przez kontrole - zabezpieczenie zadzialalo, wymaga decyzji czlowieka
+#   1  blad techniczny
+#
+# `backoffLimit: 0` jest celowy: ponawianie nie ma sensu przy kodzie 3
+# (dane nie zmienia sie same), a przy kodzie 1 chcemy zobaczyc blad,
+# a nie zamaskowac go trzema kolejnymi probami.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: adres-etl
+spec:
+  # 04:15 UTC - poza szczytem, po nocnych aktualizacjach po stronie GUGiK
+  schedule: "15 4 * * *"
+  concurrencyPolicy: Forbid          # cykl nie moze sie nakladac sam na siebie
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 14
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      # Pelny zrzut krajowy to ~900 MB pobrania i ~20 GB parsowania.
+      activeDeadlineSeconds: 21600
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: etl
+              image: adres-pl/etl:latest
+              args: ["cycle"]
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef: { name: adres-db, key: url }
+                - name: ARCHIVE_ROOT
+                  value: /data/archive
+                - name: INDEX_ROOT
+                  value: /data/index
+                - name: NOTIFY_WEBHOOK
+                  valueFrom:
+                    secretKeyRef: { name: adres-notify, key: webhook, optional: true }
+              resources:
+                # Parser jest strumieniowy - pamiec nie rosnie z rozmiarem pliku.
+                # Szczytem jest budowa artefaktu indeksu: ~1,5 GB przy 373 tys. pozycji.
+                requests: { memory: 1Gi, cpu: "500m" }
+                limits:   { memory: 3Gi, cpu: "2" }
+              volumeMounts:
+                - { name: dane, mountPath: /data }
+          volumes:
+            - name: dane
+              persistentVolumeClaim:
+                claimName: adres-dane      # archiwum: ~22 GB/rok przy zrzutach miesiecznych
+---
+# Odswiezenie slownikow TERYT - rzadziej, bo zmieniaja sie miesiecznie.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: adres-etl-teryt
+spec:
+  schedule: "0 3 5 * *"        # 5. dnia miesiaca
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: teryt
+              image: adres-pl/etl:latest
+              command: ["sh", "-c"]
+              args:
+                - >
+                  node --experimental-strip-types packages/etl/src/cli.ts teryt pobierz &&
+                  node --experimental-strip-types packages/etl/src/cli.ts teryt
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef: { name: adres-db, key: url }
+                - name: ARCHIVE_ROOT
+                  value: /data/archive
+                # Bez tych zmiennych uzywane jest publiczne konto testowe GUS,
+                # ktore sluzy do weryfikacji integracji, nie do produkcji.
+                - name: TERYT_USER
+                  valueFrom:
+                    secretKeyRef: { name: adres-teryt, key: user }
+                - name: TERYT_PASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: adres-teryt, key: password }
+              volumeMounts:
+                - { name: dane, mountPath: /data }
+          volumes:
+            - name: dane
+              persistentVolumeClaim:
+                claimName: adres-dane

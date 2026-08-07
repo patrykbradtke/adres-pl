@@ -1,0 +1,13 @@
+node_modules/
+
+# Archiwa zrodlowe, artefakty indeksu i zrzuty bazy - liczone w gigabajtach.
+# Odtwarzalne: archiwum z PRG/eTeryt, artefakt przez `etl build-index`.
+data/
+
+*.bin
+*.log
+*.cpuprofile
+
+dist/
+coverage/
+.DS_Store

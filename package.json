@@ -1,0 +1,17 @@
+{
+  "name": "adres-pl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "etl": "node --experimental-strip-types packages/etl/src/cli.ts",
+    "api": "node --experimental-strip-types packages/api/src/server.ts"
+  }
+}

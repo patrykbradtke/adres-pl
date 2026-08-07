@@ -1,0 +1,69 @@
+# Reguly alertow Prometheusa.
+# Kazda odpowiada konkretnemu, udokumentowanemu scenariuszowi awarii.
+groups:
+  - name: adres-pl
+    rules:
+      - alert: DaneAdresoweZamrozone
+        expr: adres_dane_wiek_dni > 30
+        for: 6h
+        labels: { severity: warning }
+        annotations:
+          summary: "Najnowszy zrzut PRG ma {{ $value | humanize }} dni"
+          description: >
+            PRG aktualizuje sie na biezaco. Brak nowego zrzutu przez ponad 30 dni
+            oznacza zatrzymanie pipeline'u albo problem po stronie zrodla.
+            Dokladnie taki incydent wystapil w czerwcu 2024 i zostal wykryty
+            przez firme zewnetrzna, a nie przez instytucje prowadzaca rejestr.
+
+      - alert: PublikacjaWstrzymana
+        expr: adres_etl_ostatni_status_info{status="wstrzymany"} == 1
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Kontrole jakosci wstrzymaly publikacje"
+          description: >
+            To NIE jest awaria - zabezpieczenie zadzialalo i poprzedni zrzut
+            pozostaje aktywny. Wymaga jednak decyzji czlowieka: sprawdz /status,
+            zweryfikuj przyczyne i albo popraw dane, albo swiadomie opublikuj
+            z flaga --force.
+
+      - alert: IndeksNiespojnyZDanymi
+        expr: adres_indeks_niespojny == 1
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "Artefakt indeksu starszy niz opublikowane dane"
+          description: >
+            Podpowiedzi beda niespojne z wynikami walidacji. Najczestsza przyczyna
+            to nieudana podmiana artefaktu albo instancja, ktora nie pobrala
+            nowej wersji.
+
+      - alert: IndeksNieZaladowany
+        expr: adres_indeks_zaladowany == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Instancja bez zaladowanego indeksu"
+
+      - alert: BazaNiedostepna
+        expr: adres_baza_dostepna == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Baza danych nie odpowiada"
+          description: >
+            Podpowiedzi beda dzialac dalej, bo indeks jest w pamieci procesu.
+            Przestana natomiast dzialac numery budynkow, walidacja i geokodowanie
+            odwrotne.
+
+      - alert: WysokaLatencjaPodpowiedzi
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(adres_zapytanie_ms_bucket{endpoint="/v1/suggest"}[5m])) by (le)) > 25
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "99. percentyl podpowiedzi powyzej 25 ms"
+          description: >
+            Wartosc odniesienia to 1,84 ms. Przekroczenie 25 ms sugeruje
+            wyczerpanie pamieci, swapowanie albo zbyt duzy artefakt.

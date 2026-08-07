@@ -1,0 +1,16 @@
+{
+  "name": "@adres-pl/etl",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/cli.ts",
+  "dependencies": {
+    "@adres-pl/core": "*",
+    "saxes": "^6.0.0",
+    "proj4": "^2.15.0",
+    "yauzl": "^3.2.0",
+    "pg": "^8.13.0",
+    "pino": "^9.5.0",
+    "@adres-pl/index-format": "*",
+    "pg-copy-streams": "^6.0.6"
+  }
+}

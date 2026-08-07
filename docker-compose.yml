@@ -1,0 +1,67 @@
+# Podzial na ETL i API jest kluczowa decyzja architektoniczna:
+#   etl  - stanowy, ciezki, uruchamiany raz dziennie (CronJob w K8s)
+#   api  - BEZSTANOWY, lekki, skalowany poziomo, caly stan to artefakt indeksu
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_USER: adres
+      POSTGRES_PASSWORD: adres
+      POSTGRES_DB: adres
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adres"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    # Rate limiting, cache geokodowania odwrotnego, pub/sub o nowej wersji
+    # artefaktu. NIE sluzy do wyszukiwania - to robi indeks w RAM.
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: redis-server --save "" --appendonly no
+
+  minio:
+    # Object storage na wersjonowane artefakty indeksu i archiwum surowych
+    # ZIP-ow z PRG. Archiwum jest polisa na zniknięcie zrodla - patrz README.
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: adres
+      MINIO_ROOT_PASSWORD: adresadres
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+
+  api:
+    build: { context: ., dockerfile: Dockerfile, target: api }
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://adres:adres@db:5432/adres
+      INDEX_SOURCE: /data/index/current.bin
+      INDEX_POINTER: /data/index/current.json
+      INDEX_POLL_MS: "60000"
+      REDIS_URL: redis://redis:6379
+    ports: ["3000:3000"]
+    volumes: ["./data:/data:ro"]
+    # Indeks zajmuje ~500-600 MB RSS. Przy wielu podach to realny koszt -
+    # alternatywa jest SQLite FTS5 (56 MB pliku, p50 0,06-0,58 ms).
+    deploy:
+      resources:
+        limits: { memory: 1G }
+
+  etl:
+    build: { context: ., dockerfile: Dockerfile, target: etl }
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://adres:adres@db:5432/adres
+      ARCHIVE_ROOT: /data/archive
+      INDEX_ROOT: /data/index
+    volumes: ["./data:/data"]
+    profiles: ["tools"]   # uruchamiany na zadanie: docker compose run --rm etl ...
+
+volumes: { pgdata: {}, miniodata: {} }
