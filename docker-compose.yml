@@ -4,6 +4,13 @@
 services:
   db:
     image: postgis/postgis:17-3.5
+    # Domyslne 64 MB na /dev/shm nie wystarcza. Postgres trzyma tam segmenty
+    # pamieci dzielonej dla workerow zapytan rownoleglych, a kontrole jakosci
+    # skanuja staging w calosci. Przy 4 wojewodztwach przechodzilo; przy
+    # komplecie 16 (8,6 mln punktow) planer wchodzi w tryb rownolegly i przebieg
+    # przerywa sie na "could not resize shared memory segment ... No space left
+    # on device". Nie ma to zwiazku z miejscem na dysku hosta.
+    shm_size: 1gb
     environment:
       POSTGRES_USER: adres
       POSTGRES_PASSWORD: adres

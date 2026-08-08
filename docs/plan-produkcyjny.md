@@ -30,9 +30,9 @@ Cel: komplet danych i **niezależność od źródła zewnętrznego**.
 
 | # | zadanie | nakład | zależy od |
 |---|---|---|---|
-| 1.1 | Załadowanie 12 pozostałych województw (`cycle --rownolegle 4`) | 0,5 d | — |
-| 1.2 | Publikacja pełnego kraju, weryfikacja wobec 8,56 mln punktów | 0,5 d | 1.1 |
-| 1.3 | Artefakt na pełnym zbiorze — pomiar rozmiaru i zużycia pamięci | 0,5 d | 1.2 |
+| 1.1 | ~~Załadowanie 12 pozostałych województw~~ **WYKONANE 9.08.2026** — komplet 16, ~17 min przy `--rownolegle 4` | — | — |
+| 1.2 | ~~Publikacja pełnego kraju~~ **WYKONANE 9.08.2026** — 8 605 682 punkty, o 45 tys. więcej niż zapowiadane 8,56 mln (przyrost za 4 miesiące) | — | — |
+| 1.3 | ~~Artefakt na pełnym zbiorze~~ **WYKONANE 9.08.2026** — 791 211 pozycji, 109,3 MB, RSS procesu 239 MB | — | — |
 | 1.4 | **Archiwum poza maszyną** — wysyłka archiwów i artefaktów do magazynu obiektowego | 1 d | 1.2 |
 | 1.5 | Odtworzenie z archiwum bez internetu (`cycle --z-archiwum`) — przećwiczyć | 0,5 d | 1.4 |
 | 1.6 | Kopie zapasowe bazy: harmonogram, retencja, test odtworzenia | 1 d | 1.2 |
@@ -67,12 +67,30 @@ Zrównoleglenie działa (zmierzone 3,6× na czterech procesach), ale jest
 
 | # | zadanie | nakład | uzasadnienie |
 |---|---|---|---|
-| 2.7 | Profil pełnego cyklu na 16 województwach | 1 d | dotąd mierzone na 1–4 |
-| 2.8 | Publikacja: 72 min dla 4 województw — zbadać i skrócić | 1–2 d | przy 16 może być nie do przyjęcia |
+| 2.7 | ~~Profil pełnego cyklu na 16 województwach~~ **WYKONANE 9.08.2026** — ~3 h 25 min, rozbicie niżej | — | — |
+| 2.8 | Publikacja: **2 h 16 min dla całego kraju** — zbadać i skrócić | 1–2 d | to 2/3 całego cyklu; wcześniejszy szacunek 72 min dotyczył 4 województw |
 | 2.9 | Strojenie bazy pod ładowanie masowe (`work_mem`, `maintenance_work_mem`, autovacuum) | 0,5 d | domyślne 4 MB przy 2 mln wierszy |
-| 2.10 | Testy regresji wydajności wyszukiwania | 1 d | mediana wzrosła z 0,49 do ~4 ms |
-| 2.11 | Zapytania o dużej liczbie kandydatów („Nowa Wieś” — 42 ms) | 1 d | 2.10 |
+| 2.10 | Testy regresji wydajności wyszukiwania | 1 d | jest już `bench-realny.ts`; podpiąć do cyklu i ustawić progi |
+| 2.11 | **Rozgrzewanie instancji przed skierowaniem ruchu** | 0,5 d | pierwsze zapytanie po starcie: 82 ms wobec 1,7 ms po rozgrzewce — to, a nie nazwy pospolite, jest realnym przypadkiem brzegowym |
 | 2.12 | Przegląd zapytań pod kątem wzorca z `OR` i pętli zagnieżdżonych | 1 d | ten sam błąd może być gdzie indziej |
+| 2.13 | **Wzmocnienie zapisu przy pełnych aktualizacjach stagingu** — przenieść `resolve_refs()` do okna ładowania masowego, zbadać wiązanie z ulicami | 1–1,5 d | zmierzone 8.08.2026, patrz niżej |
+
+**Uwaga do 2.13 — zmierzone na komplecie 16 województw (8 605 908 punktów).**
+W ścieżce publikacji są **dwie pełne aktualizacje** tabeli `staging.punkt_adresowy`,
+obie przy nałożonych trzech indeksach, czyli każdy wiersz to nowa krotka plus
+trzy wpisy indeksowe — ponad 25 mln operacji na indeksach na każdą z nich:
+
+| operacja | gdzie | zmierzony czas |
+|---|---|---|
+| `resolve_refs()` — wypełnienie `simc` | poza oknem ładowania masowego | **~49 min** |
+| wiązanie punktów z ulicami (`ulic_id`) | wewnątrz `publikuj_zrzut()` | ponad 30 min |
+
+Kontener bazy zaraportował **303 GB zapisów** przy zbiorze ważącym 9 GB —
+trzydziestokrotne wzmocnienie zapisu. Pierwszą operację da się przenieść do
+okna `przed_ladowaniem`/`po_ladowaniu`, gdzie indeksów nie ma (poprawka
+przygotowana w `002_staging.sql`, wymaga ręcznego wgrania — patrz luka
+„narzędzie do migracji”). Druga siedzi wewnątrz transakcji publikującej, więc
+wymaga osobnego podejścia. Powiązane z 2.8 i 2.9.
 
 **Ukończenie:** znany budżet czasu pełnego cyklu, progi alarmowe, oraz
 możliwość odpowiedzi na pytanie „na czym stoi przetwarzanie” bez zaglądania

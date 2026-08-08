@@ -94,6 +94,25 @@ export async function runSanityChecks(
 ): Promise<SanityReport> {
   const checks: SanityCheck[] = [];
 
+  // Referencje MUSZA byc rozwiazane, zanim cokolwiek policzymy.
+  //
+  // Parser zapisuje surowy `simc_ref`, a kolumne `simc` wypelnia dopiero
+  // `resolve_refs()`. Wywolywala ja wylacznie `publikuj_zrzut()`, czyli JUZ PO
+  // kontrolach - wiec w chwili liczenia kazdy punkt w staging mial simc = NULL.
+  // SPADEK_W_GMINIE laczy staging ze slownikiem miejscowosci wlasnie po simc,
+  // wiec dostawal zero punktow w kazdej gminie i raportowal spadek 100%.
+  //
+  // Blad nie ujawnil sie przy pierwszej publikacji, bo `adres.punkt_adresowy`
+  // bylo puste i kontrola nie miala czego porownywac - przechodzila pusto.
+  // Wyszedl dopiero przy drugiej publikacji, na komplecie 16 wojewodztw:
+  // 20 gmin z Warszawa na czele "stracilo" 100% punktow, ktore w rzeczywistosci
+  // byly w staging. Kontrola pilnujaca wzorca "zrzut bez miasta" nie dzialala
+  // nigdy poza pusta baza.
+  //
+  // resolve_refs() jest idempotentne (kazdy UPDATE ma warunek `simc IS NULL`),
+  // wiec ponowne wywolanie w publikuj_zrzut() nic nie kosztuje.
+  await pool.query('SELECT staging.resolve_refs()');
+
   const { rows: [counts] } = await pool.query<{ przed: string; po: string }>(`
     SELECT
       (SELECT count(*) FROM adres.punkt_adresowy WHERE wycofany_od IS NULL) AS przed,

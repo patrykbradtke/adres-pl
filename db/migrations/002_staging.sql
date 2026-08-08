@@ -431,6 +431,19 @@ LANGUAGE plpgsql
 SET search_path = staging, public
 AS $$
 BEGIN
+  -- Referencje rozwiazujemy TU, jeszcze przy zdjetych indeksach.
+  --
+  -- resolve_refs() aktualizuje wszystkie wiersze punkt_adresowy. Wywolane po
+  -- odtworzeniu indeksow oznacza dla kazdego wiersza nowa krotke plus trzy
+  -- wpisy indeksowe - przy 8,6 mln punktow ponad 25 mln operacji na indeksach.
+  -- Zmierzone na komplecie 16 wojewodztw: ponad 40 minut. W oknie ladowania
+  -- masowego, bez indeksow, to zwykly seq scan z hash join i zapis krotek,
+  -- a indeksy powstaja nizej juz na gotowych danych.
+  --
+  -- Efekt uboczny jest pozadany: ix_st_pa_simc buduje sie na wypelnionej
+  -- kolumnie, wiec kontrole jakosci dostaja indeks, ktory faktycznie pomaga.
+  PERFORM staging.resolve_refs();
+
   CREATE INDEX IF NOT EXISTS ix_st_pa_simc ON staging.punkt_adresowy(simc);
   CREATE INDEX IF NOT EXISTS ix_st_pa_ulic ON staging.punkt_adresowy(ulic_id);
   CREATE INDEX IF NOT EXISTS ix_st_pa_hash ON staging.punkt_adresowy(tresc_hash);

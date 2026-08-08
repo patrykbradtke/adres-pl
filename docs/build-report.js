@@ -21,8 +21,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const WERSJA = '1.3';
-const DATA = '8 sierpnia 2026';
+const WERSJA = '1.4';
+const DATA = '9 sierpnia 2026';
 
 const W = 9026;                 // szerokosc kolumny tekstu A4 przy marginesach 1"
 const C = {
@@ -182,18 +182,19 @@ children.push(table(
     ['1.1', '6.08.2026', 'Komplet archiwum PRG (16 województw), słowniki TERYT pobrane bez konta w GUS, potwierdzenie nowej struktury danych na rzeczywistym pliku. Rozstrzygnięte dwa z czterech pytań otwartych'],
     ['1.2', '7.08.2026', 'Publikacja 1 990 483 punktów, pięć usterek wykrytych na danych rzeczywistych, sprostowanie czasu pełnego przebiegu i czasów odpowiedzi'],
     ['1.3', '8.08.2026', 'Uzgodnienie raportu ze stanem repozytorium. Ujawnione braki blokujące produkcję, przepisany plan prac na 11–15 tygodni, usunięte deklaracje o elementach, których nie zbudowano'],
+    ['1.4', '9.08.2026', 'Uruchomienie na całym kraju: 8 605 682 punkty ze wszystkich 16 województw. Trzy kolejne usterki wykryte dopiero przy pełnej skali, w tym kontrola jakości, która nigdy nie działała. Nowe pomiary czasów odpowiedzi i przetwarzania'],
   ],
-  { rowFill: (r) => r[0] === '1.3' ? C.ok : undefined },
+  { rowFill: (r) => r[0] === '1.4' ? C.ok : undefined },
 ));
 
 children.push(SPACER());
 children.push(...box(
-  'Co zmieniło się w wydaniu 1.3 i dlaczego',
+  'Co zmieniło się w wydaniu 1.4',
   [
-    'Wydania 1.0–1.2 opisywały architekturę docelową w miejscach, w których czytelnik odczytywał opis stanu zbudowanego. Wydanie 1.3 rozdziela te dwa plany: elementy niewdrożone są oznaczone wprost.',
-    'Skorygowano zakres mikroserwisu (11 punktów końcowych, nie 12), usunięto Redis i magazyn obiektowy z opisu warstwy zbudowanej, a walidację wsadową opisano zgodnie z tym, co robi kod.',
-    'Ujawniono cztery braki blokujące wdrożenie produkcyjne — rozdział 1.2. Najpoważniejszy z nich, brak uwierzytelniania klientów, nie był w poprzednich wydaniach wspomniany ani razu.',
-    'Nakład do wersji produkcyjnej uzgodniono na 11–15 tygodni. Poprzednie wydania podawały trzy różne liczby w trzech rozdziałach.',
+    'Rozwiązanie działa na komplecie danych: 8 605 682 punkty adresowe ze wszystkich 16 województw, wobec 1 990 483 z czterech w wydaniu 1.3. Pozycja „uruchomienie na pełnym zbiorze” jest zamknięta.',
+    'Przejście na pełną skalę ujawniło trzy kolejne usterki — rozdział 8.4. Jedna z nich to kontrola jakości, która nie zadziałałaby w produkcji ani razu.',
+    'Czasy odpowiedzi przemierzono na danych rzeczywistych dwiema metodami. Wyniki są znacznie lepsze od podanych w wydaniach 1.2–1.3, a rozbieżność ma źródło metodyczne — rozdział 8.6.',
+    'Wcześniejsza zmiana z wydania 1.3 pozostaje w mocy: raport rozdziela architekturę docelową od stanu zbudowanego, a elementy niewdrożone oznacza wprost.',
   ],
   C.head,
 ));
@@ -229,12 +230,12 @@ children.push(table(
     ['Parser danych źródłowych (GML)', 'Gotowe', 'Obsługuje starą i nową strukturę; tryb rozpoznawania nieznanych plików'],
     ['Baza danych', 'Gotowe', 'Schemat, indeksy, publikacja transakcyjna'],
     ['Kontrole jakości danych', 'Gotowe', '5 kontroli, każda odpowiada realnemu incydentowi'],
-    ['Silnik wyszukiwania', 'Gotowe', 'Mediana ok. 4 ms na danych rzeczywistych — patrz 8.6'],
+    ['Silnik wyszukiwania', 'Gotowe', 'Mediana 1,7 ms na pełnym kraju, przez interfejs HTTP — patrz 8.6'],
     ['Mikroserwis HTTP', 'Gotowe', '11 punktów końcowych /v1 oraz 4 operacyjne — patrz 5.4'],
     ['Reguły walidacji adresu', 'Gotowe', 'Format, zgodność z rejestrem, poziomy pewności'],
-    ['Import słowników TERYT', 'Gotowe', 'Pliki pełne z eTeryt, bez konta w GUS. 101 865 miejscowości, 308 888 ulic'],
+    ['Import słowników TERYT', 'Gotowe', 'Pliki pełne z eTeryt, bez konta w GUS'],
     ['Metryki i reguły alertów', 'Gotowe', '17 metryk pod /metrics, 6 reguł alertów, manifest zadania cyklicznego'],
-    ['Uruchomienie na danych rzeczywistych', 'Częściowo', '4 województwa z 16 opublikowane: 1 990 483 punkty. Pozostałe 12 pobrane, czeka na przetworzenie'],
+    ['Uruchomienie na pełnym zbiorze', 'Gotowe', 'Wszystkie 16 województw opublikowane 9.08.2026: 8 605 682 punkty — patrz 8.3'],
     ['Odbiorca metryk i powiadomienia', 'Do zrobienia', 'Metryki i reguły są, brakuje tego, co je zbiera — patrz 1.2'],
     ['Uwierzytelnianie klientów API', 'Do zrobienia', 'Serwis nie weryfikuje dziś tożsamości klienta — patrz 5.5'],
     ['Kopie zapasowe poza maszyną', 'Do zrobienia', 'Archiwum i zrzut bazy leżą wyłącznie na dysku lokalnym — patrz 7.3'],
@@ -253,26 +254,27 @@ children.push(P(
 
 children.push(H2('1.2. Braki blokujące wdrożenie produkcyjne'));
 children.push(P(
-  'Rdzeń rozwiązania działa i został zmierzony na rzeczywistych danych. Cztery braki ' +
-  'dzielą go jednak od wersji, którą można wystawić klientom. Wymieniamy je w streszczeniu, ' +
-  'ponieważ każdy z nich wpływa na termin i na decyzje Zamawiającego.'));
+  'Rozwiązanie działa na komplecie danych krajowych i zostało na nich zmierzone. Trzy braki ' +
+  'dzielą je jednak od wersji, którą można wystawić klientom. Wymieniamy je w streszczeniu, ' +
+  'ponieważ każdy wpływa na termin i na decyzje Zamawiającego. Czwarty brak z wydania 1.3 — ' +
+  'niepełny zakres danych — został zamknięty 9 sierpnia 2026.'));
 
 children.push(table(
   { head: ['Brak', 'Na czym polega', 'Nakład'], widths: [2500, 4926, 1600] },
   [
     ['Serwis nie uwierzytelnia klientów', 'Serwis nie weryfikuje tożsamości klienta, więc nie da się rozdzielić limitów ani rozliczeń per klient. Do czasu naprawy nie powinien opuszczać sieci wewnętrznej. Możliwość obejścia limitowania zamknięto 8.08.2026 — patrz 5.5', '9–11 dni'],
     ['Kopie zapasowe nie opuszczają maszyny', 'Archiwum plików źródłowych i zrzut bazy leżą wyłącznie na dysku roboczym. Deklarowany czwarty poziom odporności na awarię źródła nie istnieje jeszcze fizycznie', '5–7 dni'],
-    ['Metryki nie mają odbiorcy', 'Aplikacja wystawia 17 metryk i ma 6 gotowych reguł alertów, ale w konfiguracji uruchomieniowej nie ma niczego, co je zbiera. Awarie wykrywa dziś człowiek', '6–8 dni; pierwsze 3 dni dają większość efektu'],
-    ['Dane obejmują 4 województwa z 16', 'Rozwiązanie działa na ok. 23% kraju. Pozostałe pliki są pobrane i czekają na przetworzenie', '3–4 dni'],
+    ['Metryki nie mają odbiorcy', 'Aplikacja wystawia 17 metryk i ma 6 gotowych reguł alertów, ale w konfiguracji uruchomieniowej nie ma niczego, co je zbiera. Awarie wykrywa dziś człowiek — w trakcie prac z 8–9 sierpnia dwukrotnie się to potwierdziło', '6–8 dni; pierwsze 3 dni dają większość efektu'],
   ],
   { rowFill: () => C.warn },
 ));
 
 children.push(SPACER());
 children.push(LEAD('Kolejność ma znaczenie. ',
-  'Cztery braki są od siebie niezależne i można je prowadzić równolegle. Żaden nie wymaga ' +
+  'Trzy braki są od siebie niezależne i można je prowadzić równolegle. Żaden nie wymaga ' +
   'rozstrzygnięcia pozostałych, więc harmonogram zależy wyłącznie od dostępności ludzi ' +
-  'i od decyzji Zamawiającego z rozdziału 11.'));
+  'i od decyzji Zamawiającego z rozdziału 11. Najpilniejszy jest drugi: archiwum sprzed ' +
+  '1 września 2026 nadal istnieje w jednej kopii, a terminu nie da się przesunąć.'));
 
 children.push(H2('1.3. Wrześniowa zmiana formatu danych — ryzyko zamknięte'));
 
@@ -725,11 +727,22 @@ children.push(LEAD('Kontrola blokująca wstrzymuje publikację i pozostawia popr
   'Obejście kontroli jest możliwe, ale wymaga jawnej decyzji operatora i pozostawia ślad ' +
   'w dzienniku zdarzeń.'));
 
-children.push(LEAD('Próg przy uruchomieniu częściowym. ',
-  'Domyślny próg minimalnej liczby rekordów odpowiada pełnemu krajowi. Publikacja czterech ' +
-  'województw wymagała jego świadomego obniżenia do wartości odpowiadającej temu zakresowi — ' +
-  'jest to parametryzacja kontroli, nie jej wyłączenie. Przy przejściu na komplet 16 ' +
-  'województw próg wraca do wartości domyślnej.'));
+children.push(LEAD('Progi przy publikacji z 9 sierpnia 2026. ',
+  'Próg minimalnej liczby rekordów zadziałał w wartości domyślnej, przewidzianej dla ' +
+  'produkcji — wcześniejsze publikacje częściowe wymagały jego obniżania, ta potrzeba znika ' +
+  'wraz z pełnym zakresem. Jednorazowo podniesiono natomiast próg wielkości zmiany: wejście ' +
+  'z 1,99 mln na 8,61 mln punktów to wzrost o 332%, wobec 2% przewidzianych dla cyklu ' +
+  'tygodniowego. Jest to parametryzacja kontroli, nie jej wyłączenie, i obowiązuje wyłącznie ' +
+  'dla przebiegu pierwszego załadunku.'));
+
+children.push(...box(
+  'Kontrola „spadek w pojedynczej gminie” wymagała naprawy, zanim zadziałała',
+  [
+    'Przy publikacji z 9 sierpnia 2026 kontrola ta wstrzymała podmianę fałszywie, raportując utratę wszystkich punktów w 20 gminach. Przyczyną było liczenie jej przed rozwiązaniem referencji do miejscowości — szczegóły w rozdziale 8.4.',
+    'Znaczenie jest szersze niż jeden przebieg: w dotychczasowej postaci kontrola przechodziła wyłącznie na pustej bazie, czyli nie zabezpieczała żadnej aktualizacji. Po poprawce działa i przepuściła zbiór krajowy bez zastrzeżeń.',
+  ],
+  C.warn,
+));
 
 children.push(H2('7.3. Odporność na niedostępność źródła'));
 children.push(table(
@@ -825,24 +838,38 @@ children.push(LEAD('Wniosek metodyczny: ',
   'są z bazy dopiero po wyborze ulicy, gdy jest ich od kilkudziesięciu do kilkuset. Rozwinięcie ' +
   'tej obserwacji na danych rzeczywistych znajduje się w 8.6.'));
 
-children.push(H2('8.3. Uruchomienie na danych rzeczywistych'));
+children.push(H2('8.3. Uruchomienie na pełnym zbiorze krajowym'));
 children.push(P(
-  'Dotychczasowe wyniki pochodziły z próbek i zbiorów syntetycznych. 6 sierpnia 2026 ' +
-  'cała ścieżka przeszła na rzeczywistych danych PRG i TERYT.'));
+  'Wyniki wydań 1.0–1.1 pochodziły z próbek i zbiorów syntetycznych, wydania 1.2–1.3 ' +
+  'z czterech województw. 9 sierpnia 2026 cała ścieżka przeszła na komplecie danych ' +
+  'krajowych — wszystkie 16 województw w jednej publikacji.'));
 
 children.push(table(
-  { head: ['Element', 'Wynik'], widths: [3400, 5626] },
+  { head: ['Element', 'Wynik', 'Wydanie 1.3 (4 województwa)'], widths: [2600, 3400, 3026] },
   [
-    ['Punkty adresowe opublikowane', '1 990 483'],
-    ['Punkty z przypisaną ulicą', '1 324 563 — 100% tych, które miały odwołanie'],
-    ['Miejscowości w słowniku', '101 865'],
-    ['Ulice w katalogu', '385 436 (308 888 z TERYT, reszta z PRG)'],
-    ['Artefakt wyszukiwania', '487 301 pozycji, 66,4 MB'],
-    ['Zakres', '4 województwa z 16 — pozostałe pobrane, czekają na przetworzenie'],
+    ['Punkty adresowe opublikowane', '8 605 682', '1 990 483'],
+    ['Punkty z przypisaną ulicą', '5 532 383 (64,3%)', '1 324 563'],
+    ['Punkty z kodem pocztowym', '8 604 962 (99,99%)', '—'],
+    ['Miejscowości w słowniku', '101 883', '101 865'],
+    ['Ulice w katalogu', '689 328', '385 436'],
+    ['Artefakt wyszukiwania', '791 211 pozycji, 109,3 MB', '487 301 pozycji, 66,4 MB'],
+    ['Rozmiar bazy danych', '12 GB', '3 GB'],
+    ['Zakres', '16 województw z 16 — cały kraj', '4 z 16, ok. 23% kraju'],
   ],
 ));
 
 children.push(SPACER());
+children.push(LEAD('Zgodność z zapowiedzią rejestru. ',
+  'Rejestr PRG podaje 8 560 617 punktów według stanu na 31 marca 2026. Opublikowany zbiór ' +
+  'liczy 8 605 682, czyli o 45 tys. więcej — różnica odpowiada przyrostowi za cztery ' +
+  'miesiące i potwierdza kompletność zrzutu z 6 sierpnia.'));
+
+children.push(LEAD('Wiszące referencje w źródle. ',
+  'Z 8 605 908 punktów w obszarze przejściowym 226 (0,003%) miało odwołanie do miejscowości, ' +
+  'której nie ma w tym samym pliku wojewódzkim. Skupiają się w czterech województwach, ' +
+  'najwięcej w lubelskim. Punkty te nie trafiły do zbioru produktowego. Jest to wada danych ' +
+  'źródłowych, nie przetwarzania.'));
+
 children.push(LEAD('Zabezpieczenie zrzutu. ',
   'Pobrano komplet 16 województw (1,8 GB) z sumą kontrolną każdego pliku. Realizuje to ' +
   'decyzję o archiwizacji przed 1 września 2026. Sierpniowa paczka zawiera równolegle plik ' +
@@ -858,15 +885,20 @@ children.push(...box(
   'Najważniejszy wynik dla oceny ryzyka',
   [
     'Parser przeszedł przez rzeczywisty plik w strukturze obowiązującej od 1 września 2026 i nie odrzucił ani jednego rekordu. Wrześniowa zmiana formatu — dotąd największe ryzyko w tym opracowaniu — jest potwierdzona jako opanowana na danych, a nie tylko deklarowana.',
-    'Kontrole jakości zadziałały zgodnie z projektem: przy próbie publikacji jednego województwa wstrzymały podmianę, bo 1,27 mln punktów to znacznie poniżej progu ustawionego dla całego kraju. Publikacja czterech województw wymagała świadomego obniżenia progu do wartości odpowiadającej temu zakresowi — patrz 7.2.',
+    'Publikacja całego kraju przeszła kontrole jakości przy progu minimalnej liczby rekordów ustawionym na wartość domyślną, czyli tę przewidzianą dla produkcji. Wcześniejsze publikacje częściowe wymagały jego obniżania; ta potrzeba znika wraz z pełnym zakresem danych.',
+    'Jednorazowo podniesiono natomiast próg kontroli wielkości zmiany. Przejście z 1,99 mln na 8,61 mln punktów to wzrost o 332%, wobec domyślnych 2% przewidzianych dla cyklu tygodniowego. Przy kolejnym przebiegu próg wraca do wartości domyślnej — patrz 7.2.',
   ],
   C.ok,
 ));
 
 children.push(H2('8.4. Usterki wykryte na danych rzeczywistych'));
 children.push(P(
-  'Pięć usterek ujawniło się dopiero na rzeczywistych danych czterech województw. ' +
-  'Wszystkie naprawiono.'));
+  'Osiem usterek ujawniło się dopiero na danych rzeczywistych — pięć przy pierwszym ' +
+  'uruchomieniu na czterech województwach, trzy kolejne przy przejściu na pełny kraj. ' +
+  'Wszystkie naprawiono. Podział jest istotny dla planowania: druga grupa była niewykrywalna ' +
+  'przy zakresie częściowym.'));
+
+children.push(H3('Wykryte przy pierwszym uruchomieniu (4 województwa)'));
 
 children.push(table(
   { head: ['Usterka', 'Skutek przed naprawą'], widths: [4200, 4826] },
@@ -880,11 +912,34 @@ children.push(table(
 ));
 
 children.push(SPACER());
+children.push(H3('Wykryte przy przejściu na pełny kraj (16 województw)'));
+children.push(table(
+  { head: ['Usterka', 'Skutek przed naprawą'], widths: [4200, 4826] },
+  [
+    ['Kontrola „spadek w gminie” liczona przed rozwiązaniem referencji do miejscowości', 'Kontrola blokująca nie działała nigdy poza pustą bazą i przy każdej kolejnej publikacji dawała fałszywe wstrzymanie — patrz ramka poniżej'],
+    ['Pamięć dzielona kontenera bazy ograniczona do domyślnych 64 MB', 'Przy 8,6 mln wierszy planer wchodzi w tryb równoległy i przebieg przerywa się komunikatem o braku miejsca, niezwiązanym z dyskiem'],
+    ['Rozwiązywanie referencji wykonywane poza oknem ładowania masowego', 'Aktualizacja 8,6 mln wierszy przy trzech nałożonych indeksach: 49 minut zamiast kilku i trzydziestokrotne wzmocnienie zapisu'],
+  ],
+));
+
+children.push(SPACER());
+children.push(...box(
+  'Kontrola jakości, która nigdy nie zadziałała',
+  [
+    'Najpoważniejsza z trzech nowych usterek nie powodowała błędnych danych — powodowała fałszywe poczucie zabezpieczenia.',
+    'Kontrola „spadek w pojedynczej gminie” pilnuje wzorca „zrzut bez miasta”, czyli incydentu z Wrocławiem z 2016 roku, i jest jednym z dwóch uzasadnień dla całego zestawu kontroli. Łączy dane przejściowe ze słownikiem miejscowości po identyfikatorze, który jednak wypełniany był dopiero wewnątrz publikacji — czyli już po kontrolach. W chwili liczenia identyfikator był pusty dla wszystkich rekordów.',
+    'Przy pierwszej publikacji baza była pusta, więc kontrola nie miała czego porównywać i przechodziła. Przy drugiej — 20 gmin z Warszawą na czele „straciło” komplet punktów, które w rzeczywistości były na miejscu.',
+    'W produkcji oznaczałoby to jedno z dwojga: albo wstrzymanie każdej aktualizacji, albo — po obejściu kontroli przez operatora zmęczonego fałszywymi alarmami — brak ochrony przed rzeczywistym niekompletnym zrzutem.',
+  ],
+  C.stop,
+));
+
 children.push(...box(
   'Wniosek metodyczny',
   [
-    'Żadnej z tych pięciu usterek nie dało się wykryć na danych testowych. Cztery z nich ujawniają się wyłącznie przy skali, a jedna dopiero po naprawieniu poprzedniej.',
-    'Harmonogram wdrożenia musi przewidywać przebieg na komplecie 16 województw przed produkcją — testy na próbkach nie wykrywają ani błędów skali, ani błędów wiązania danych. Cztery województwa to ok. 23% kraju, więc analogiczne niespodzianki przy pozostałych dwunastu są możliwe.',
+    'Żadnej z ośmiu usterek nie dało się wykryć na danych testowych. Wykrywalność zależy przy tym od etapu: pięć pierwszych ujawnia sama skala, trzy kolejne wymagały pełnego zakresu danych albo drugiej publikacji na niepustej bazie.',
+    'To ostatnie jest najważniejsze dla harmonogramu. Pierwsze uruchomienie zawsze odbywa się na pustej bazie, więc cała klasa błędów porównania „stan poprzedni wobec nowego” pozostaje wtedy niewidoczna. Plan wdrożenia musi przewidywać co najmniej dwie pełne publikacje pod obserwacją, nie jedną.',
+    'Wnioskiem z wydania 1.3 było „przebieg na komplecie 16 województw przed produkcją”. Wydanie 1.4 go zaostrza: dwa przebiegi, drugi na danych już opublikowanych.',
   ],
   C.head,
 ));
@@ -894,76 +949,97 @@ children.push(P(
   'Pomiary na komputerze przenośnym: 8 rdzeni, przetwarzanie w kontenerach, archiwum ' +
   'na dysku hosta. Na serwerze wyniki będą lepsze, proporcje pozostaną.'));
 
+children.push(P('Zmierzony przebieg dla całego kraju, 9 sierpnia 2026:'));
+
 children.push(table(
-  { head: ['Etap', 'Czas'], widths: [5000, 4026] },
+  { head: ['Etap', 'Czas', 'Uwagi'], widths: [3000, 1800, 4226] },
   [
-    ['Parsowanie punktów adresowych (sam odczyt i odwzorowanie pól)', '902 rekordy/s'],
-    ['Parsowanie miejscowości i ulic', '~460 rekordów/s — więcej pól na rekord'],
-    ['Wczytanie województwa (1,27 mln punktów) — parsowanie wraz z zasileniem obszaru przejściowego', '~38 minut, czyli ok. 557 rekordów/s dla pełnego etapu'],
-    ['Import słowników TERYT (400 tys. rekordów)', '8 minut'],
-    ['Publikacja 4 województw', '72 minuty'],
-    ['Budowa artefaktu wyszukiwania', '3,5 minuty'],
+    ['Pobranie z archiwum', '—', 'Pliki na dysku, bez pobierania z sieci'],
+    ['Ładowanie 16 województw', '~17 minut', 'Cztery procesy równolegle, 8 605 908 punktów'],
+    ['Rozwiązanie referencji', '~49 minut', 'Do naprawy — patrz uwaga poniżej'],
+    ['Kontrole jakości', '~2 minuty', 'Pięć kontroli na pełnym zbiorze'],
+    ['Publikacja transakcyjna', '2 godz. 16 minut', 'Dodane 6 615 199 punktów, wycofane 0'],
+    ['Budowa artefaktu wyszukiwania', '55 sekund', '791 211 pozycji, 109,3 MB'],
+    ['RAZEM', 'ok. 3 godz. 25 minut', 'Komputer przenośny, 8 rdzeni, przetwarzanie w kontenerach'],
   ],
+  { rowFill: (r) => r[0] === 'RAZEM' ? C.head : undefined },
 ));
 
 children.push(SPACER());
-children.push(P(
-  'Rozróżnienie w pierwszym i trzecim wierszu jest istotne przy planowaniu: 902 rekordy/s ' +
-  'to przepustowość samego parsowania, natomiast czas wczytania województwa obejmuje ' +
-  'dodatkowo zasilenie obszaru przejściowego i budowę indeksów. Szacunki dla całego kraju ' +
-  'należy wyprowadzać z tej drugiej wartości.'));
+children.push(LEAD('Ładowanie okazało się znacznie szybsze od zakładanego. ',
+  'Wydania 1.2–1.3 podawały ~38 minut na jedno województwo i ~4 godziny na kraj przy jednym ' +
+  'procesie. Zmierzony przebieg to 17 minut na komplet 16 województw przy czterech procesach. ' +
+  'Część różnicy tłumaczy zrównoleglenie, ale nie całą — poprzedni pomiar powstał w trakcie ' +
+  'sesji, w której naprawiano jeszcze błędy wydajnościowe, i należy go uznać za nieaktualny.'));
 
-children.push(P(
-  'Pełny przebieg dla kraju wychodził na około 4 godziny — istotnie więcej niż wcześniej ' +
-  'zakładane 40 minut. Rozbieżność usunięto: pliki wojewódzkie są niezależne, więc ' +
-  'przetwarzanie rozdzielono na równoległe procesy.'));
-
-children.push(table(
-  { head: ['Tryb', 'Przepustowość parsowania', 'Pełny przebieg dla kraju'], widths: [2400, 3300, 3326] },
+children.push(...box(
+  'Gdzie naprawdę uchodzi czas: dwie pełne aktualizacje obszaru przejściowego',
   [
-    ['Jeden proces', '902 rekordy/s', '~4 godziny'],
-    ['Cztery procesy', '3266 rekordów/s — 3,6×', '~1–1,5 godziny'],
+    'Ładowanie danych zajmuje 17 minut, ale cały przebieg — ponad trzy godziny. Różnicę pochłaniają dwie operacje aktualizujące wszystkie 8,6 mln wierszy naraz, każda przy trzech nałożonych indeksach, czyli po ponad 25 mln operacji na indeksach.',
+    'Pierwsza to rozwiązanie referencji do miejscowości (49 minut). Wypada tuż po odtworzeniu indeksów, choć mogłaby wykonać się chwilę wcześniej, gdy indeksów jeszcze nie ma — poprawka jest przygotowana.',
+    'Druga to wiązanie punktów z ulicami wewnątrz transakcji publikującej. Tam przenieść jej nie można i wymaga osobnego podejścia.',
+    'Skala zjawiska: kontener bazy zaraportował 303 GB zapisów przy zbiorze ważącym 12 GB. Jest to wzmocnienie zapisu rzędu dwudziestopięciokrotnego i to ono, a nie parsowanie, wyznacza dziś czas pełnego cyklu.',
   ],
+  C.warn,
 ));
 
-children.push(SPACER());
-children.push(LEAD('Kosztem jest pamięć: ',
+children.push(LEAD('Kosztem zrównoleglenia jest pamięć: ',
   'około 400 MB na proces. Liczbę procesów dobiera się do pamięci dostępnej dla zadania, ' +
   'nie do liczby rdzeni.'));
 
-children.push(H2('8.6. Czasy odpowiedzi na danych rzeczywistych — sprostowanie'));
+children.push(H2('8.6. Czasy odpowiedzi na pełnym kraju'));
 children.push(P(
-  'Podane wcześniej 0,49 ms mediany pochodziło ze zbioru syntetycznego. Pomiar na danych ' +
-  'rzeczywistych daje inny obraz.'));
+  'Pomiar powtórzono na komplecie danych krajowych — 791 211 pozycji w indeksie wobec ' +
+  '487 301 w wydaniu 1.3. Zastosowano dwie metody, ponieważ dają istotnie różne liczby ' +
+  'i każda odpowiada na inne pytanie. Każde zapytanie wykonano wielokrotnie po rozgrzewce, ' +
+  'a podane wartości to mediany i percentyle z serii pomiarów.'));
 
 children.push(table(
-  { head: ['Rodzaj zapytania', 'Czas odpowiedzi'], widths: [5200, 3826] },
+  { head: ['Zapytanie', 'Rodzaj', 'Silnik — mediana', 'HTTP — mediana'], widths: [1900, 2500, 2300, 2326] },
   [
-    ['Nazwa jednoznaczna (Grójecka, Puławska)', '0,7–0,8 ms'],
-    ['Nazwa częsta (Polna, 3 Maja, Krakowska)', '2,6–4,8 ms'],
-    ['Nazwa patronacka (Kościuszki)', '14 ms'],
-    ['Zapytanie z literówką (mickievicza)', '27 ms'],
-    ['Nazwa masowo powtarzalna (Nowa Wieś)', '42 ms'],
-    ['Mediana', 'ok. 4 ms'],
+    ['grojecka', 'nazwa jednoznaczna', '0,27 ms', '0,93 ms'],
+    ['pulawska', 'nazwa jednoznaczna', '0,50 ms', '0,75 ms'],
+    ['polna', 'nazwa częsta', '0,60 ms', '1,10 ms'],
+    ['3 maja', 'nazwa częsta', '1,30 ms', '2,10 ms'],
+    ['krakowska', 'nazwa częsta', '0,58 ms', '1,41 ms'],
+    ['kosciuszki', 'nazwa patronacka', '0,87 ms', '2,55 ms'],
+    ['mickievicza', 'zapytanie z literówką', '1,55 ms', '3,54 ms'],
+    ['nowa wies', 'nazwa masowo powtarzalna', '0,96 ms', '1,55 ms'],
   ],
-  { rowFill: (r) => r[0] === 'Mediana' ? C.head : undefined },
 ));
 
 children.push(SPACER());
-children.push(P(
-  'Różnica nie wynika z wielkości zbioru, lecz z jego rozkładu: w prawdziwych danych ' +
-  '„Nowa Wieś” to setki miejscowości, a nazwy patronackie powtarzają się w tysiącach. ' +
-  'Koszt bierze się z liczby kandydatów do uszeregowania.'));
+children.push(table(
+  { head: ['Metoda pomiaru', 'Mediana', '95. percentyl', '99. percentyl'], widths: [3600, 1800, 1800, 1826] },
+  [
+    ['Silnik wyszukiwania bezpośrednio', '0,81 ms', '4,63 ms', '9,38 ms'],
+    ['Pełna ścieżka HTTP mikroserwisu', '1,71 ms', '9,41 ms', '27,94 ms'],
+  ],
+  { boldFirst: true },
+));
+
+children.push(SPACER());
+children.push(LEAD('Która liczba jest właściwa: ',
+  'dla oceny produktu — ta z wiersza HTTP, bo tyle czeka aplikacja kliencka. Pomiar samego ' +
+  'silnika pokazuje natomiast, że ok. 0,9 ms z każdego zapytania zabiera obsługa żądania ' +
+  'i złożenie odpowiedzi, nie wyszukiwanie. Przy dalszym strojeniu to tam, a nie w indeksie, ' +
+  'jest dziś więcej do zyskania.'));
 
 children.push(...box(
-  'Co to znaczy dla produktu',
+  'Wyniki są lepsze niż w wydaniu 1.3, mimo dwukrotnie większego zbioru — dlaczego',
   [
-    'Wynik pozostaje bardzo dobry — podpowiedzi są dla użytkownika natychmiastowe, a najgorszy zmierzony przypadek mieści się w typowym budżecie czasu odpowiedzi z dużym zapasem.',
-    'Planując wydajność, budżet należy przewidzieć pod nazwy pospolite i zapytania z literówką, nie pod przypadek optymistyczny.',
-    'Pomiar wykonano na danych czterech województw. Przy komplecie 16 liczba kandydatów dla nazw pospolitych wzrośnie — ponowny pomiar po pełnym przebiegu jest pozycją w planie prac.',
+    'Wydania 1.2–1.3 podawały medianę ok. 4 ms i najgorszy przypadek 42 ms dla nazwy „Nowa Wieś”, na zbiorze mniejszym o połowę. Pomiar na pełnym kraju daje medianę 1,71 ms, a „Nowa Wieś” wypada w środku stawki z wynikiem 1,55 ms.',
+    'Wyjaśnieniem jest metodyka, nie poprawa silnika. Zmierzone tu pierwsze wywołanie po starcie procesu, bez rozgrzewki, daje 82 ms dla pierwszego zapytania i kilkadziesiąt milisekund dla kolejnych — czyli dokładnie ten rząd wielkości, który wydania 1.2–1.3 podawały jako koszt „nazw pospolitych”.',
+    'Oznacza to, że wcześniejsze liczby mierzyły w znacznej części rozgrzewkę maszyny wykonującej kod, a nie koszt uszeregowania kandydatów. Teza z wydania 1.3, że o czasie decyduje liczba kandydatów, jest w świetle tego pomiaru co najmniej niepełna: przy dwukrotnie większym zbiorze i tych samych zapytaniach czasy spadły.',
+    'Praktyczny wniosek jest inny niż dotychczasowy: budżet czasu odpowiedzi trzeba przewidzieć nie pod nazwy pospolite, lecz pod pierwsze zapytania po starcie instancji. Uzasadnia to rozgrzewanie instancji przed skierowaniem na nią ruchu — pozycja do dopisania do prac nad skalowaniem poziomym.',
   ],
   C.head,
 ));
+
+children.push(LEAD('Zużycie pamięci: ',
+  'proces mikroserwisu z wczytanym artefaktem 109,3 MB zajmuje 239 MB pamięci operacyjnej. ' +
+  'Wydanie 1.0 szacowało 485 MB przy artefakcie 53 MB — rzeczywiste zużycie jest więc ' +
+  'dwukrotnie niższe przy dwukrotnie większym artefakcie.'));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -1032,6 +1108,8 @@ children.push(table(
     ['Archiwizacja danych w dotychczasowej strukturze', 'WYKONANE 6.08.2026 — komplet 16 województw, 1,8 GB, sumy kontrolne'],
     ['Weryfikacja nowej struktury danych', 'WYKONANE 6.08.2026 — rozpoznanie i odwzorowanie pól potwierdzone na rzeczywistym pliku, zero odrzuconych rekordów'],
     ['Import słowników TERYT', 'WYKONANE 6.08.2026 — pliki pełne, bez konta w GUS. Zależność od rejestracji w GUS nieaktualna'],
+    ['Uruchomienie na pełnym zbiorze krajowym', 'WYKONANE 9.08.2026 — 16 województw, 8 605 682 punkty, artefakt 109,3 MB'],
+    ['Zamknięcie luki w limitowaniu zapytań', 'WYKONANE 8.08.2026 — limitowanie po adresie klienta, test regresji'],
   ],
   { rowFill: () => C.ok },
 ));
@@ -1041,7 +1119,7 @@ children.push(H2('10.2. Etapy do wykonania'));
 children.push(table(
   { head: ['Etap', 'Zakres', 'Nakład'], widths: [2500, 4926, 1600] },
   [
-    ['1. Dokończenie bazy produkcyjnej', 'Przetworzenie pozostałych 12 województw, publikacja pełnego kraju, artefakt i pomiary na komplecie danych, archiwum poza maszyną, kopie zapasowe bazy z testem odtworzenia', '3–4 dni'],
+    ['1. Dokończenie bazy produkcyjnej', 'Publikacja pełnego kraju i pomiary na komplecie danych — WYKONANE 9.08.2026. Pozostaje archiwum poza maszyną oraz kopie zapasowe bazy z testem odtworzenia', '2–3 dni'],
     ['2. Wydajność i przetwarzanie równoległe', 'Raportowanie postępu, wznawianie przerwanych przebiegów, limit czasu i wykrywanie zawieszenia, strojenie bazy pod ładowanie masowe, testy regresji wydajności', '6–8 dni'],
     ['3. Podział na dwa serwisy', 'Rozdzielenie ról w bazie, osobne potoki budowania, kontrakt między serwisami, test skalowania poziomego', '3–5 dni'],
     ['4. Wersjonowanie wydań', 'Rejestr wydań, wersja danych w każdej odpowiedzi, procedura wycofania, wydanie kanarkowe, przypięcie klienta do wersji', '4–5 dni'],
@@ -1112,7 +1190,7 @@ children.push(table(
     ['Wystąpienie o warunki licencyjne iMPA', 'Wystąpić teraz', 'Najbliższe tygodnie', 'Brak zabezpieczenia na wypadek awarii źródła podstawowego — poziom 2 pozostaje niedostępny'],
     ['Zakup licencji na spis kodów pocztowych', 'Odłożyć', '—', 'Kody z rejestru pozostają przybliżeniem — akceptowalne'],
     ['Zewnętrzne API jako uzupełnienie', 'Przewidzieć, uruchamiać warunkowo', 'Przed produkcją', 'Niższa skuteczność korekty danych wprowadzanych ręcznie'],
-    ['Zakres pierwszego wdrożenia', 'Cały kraj', 'Przed przetworzeniem pozostałych 12 województw', 'Rozwiązanie działa dziś na 4 województwach (ok. 23% kraju); pozostanie przy tym zakresie ogranicza użyteczność produktu'],
+    ['Zakres pierwszego wdrożenia', 'ROZSTRZYGNIĘTE — cały kraj', 'Zamknięte', 'Komplet 16 województw opublikowany 9.08.2026'],
     ['Model utrzymania', 'Wskazać osobę odpowiedzialną za obserwację zmian po stronie rejestru', 'Przed produkcją', 'Zmiana formatu może pozostać niezauważona'],
   ],
   { boldFirst: true },

@@ -1,6 +1,6 @@
 # Stan prac — przekazanie do kolejnej sesji
 
-Dokument zamyka sesję z 6–7 sierpnia 2026. Opisuje **stan faktyczny**:
+Dokument zamyka sesję z 6–9 sierpnia 2026. Opisuje **stan faktyczny**:
 co działa, co naprawiono, jakie są pułapki i od czego zacząć.
 Plan zadań: [plan-produkcyjny.md](plan-produkcyjny.md).
 
@@ -8,20 +8,26 @@ Plan zadań: [plan-produkcyjny.md](plan-produkcyjny.md).
 
 ## 1. Co działa teraz
 
+**Cały kraj jest opublikowany** — etap 1.1 i 1.2 zamknięte 9.08.2026.
+
 | element | stan |
 |---|---|
-| Baza PostgreSQL 17 + PostGIS | działa w kontenerze `adres-pl-db-1` |
-| Słowniki TERYT | 4360 jednostek, 101 865 miejscowości, 308 888 ulic |
-| Punkty adresowe | **1 990 483** opublikowane (4 województwa: 08, 14, 16, 20) |
-| Powiązanie z ulicami | 1 324 563 punkty — 100% tych, które miały referencję |
-| Katalog ulic | 385 436 (308 888 TERYT + reszta z PRG) |
-| Artefakt wyszukiwania | 487 301 pozycji, 66,4 MB, budowa 208 s |
+| Baza PostgreSQL 17 + PostGIS | działa w kontenerze `adres-pl-db-1`, 12 GB |
+| Słowniki TERYT | 4360 jednostek, 101 883 miejscowości |
+| Punkty adresowe | **8 605 682** opublikowane, **16 z 16 województw** |
+| Powiązanie z ulicami | 5 532 383 punkty (64,3%) |
+| Kod pocztowy | 8 604 962 punkty (99,99%) |
+| Katalog ulic | 689 328 |
+| Artefakt wyszukiwania | 791 211 pozycji, 109,3 MB, budowa 55 s |
 | API | `localhost:3000`, 11 endpointów `/v1/*` + 4 operacyjne (`/health`, `/ready`, `/metrics`, `/status`), wersja danych `2026-08-06` |
-| Archiwum PRG | **16 z 16 województw**, 1,8 GB, `data/archive/prg/2026-08-06/` |
+| Wyszukiwanie | HTTP p50 **1,71 ms**, p95 9,41 ms, p99 27,94 ms; RSS procesu 239 MB |
+| Archiwum PRG | 16 z 16 województw, 1,8 GB, `data/archive/prg/2026-08-06/` |
 | Archiwum TERYT | `data/archive/teryt/2026-08-06/` (TERC/SIMC/ULIC/WMRODZ w CSV) |
 
-**Zakres danych: ~23% kraju.** Pozostałe 12 województw jest pobranych, ale
-nieprzetworzonych — to pierwsze zadanie z planu (etap 1.1).
+Rejestr zapowiada 8 560 617 punktów na 31.03.2026 — mamy 45 tys. więcej, co
+odpowiada przyrostowi za cztery miesiące. Zrzut jest kompletny.
+
+Pomiar wyszukiwania: `node --experimental-strip-types packages/etl/test/bench-realny.ts`.
 
 ---
 
@@ -54,6 +60,24 @@ Pięć usterek — **żadnej nie dało się wykryć na danych testowych**.
 | 4 | `OR` łączący porównanie kolumn z porównaniem wyniku funkcji | `002_staging.sql`, wiązanie punktów z ulicami | pętla zagnieżdżona, ~102 mld porównań, **8 h bez końca** |
 | 5 | Wstawianie słowników TERYT wiersz po wierszu | `db/load-teryt.ts` | 20+ min i zerwane połączenie; po zmianie na `COPY` — 489 s |
 
+**Trzy kolejne przy przejściu na pełny kraj (8–9.08)** — żadnej nie dało się
+wykryć na czterech województwach:
+
+| # | usterka | gdzie | skutek przed naprawą |
+|---|---|---|---|
+| 6 | `SPADEK_W_GMINIE` liczona **przed** `resolve_refs()`, więc `simc` było wszędzie NULL | `db/sanity.ts` | kontrola blokująca **nigdy nie działała poza pustą bazą**; przy drugiej publikacji fałszywy STOP na 20 gminach z Warszawą na czele |
+| 7 | `/dev/shm` kontenera bazy = domyślne 64 MB Dockera | `docker-compose.yml` | przy 8,6 mln wierszy planer wchodzi w tryb równoległy i cykl przerywa się na `could not resize shared memory segment` — komunikat myli, bo nie ma związku z dyskiem hosta |
+| 8 | `resolve_refs()` wywoływane **po** odtworzeniu indeksów | `002_staging.sql`, `po_ladowaniu()` | 8,6 mln wierszy × 3 indeksy = **49 min** zamiast kilku; łącznie 303 GB zapisów przy zbiorze 12 GB |
+
+Usterka 6 jest najpoważniejsza koncepcyjnie: to nie błędne dane, tylko **fałszywe
+poczucie zabezpieczenia**. Pierwsza publikacja zawsze idzie na pustą bazę, więc
+cała klasa błędów „porównanie stanu poprzedniego z nowym” jest wtedy niewidoczna.
+Wniosek do harmonogramu: **dwie pełne publikacje pod obserwacją, nie jedna.**
+
+Poprawka 8 jest w `002_staging.sql`, ale **jeszcze nie wgrana do działającej
+bazy** — migracje wykonują się wyłącznie przy inicjalizacji kontenera:
+`psql "$DATABASE_URL" -f db/migrations/002_staging.sql`.
+
 Poza tym: naprawiony niekompletny `package-lock.json`, dodany `.dockerignore`,
 `build-index` tworzy teraz stabilną nazwę `current.bin`, loader API czyta
 wskaźnik wersji już przy starcie, dodano `ANALYZE` po masowym wstawieniu.
@@ -66,17 +90,38 @@ wskaźnik wersji już przy starcie, dodano `ANALYZE` po masowym wstawieniu.
 
 ## 4. Wydajność — zmierzone wartości
 
-| co | wynik |
+**Pełny przebieg krajowy, 8–9.08.2026 — łącznie ~3 h 25 min:**
+
+| etap | czas |
 |---|---|
-| Parsowanie punktów adresowych | 902 rek/s |
-| Parsowanie miejscowości i ulic | ~460 rek/s (więcej pól na rekord) |
-| Cztery procesy równolegle | 3266 rek/s łącznie — **3,6×** |
-| `load` mazowieckiego (1,27 mln punktów) | ~38 min |
-| Import TERYT (400 tys. rekordów) | 489 s |
-| Publikacja 4 województw | 72 min |
-| Budowa artefaktu | 208 s |
-| Wyszukiwanie — mediana | **~4 ms** (nie 0,49 ms jak w raporcie — to był zbiór syntetyczny) |
-| Wyszukiwanie — najgorszy przypadek | 42 ms („Nowa Wieś”) |
+| Ładowanie 16 województw (`--rownolegle 4`) | **~17 min** |
+| `resolve_refs()` — 8,6 mln wierszy | ~49 min ← do naprawy, patrz usterka 8 |
+| Kontrole jakości na pełnym zbiorze | ~2 min |
+| Publikacja transakcyjna (+6 615 199 punktów) | **2 h 16 min** |
+| Budowa artefaktu | 55 s |
+
+**Ładowanie jest ~10× szybsze, niż podawał poprzedni pomiar** (~38 min na samo
+mazowieckie). Poprzednia liczba powstała w sesji, w której naprawiano jeszcze
+błędy wydajnościowe — uznać za nieaktualną.
+
+**Czas uchodzi gdzie indziej: dwie pełne aktualizacje 8,6 mln wierszy** przy
+nałożonych indeksach (`resolve_refs` + wiązanie z ulicami wewnątrz publikacji).
+303 GB zapisów przy zbiorze 12 GB. To one, nie parsowanie, wyznaczają czas cyklu.
+
+**Wyszukiwanie na pełnym kraju** (`bench-realny.ts`, po rozgrzewce):
+
+| metoda | p50 | p95 | p99 |
+|---|---|---|---|
+| silnik bezpośrednio | 0,81 ms | 4,63 ms | 9,38 ms |
+| pełna ścieżka HTTP | **1,71 ms** | 9,41 ms | 27,94 ms |
+
+Wyniki są **lepsze** niż wcześniejsze ~4 ms mimo dwukrotnie większego zbioru.
+Przyczyna jest metodyczna: pierwsze zapytanie po starcie procesu daje 82 ms,
+czyli ten sam rząd wielkości, co wcześniej raportowane 14–42 ms dla „nazw
+pospolitych”. Tamten pomiar łapał w znacznej części rozgrzewkę maszyny
+wykonującej kod, nie koszt uszeregowania kandydatów. **Budżet czasu odpowiedzi
+planować pod zimny start instancji, nie pod nazwy pospolite** — i rozgrzewać
+instancję przed skierowaniem na nią ruchu.
 
 Zrównoleglenie: `cycle --rownolegle N` lub `ETL_ROWNOLEGLE`. Domyślnie 1.
 Koszt ~400 MB RAM na proces — dobierać do pamięci, nie do liczby rdzeni.
@@ -92,9 +137,11 @@ opisu usługi w 2,2 s. Konto produkcyjne: zgłoszenie na `teryt_ws1@stat.gov.pl`
 `scripts/teryt-pobierz-pliki.mjs` (odtwarza formularz eteryt). Uwaga: brać
 warianty **CSV**, nie XML — parser obsługuje wyłącznie CSV ze średnikami.
 
-**Próg kontroli jakości.** `publish` domyślnie wymaga 7,5 mln punktów (cały
-kraj). Przy podzbiorze użyć `SANITY_MIN_POINTS`. To nie jest obejście
-zabezpieczenia, tylko jego parametryzacja — przy pełnym kraju zostawić domyślny.
+**Progi kontroli jakości.** `SANITY_MIN_POINTS` (domyślnie 7,5 mln) nie jest już
+potrzebny — pełny kraj przechodzi progiem domyślnym. Przy pierwszym załadunku
+trzeba było natomiast jednorazowo podnieść `SANITY_MAX_DELTA_FRAC=4`, bo wejście
+z 1,99 mln na 8,61 mln to +332% wobec domyślnych 2%. **Przy kolejnych przebiegach
+NIE ustawiać** — 2% jest właściwe dla cyklu tygodniowego i to ono łapie katastrofy.
 
 **Sondaż HTTP jest bezużyteczny.** Serwer GUGiK nie zwraca `ETag` ani
 `Last-Modified` dla żadnego z 16 województw. Wykrywanie zmian musi opierać się
@@ -155,15 +202,15 @@ Narzędzia pomocnicze w `scripts/`:
 |---|---|
 | `docs/plan-produkcyjny.md` | **plan zadań** — od tego zacząć |
 | `docs/STAN-PRAC.md` | ten dokument |
-| `docs/raport/raport-baza-mikroserwis-v1.3.docx` | raport dla analityków i klienta |
+| `docs/raport/raport-baza-mikroserwis-v1.4.docx` | raport dla analityków i klienta |
 | `docs/build-report.js` | **generator raportu** — źródło prawdy, `npm run raport` |
 | `README.md` | dokumentacja techniczna, zaktualizowane czasy przebiegów |
 
-Raport dla analityków jest w wersji **1.3**. Wydanie 1.3 uzgadnia treść ze stanem
-repozytorium: koryguje zakres mikroserwisu, oznacza Redis i magazyn obiektowy jako
-niewdrożone, ujawnia cztery braki blokujące produkcję (uwierzytelnianie, kopie
-zapasowe poza maszyną, brak odbiorcy metryk, 4 z 16 województw) i przepisuje plan
-prac na 11–15 tygodni. Wszystkie wydania leżą w `docs/raport/`.
+Raport dla analityków jest w wersji **1.4** (9.08.2026): pełny kraj, trzy nowe
+usterki, przemierzone czasy odpowiedzi i przetwarzania. Wydanie 1.3 uzgodniło
+treść ze stanem repozytorium — skorygowało zakres mikroserwisu, oznaczyło Redis
+i magazyn obiektowy jako niewdrożone, ujawniło braki blokujące produkcję
+i przepisało plan prac na 11–15 tygodni. Wszystkie wydania leżą w `docs/raport/`.
 
 **Plik .docx powstaje wyłącznie z `docs/build-report.js`** (`npm run raport`).
 Ręcznych poprawek w Wordzie nie wprowadzać — znikają przy kolejnym przebiegu.
@@ -174,15 +221,19 @@ aż do 8.08.2026; teraz jest z dokumentem zsynchronizowany.
 
 ## 8. Od czego zacząć w nowej sesji
 
-1. **Etap 0 — wykonany.** Repozytorium prywatne `patrykbradtke/adres-pl`,
-   cztery commity, katalog `data/` poza historią.
-2. **Etap 1.1** — dołożyć 12 pozostałych województw. Dane są na dysku, więc to
-   samo przetwarzanie: ~1–1,5 h przy `--rownolegle 4`.
-3. Dalej wg `plan-produkcyjny.md`. Etap 8 (komercjalizacja) został dopisany
-   7.08.2026 na podstawie rozpoznania: klucze API z terminem ważności
-   i licencjami, model wielodostępności, kopie zapasowe poza maszyną.
-   Zadanie 8.1 warto wykonać niezależnie od reszty — to ćwierć dnia,
-   a zamyka czynną lukę w limitowaniu zapytań.
+1. **Etapy 0, 1.1–1.3 oraz zadanie 8.1 — wykonane.** Cały kraj opublikowany,
+   artefakt zbudowany i zmierzony, luka w limitowaniu zamknięta.
+2. **Wgrać poprawkę 8** do działającej bazy (migracje idą tylko przy inicjalizacji
+   kontenera), a potem zmierzyć zysk kolejnym pełnym przebiegiem:
+   `psql "$DATABASE_URL" -f db/migrations/002_staging.sql`
+3. **Etap 1.4 i 1.6 — archiwum i kopie zapasowe poza maszynę.** To teraz
+   najpilniejsza pozycja: zrzut w strukturze sprzed 1.09.2026 istnieje w jednej
+   kopii na dysku roboczym, a po tej dacie jest nieodtwarzalny.
+4. **Etap 2.13** — dwie pełne aktualizacje 8,6 mln wierszy przy nałożonych
+   indeksach; 303 GB zapisów przy zbiorze 12 GB.
+5. Dalej wg `plan-produkcyjny.md`. Z etapu 7 warto wcześnie wziąć 7.1 i 7.2 —
+   w tej sesji dwukrotnie okazało się, że awarię wykrywa człowiek, bo metryk
+   nikt nie zbiera.
 
 Odtworzenie bazy bez ponownego przetwarzania — z kopii w `data/backup/`:
 
