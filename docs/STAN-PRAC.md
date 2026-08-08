@@ -110,8 +110,13 @@ Zmiany w `002_staging.sql` trzeba wgrywać ręcznie:
 `psql "$DATABASE_URL" -f db/migrations/002_staging.sql`. Brak narzędzia do
 wersjonowania schematu to luka wskazana w planie.
 
-**API nie ma uwierzytelniania.** Nagłówek `x-api-key` służy wyłącznie jako
-klucz limitowania zapytań — nikt go nie weryfikuje. Przed produkcją: etap 6.1.
+**API nadal nie ma uwierzytelniania**, ale luka w limitowaniu jest zamknięta
+(8.08.2026, zadanie 8.1). Limitowanie idzie wyłącznie po adresie klienta;
+nagłówek `x-api-key` nie jest już kluczem kubełka, bo nikt go nie weryfikuje,
+a losowanie wartości dawało świeży licznik. Za ingressem ustawić `TRUST_PROXY`
+— bez tego cały ruch trafia do jednego kubełka po adresie ingressu.
+Test regresji: `node --experimental-strip-types packages/api/test/limit-obejscie.ts`.
+Pełne uwierzytelnianie z licencjami: etap 8A.
 
 ---
 

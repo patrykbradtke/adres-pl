@@ -26,7 +26,26 @@ export interface ServerConfig {
   indexPointer?: string;
   indexPollMs: number;
   rateLimitMax: number;
+  trustProxy: boolean | number | string;
   corsOrigin: string | string[] | boolean;
+}
+
+/**
+ * Zaufanie do naglowkow proxy przy ustalaniu adresu klienta.
+ *
+ * Domyslnie WYLACZONE i to jest celowe: gdy proces stoi bezposrednio na porcie,
+ * wlaczenie pozwoliloby dowolnemu klientowi podac wlasny X-Forwarded-For, a wiec
+ * wlasny klucz limitowania - czyli dokladnie ta luke, ktora zamyka zadanie 8.1.
+ *
+ * Za ingressem ustawic liczbe przeskokow (TRUST_PROXY=1) albo liste CIDR
+ * zaufanych proxy. Bez tego caly ruch wpada do jednego kubelka po adresie
+ * ingressu i limit dziala na cala instalacje zamiast na klienta.
+ */
+export function parseTrustProxy(v?: string): boolean | number | string {
+  if (!v || v === 'false') return false;
+  if (v === 'true') return true;
+  const hops = Number(v);
+  return Number.isInteger(hops) && hops >= 0 ? hops : v;
 }
 
 export function loadConfig(env = process.env): ServerConfig {
@@ -38,6 +57,7 @@ export function loadConfig(env = process.env): ServerConfig {
     indexPointer: env.INDEX_POINTER,
     indexPollMs: Number(env.INDEX_POLL_MS ?? 60_000),
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 600),
+    trustProxy: parseTrustProxy(env.TRUST_PROXY),
     corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : true,
   };
 }
@@ -47,15 +67,32 @@ export async function buildServer(cfg: ServerConfig): Promise<FastifyInstance> {
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
     // Typeahead generuje duzo krotkich zapytan - wylaczamy kosztowne logowanie ciala
     disableRequestLogging: process.env.LOG_REQUESTS !== '1',
+    trustProxy: cfg.trustProxy,
   });
 
   await app.register(cors, { origin: cfg.corsOrigin });
   await app.register(rateLimit, {
     max: cfg.rateLimitMax,
     timeWindow: '1 minute',
-    // Klucz API ma wlasny, wyzszy limit; anonimowy ruch limitujemy po IP
-    keyGenerator: (req) => (req.headers['x-api-key'] as string) ?? req.ip,
+    /**
+     * Limitujemy WYLACZNIE po adresie klienta.
+     *
+     * Wczesniej kluczem byl naglowek x-api-key z odwrotem na req.ip. Naglowka
+     * nikt nie weryfikuje, wiec klient losujacy jego wartosc przy kazdym zadaniu
+     * dostawal za kazdym razem swiezy licznik i calkowicie omijal limitowanie.
+     * Nie byl to brak funkcji, tylko dzialajacy mechanizm obejscia.
+     *
+     * Klucze API z wlasnymi, wyzszymi limitami wracaja dopiero razem
+     * z uwierzytelnianiem (etap 8A planu) - kluczem limitowania moze byc
+     * wylacznie wartosc, ktora zostala wczesniej zweryfikowana.
+     */
+    keyGenerator: (req) => req.ip,
   });
+
+  if (cfg.trustProxy === false) {
+    app.log.info('TRUST_PROXY wylaczone - limitowanie po adresie polaczenia. ' +
+      'Za ingressem ustawic TRUST_PROXY na liczbe przeskokow albo liste CIDR.');
+  }
 
   const pool = new pg.Pool({
     connectionString: cfg.databaseUrl,

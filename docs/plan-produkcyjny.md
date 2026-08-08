@@ -240,7 +240,7 @@ zapytaniem, bez skanu tabeli.
 
 | # | zadanie | nakład |
 |---|---|---|
-| 8.1 | **PILNE:** poprawka `keyGenerator` — limitowanie po IP do czasu wdrożenia uwierzytelniania | 0,25 d |
+| 8.1 | ~~**PILNE:** poprawka `keyGenerator` — limitowanie po IP do czasu wdrożenia uwierzytelniania~~ **WYKONANE 8.08.2026** — limitowanie po `req.ip`, `TRUST_PROXY` dla pracy za ingressem, test regresji `packages/api/test/limit-obejscie.ts` | — |
 | 8.2 | Model danych: `klient`, `klucz_api` (prefiks, hash, ważność, limity, status) | 1,5 d |
 | 8.3 | Generowanie i weryfikacja klucza w `@adres-pl/core` | 1 d |
 | 8.4 | Plugin uwierzytelniający Fastify jako `preHandler`, cache w procesie | 2 d |

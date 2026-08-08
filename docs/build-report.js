@@ -260,7 +260,7 @@ children.push(P(
 children.push(table(
   { head: ['Brak', 'Na czym polega', 'Nakład'], widths: [2500, 4926, 1600] },
   [
-    ['Serwis nie uwierzytelnia klientów', 'Nagłówek klucza API nie jest weryfikowany, a limitowanie zapytań da się obejść, wysyłając za każdym razem inną wartość nagłówka. Do czasu naprawy serwis nie powinien opuszczać sieci wewnętrznej', '9–11 dni; doraźne zamknięcie luki 0,25 dnia'],
+    ['Serwis nie uwierzytelnia klientów', 'Serwis nie weryfikuje tożsamości klienta, więc nie da się rozdzielić limitów ani rozliczeń per klient. Do czasu naprawy nie powinien opuszczać sieci wewnętrznej. Możliwość obejścia limitowania zamknięto 8.08.2026 — patrz 5.5', '9–11 dni'],
     ['Kopie zapasowe nie opuszczają maszyny', 'Archiwum plików źródłowych i zrzut bazy leżą wyłącznie na dysku roboczym. Deklarowany czwarty poziom odporności na awarię źródła nie istnieje jeszcze fizycznie', '5–7 dni'],
     ['Metryki nie mają odbiorcy', 'Aplikacja wystawia 17 metryk i ma 6 gotowych reguł alertów, ale w konfiguracji uruchomieniowej nie ma niczego, co je zbiera. Awarie wykrywa dziś człowiek', '6–8 dni; pierwsze 3 dni dają większość efektu'],
     ['Dane obejmują 4 województwa z 16', 'Rozwiązanie działa na ok. 23% kraju. Pozostałe pliki są pobrane i czekają na przetworzenie', '3–4 dni'],
@@ -270,9 +270,9 @@ children.push(table(
 
 children.push(SPACER());
 children.push(LEAD('Kolejność ma znaczenie. ',
-  'Trzy z czterech braków są niezależne i można je prowadzić równolegle. Doraźne zamknięcie ' +
-  'luki w limitowaniu zapytań kosztuje ćwierć dnia i warto je wykonać niezależnie od decyzji ' +
-  'o pozostałych etapach — szczegóły w rozdziale 5.5.'));
+  'Cztery braki są od siebie niezależne i można je prowadzić równolegle. Żaden nie wymaga ' +
+  'rozstrzygnięcia pozostałych, więc harmonogram zależy wyłącznie od dostępności ludzi ' +
+  'i od decyzji Zamawiającego z rozdziału 11.'));
 
 children.push(H2('1.3. Wrześniowa zmiana formatu danych — ryzyko zamknięte'));
 
@@ -549,22 +549,31 @@ children.push(...box(
 children.push(H2('5.5. Bezpieczeństwo dostępu — stan obecny'));
 
 children.push(...box(
-  'Serwis nie uwierzytelnia klientów',
+  'Zamknięte 8.08.2026: możliwość obejścia limitowania zapytań',
   [
-    'W mikroserwisie nie ma mechanizmu weryfikacji tożsamości klienta. Nagłówek klucza API jest odczytywany wyłącznie po to, by rozdzielić kubełki limitowania zapytań — jego wartość nie jest z niczym porównywana.',
-    'Ma to bezpośrednią konsekwencję: klient wysyłający przy każdym żądaniu losową wartość tego nagłówka otrzymuje za każdym razem świeży licznik i całkowicie omija limitowanie. To nie jest brak funkcji, lecz działający mechanizm obejścia zabezpieczenia.',
-    'Dodatkowo limiter przechowuje liczniki w pamięci pojedynczej instancji, więc przy kilku replikach efektywny limit mnoży się przez ich liczbę, a polityka pochodzenia zapytań (CORS) domyślnie dopuszcza dowolne źródło.',
-    'Wniosek: do czasu wdrożenia kluczy API z licencjami serwis nie powinien być wystawiany poza sieć wewnętrzną Zamawiającego.',
+    'Do 8 sierpnia 2026 kluczem limitowania był nagłówek klucza API, z odwrotem na adres sieciowy klienta. Nagłówka nikt nie weryfikował, więc klient wysyłający przy każdym żądaniu losową wartość otrzymywał świeży licznik i całkowicie omijał limitowanie. Nie był to brak funkcji, lecz działający mechanizm obejścia.',
+    'Limitowanie idzie teraz wyłącznie po adresie klienta. Zaufanie do nagłówków warstwy wejściowej jest domyślnie wyłączone i wymaga jawnej konfiguracji — inaczej klient mógłby podać własny adres, czyli własny klucz limitowania, i luka wróciłaby innymi drzwiami. Zachowanie zabezpiecza test regresji.',
+    'Uwaga wdrożeniowa: przy pracy za warstwą wejściową trzeba tę konfigurację ustawić, bo bez niej cały ruch trafia do jednego kubełka i limit obejmuje całą instalację zamiast pojedynczego klienta.',
+  ],
+  C.ok,
+));
+
+children.push(...box(
+  'Pozostaje otwarte: serwis nie uwierzytelnia klientów',
+  [
+    'W mikroserwisie nadal nie ma mechanizmu weryfikacji tożsamości klienta. Nagłówek klucza API nie jest z niczym porównywany i nie pełni już żadnej funkcji.',
+    'Konsekwencja jest produktowa, nie tylko techniczna: bez zweryfikowanej tożsamości nie da się nadać klientom różnych limitów, rozliczyć ruchu ani odciąć pojedynczego odbiorcy. Wszyscy dzielą jeden limit liczony po adresie sieciowym.',
+    'Dodatkowo liczniki limitera żyją w pamięci pojedynczej instancji, więc przy kilku replikach efektywny limit mnoży się przez ich liczbę, a polityka pochodzenia zapytań (CORS) domyślnie dopuszcza dowolne źródło.',
+    'Wniosek pozostaje w mocy: do czasu wdrożenia kluczy API z licencjami serwis nie powinien być wystawiany poza sieć wewnętrzną Zamawiającego.',
   ],
   C.stop,
 ));
 
-children.push(LEAD('Zamknięcie doraźne — 0,25 dnia. ',
-  'Przestawienie limitowania na adres sieciowy klienta, wraz z poprawną obsługą adresu ' +
-  'przekazywanego przez warstwę wejściową, zamyka samą lukę obejścia. Nie zastępuje ' +
-  'uwierzytelniania, ale usuwa stan, w którym zabezpieczenie tylko pozornie działa. ' +
-  'Pełne rozwiązanie — klucze API z terminem ważności, limitami i licencjami — opisano ' +
-  'w rozdziale 10 jako etap komercjalizacji.'));
+children.push(LEAD('Pełne rozwiązanie — 9–11 dni. ',
+  'Klucze API z terminem ważności, limitami i licencjami, wraz z limitowaniem ' +
+  'współdzielonym między instancjami, opisano w rozdziale 10 jako etap komercjalizacji. ' +
+  'Dopiero wtedy kluczem limitowania może ponownie stać się tożsamość klienta — ' +
+  'wyłącznie taka, która została wcześniej zweryfikowana.'));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -1052,7 +1061,7 @@ children.push(P(
 children.push(...box(
   'Co można odłożyć, a czego nie',
   [
-    'Etap 8 w całości dotyczy komercjalizacji. Jeśli nie jest ona celem pierwszego wdrożenia, można go odłożyć — z jednym wyjątkiem: doraźne zamknięcie luki w limitowaniu zapytań (0,25 dnia) należy wykonać niezależnie, bo dziś zabezpieczenie tylko pozornie działa.',
+    'Etap 8 w całości dotyczy komercjalizacji. Jeśli nie jest ona celem pierwszego wdrożenia, można go odłożyć — jedyna pozycja pilna niezależnie od tej decyzji, zamknięcie luki w limitowaniu zapytań, została wykonana 8.08.2026 (rozdz. 5.5).',
     'Etapy 4 i 5 muszą poprzedzać prace nad panelem administracyjnym — bez rejestru wydań i dziennika zmian nie ma czym zarządzać.',
     'Z etapu 7 warto wykonać wcześnie dwie pierwsze pozycje (odbiorca metryk i pulpit operacyjny, ok. 3 dni). Zaczynają się zwracać już w trakcie etapów 1 i 2, bo dziś przebieg przetwarzania jest nieprzejrzysty.',
     'Etap 2 przed etapem 3, żeby nie przenosić problemów wydajnościowych do nowej struktury.',
@@ -1097,7 +1106,7 @@ children.push(table(
   [
     ['Archiwizacja danych w dotychczasowej strukturze', 'WYKONANE 6.08.2026', 'Zamknięte', 'Bezpowrotna utrata statusu budynku, numeru lokalu i przynależności administracyjnej'],
     ['Wyniesienie archiwum i kopii zapasowych poza maszynę roboczą', 'Wykonać niezwłocznie', 'Najbliższe tygodnie', 'Awaria dysku oznacza bezpowrotną utratę zrzutu w strukturze sprzed 1.09.2026, którego nie da się odtworzyć'],
-    ['Doraźne zamknięcie luki w limitowaniu zapytań', 'Wykonać niezależnie od reszty planu', 'Przed jakimkolwiek wystawieniem serwisu', 'Limitowanie pozostaje możliwe do obejścia — usługa bez ochrony przed nadużyciem'],
+    ['Zamknięcie luki w limitowaniu zapytań', 'WYKONANE 8.08.2026', 'Zamknięte', 'Limitowanie dało się obejść losowaniem nagłówka — usługa bez ochrony przed nadużyciem'],
     ['Czy komercjalizacja jest celem pierwszego wdrożenia', 'Rozstrzygnąć przed etapem 4', 'Najbliższe tygodnie', 'Etap 8 to 18–24 dni. Odłożenie go bez decyzji grozi budowaniem wersjonowania wydań bez uwzględnienia rozliczania klientów'],
     ['Model udostępniania: wspólna instalacja czy instancja per klient', 'Jedna wspólna instalacja', 'Przed etapem 3', 'Instancja per klient powiela ten sam artefakt w pamięci — przy 50 klientach to ponad 20 GB na dane identyczne dla wszystkich'],
     ['Wystąpienie o warunki licencyjne iMPA', 'Wystąpić teraz', 'Najbliższe tygodnie', 'Brak zabezpieczenia na wypadek awarii źródła podstawowego — poziom 2 pozostaje niedostępny'],
