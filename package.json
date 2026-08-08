@@ -12,6 +12,10 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "etl": "node --experimental-strip-types packages/etl/src/cli.ts",
-    "api": "node --experimental-strip-types packages/api/src/server.ts"
+    "api": "node --experimental-strip-types packages/api/src/server.ts",
+    "raport": "node docs/build-report.js"
+  },
+  "devDependencies": {
+    "docx": "^9.7.1"
   }
 }

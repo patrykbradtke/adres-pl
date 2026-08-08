@@ -155,7 +155,7 @@ Z rozpoznania rynku, uporządkowane wg pilności.
 
 | # | zadanie | nakład | uwagi |
 |---|---|---|---|
-| 6.5 | Specyfikacja OpenAPI jako źródło prawdy | 1,5 d | 12 endpointów bez formalnego kontraktu |
+| 6.5 | Specyfikacja OpenAPI jako źródło prawdy | 1,5 d | 11 endpointów `/v1/*` bez formalnego kontraktu |
 | 6.6 | Polityka wycofywania wersji API | 0,5 d | ile wstecz, z jakim wyprzedzeniem |
 | 6.7 | Dokumentacja dla integratorów | 2 d | |
 
@@ -182,7 +182,7 @@ Z rozpoznania rynku, uporządkowane wg pilności.
 ## Etap 7. Monitorowanie i obserwowalność — 6–8 dni
 
 **Stan wyjściowy jest lepszy, niż się wydaje, ale niedokończony.** Aplikacja
-wystawia 15 metryk pod `/metrics` (wiek danych, status ostatniego przebiegu,
+wystawia 17 metryk pod `/metrics` (wiek danych, status ostatniego przebiegu,
 spójność artefaktu z bazą, zużycie pamięci, dostępność bazy) oraz ma gotowe
 trzy reguły alertów w `deploy/alerty.yaml`, każdą przypisaną do konkretnego
 scenariusza awarii — łącznie z zamrożeniem danych po stronie źródła.
@@ -335,11 +335,11 @@ Argumenty przeciw w serwisie danych:
 - Projekt działa **bez kroku kompilacji** (`node --experimental-strip-types`).
   NestJS opiera się na dekoratorach i `emitDecoratorMetadata`, czyli wymaga
   pełnej kompilacji TypeScriptu. To odwrócenie przyjętej filozofii.
-- Serwis danych to 12 endpointów bezstanowych, w których liczy się czas
+- Serwis danych to 11 endpointów bezstanowych, w których liczy się czas
   odpowiedzi liczony w ułamkach milisekundy. Warstwa wstrzykiwania zależności
   nie wnosi tu wartości.
 - Fastify jest fundamentem także dla NestJS — rezygnacja z pośrednika nic nie
-  odbiera poza strukturą, której przy 12 endpointach nie brakuje.
+  odbiera poza strukturą, której przy 11 endpointach nie brakuje.
 
 Argumenty za w serwisie administracyjnym (późniejszy etap):
 - Autoryzacja, role, walidacja danych wejściowych, generowanie OpenAPI —

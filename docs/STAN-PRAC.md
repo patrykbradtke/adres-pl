@@ -16,7 +16,7 @@ Plan zadań: [plan-produkcyjny.md](plan-produkcyjny.md).
 | Powiązanie z ulicami | 1 324 563 punkty — 100% tych, które miały referencję |
 | Katalog ulic | 385 436 (308 888 TERYT + reszta z PRG) |
 | Artefakt wyszukiwania | 487 301 pozycji, 66,4 MB, budowa 208 s |
-| API | `localhost:3000`, 12 endpointów `/v1/*`, wersja danych `2026-08-06` |
+| API | `localhost:3000`, 11 endpointów `/v1/*` + 4 operacyjne (`/health`, `/ready`, `/metrics`, `/status`), wersja danych `2026-08-06` |
 | Archiwum PRG | **16 z 16 województw**, 1,8 GB, `data/archive/prg/2026-08-06/` |
 | Archiwum TERYT | `data/archive/teryt/2026-08-06/` (TERC/SIMC/ULIC/WMRODZ w CSV) |
 
@@ -150,12 +150,20 @@ Narzędzia pomocnicze w `scripts/`:
 |---|---|
 | `docs/plan-produkcyjny.md` | **plan zadań** — od tego zacząć |
 | `docs/STAN-PRAC.md` | ten dokument |
-| `~/Downloads/raport-baza-mikroserwis-v1.2.docx` | raport dla analityków i klienta |
+| `docs/raport/raport-baza-mikroserwis-v1.3.docx` | raport dla analityków i klienta |
+| `docs/build-report.js` | **generator raportu** — źródło prawdy, `npm run raport` |
 | `README.md` | dokumentacja techniczna, zaktualizowane czasy przebiegów |
 
-Raport dla analityków jest w wersji 1.2 i zawiera wyniki uruchomienia na
-danych rzeczywistych, opis pięciu usterek oraz sprostowanie czasów odpowiedzi.
-Wersje 1.0 i 1.1 leżą obok w `~/Downloads`.
+Raport dla analityków jest w wersji **1.3**. Wydanie 1.3 uzgadnia treść ze stanem
+repozytorium: koryguje zakres mikroserwisu, oznacza Redis i magazyn obiektowy jako
+niewdrożone, ujawnia cztery braki blokujące produkcję (uwierzytelnianie, kopie
+zapasowe poza maszyną, brak odbiorcy metryk, 4 z 16 województw) i przepisuje plan
+prac na 11–15 tygodni. Wszystkie wydania leżą w `docs/raport/`.
+
+**Plik .docx powstaje wyłącznie z `docs/build-report.js`** (`npm run raport`).
+Ręcznych poprawek w Wordzie nie wprowadzać — znikają przy kolejnym przebiegu.
+Wydania 1.1 i 1.2 powstały poza tym generatorem, dlatego stał on na treści 1.0
+aż do 8.08.2026; teraz jest z dokumentem zsynchronizowany.
 
 ---
 

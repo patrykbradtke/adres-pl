@@ -1,11 +1,28 @@
-const {
+/**
+ * Generator raportu dla Klienta i analityków.
+ *
+ * Wydanie 1.3. Ten plik jest zrodlem prawdy dla dokumentu — plik .docx
+ * powstaje wylacznie stad. Recznych poprawek w Wordzie nie wprowadzac,
+ * bo znikaja przy kolejnym przebiegu.
+ *
+ *   node docs/build-report.js
+ *
+ * Wynik: docs/raport/raport-baza-mikroserwis-v<WERSJA>.docx
+ */
+import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType,
   Table, TableRow, TableCell, WidthType, ShadingType, BorderStyle,
-  TableOfContents, PageBreak, LevelFormat, convertInchesToTwip,
+  PageBreak, LevelFormat,
   Footer, PageNumber, TabStopType, TabStopPosition,
-} = require('docx');
-const fs = require('fs');
-const path = require('path');
+} from 'docx';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const WERSJA = '1.3';
+const DATA = '8 sierpnia 2026';
 
 const W = 9026;                 // szerokosc kolumny tekstu A4 przy marginesach 1"
 const C = {
@@ -13,6 +30,7 @@ const C = {
   alt:  'F5F7F9',
   warn: 'FDF1E7',
   ok:   'EDF5EE',
+  stop: 'FBEAEA',
   accent: '1F4E5F',
   muted: '5A6873',
 };
@@ -42,6 +60,17 @@ const NUM = (t) => new Paragraph({
   spacing: { after: 80, line: 276 },
   children: Array.isArray(t) ? t : [new TextRun({ text: t, size: 21 })],
 });
+
+/** Akapit z wytluszczonym wprowadzeniem — wzorzec powtarzany w calym dokumencie. */
+const LEAD = (bold, rest) => P([
+  new TextRun({ text: bold, bold: true, size: 21 }),
+  new TextRun({ text: rest, size: 21 }),
+]);
+
+const LEADB = (bold, rest) => BULLET([
+  new TextRun({ text: bold, bold: true, size: 21 }),
+  new TextRun({ text: rest, size: 21 }),
+]);
 
 function cell(text, w, o = {}) {
   const runs = Array.isArray(text) ? text
@@ -111,7 +140,7 @@ children.push(
   P([new TextRun({ text: 'Raport z analizy i realizacji', size: 26 })], { align: AlignmentType.CENTER, after: 120 }),
   P([new TextRun({ text: 'Stan prac, ocena ryzyk, warianty rozwiązania', size: 22, color: C.muted })], { align: AlignmentType.CENTER, after: 1400 }),
   P([new TextRun({ text: 'Odbiorcy: Klient, Analityk biznesowy, Zespół wdrożeniowy', size: 21 })], { align: AlignmentType.CENTER, after: 80 }),
-  P([new TextRun({ text: 'Wersja 1.0  ·  5 sierpnia 2026', size: 21, color: C.muted })], { align: AlignmentType.CENTER }),
+  P([new TextRun({ text: `Wersja ${WERSJA}  ·  ${DATA}`, size: 21, color: C.muted })], { align: AlignmentType.CENTER }),
   new Paragraph({ children: [new PageBreak()] }),
 );
 
@@ -137,6 +166,44 @@ TOC.forEach(([n, t]) => children.push(new Paragraph({
   tabStops: [{ type: TabStopType.LEFT, position: 700 }],
   children: [new TextRun({ text: n + '\t' + t, size: 22 })],
 })));
+
+// ================= HISTORIA DOKUMENTU =================
+children.push(H1('Historia dokumentu'));
+children.push(P(
+  'Niniejsze opracowanie jest kolejnym wydaniem raportu z 5 sierpnia 2026. Struktura ' +
+  'i wnioski pozostają, zmienia się podstawa dowodowa: wyniki z próbek zostały zastąpione ' +
+  'pomiarami na rzeczywistych danych rejestru, a deklaracje o zakresie zbudowanego ' +
+  'rozwiązania — zestawione z zawartością repozytorium.'));
+
+children.push(table(
+  { head: ['Wydanie', 'Data', 'Co przyniosło'], widths: [1200, 1400, 6426] },
+  [
+    ['1.0', '5.08.2026', 'Analiza źródeł, architektura, warianty rozwiązania, kalendarz ryzyk. Wyniki z fixture’ów i zbiorów syntetycznych'],
+    ['1.1', '6.08.2026', 'Komplet archiwum PRG (16 województw), słowniki TERYT pobrane bez konta w GUS, potwierdzenie nowej struktury danych na rzeczywistym pliku. Rozstrzygnięte dwa z czterech pytań otwartych'],
+    ['1.2', '7.08.2026', 'Publikacja 1 990 483 punktów, pięć usterek wykrytych na danych rzeczywistych, sprostowanie czasu pełnego przebiegu i czasów odpowiedzi'],
+    ['1.3', '8.08.2026', 'Uzgodnienie raportu ze stanem repozytorium. Ujawnione braki blokujące produkcję, przepisany plan prac na 11–15 tygodni, usunięte deklaracje o elementach, których nie zbudowano'],
+  ],
+  { rowFill: (r) => r[0] === '1.3' ? C.ok : undefined },
+));
+
+children.push(SPACER());
+children.push(...box(
+  'Co zmieniło się w wydaniu 1.3 i dlaczego',
+  [
+    'Wydania 1.0–1.2 opisywały architekturę docelową w miejscach, w których czytelnik odczytywał opis stanu zbudowanego. Wydanie 1.3 rozdziela te dwa plany: elementy niewdrożone są oznaczone wprost.',
+    'Skorygowano zakres mikroserwisu (11 punktów końcowych, nie 12), usunięto Redis i magazyn obiektowy z opisu warstwy zbudowanej, a walidację wsadową opisano zgodnie z tym, co robi kod.',
+    'Ujawniono cztery braki blokujące wdrożenie produkcyjne — rozdział 1.2. Najpoważniejszy z nich, brak uwierzytelniania klientów, nie był w poprzednich wydaniach wspomniany ani razu.',
+    'Nakład do wersji produkcyjnej uzgodniono na 11–15 tygodni. Poprzednie wydania podawały trzy różne liczby w trzech rozdziałach.',
+  ],
+  C.head,
+));
+
+children.push(P(
+  'Dwa wcześniejsze szacunki okazały się zbyt optymistyczne i zostały skorygowane w górę ' +
+  'pod wpływem pomiarów: mediana czasu odpowiedzi z 0,49 ms do ok. 4 ms oraz czas pełnego ' +
+  'przebiegu dla kraju z zakładanych 40 minut do ok. 4 godzin, czyli 1–1,5 godziny po ' +
+  'zrównolegleniu. Zmiany merytoryczne względem wydania 1.0 zebrano w rozdziałach 8.3–8.6.'));
+
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
 // ================= 1. STRESZCZENIE =================
@@ -153,45 +220,80 @@ children.push(P(
   'Zbudowano i przetestowano end-to-end kompletny rdzeń rozwiązania: pobieranie danych ' +
   'z rejestru państwowego, przetwarzanie, bazę danych, mechanizm publikacji z kontrolami ' +
   'jakości oraz mikroserwis HTTP. Całość zweryfikowano na działającej instancji ' +
-  'PostgreSQL 16 z rozszerzeniem PostGIS.'));
+  'PostgreSQL 17 z rozszerzeniem PostGIS.'));
 
 children.push(table(
   { head: ['Obszar', 'Status', 'Uwagi'], widths: [3000, 1700, 4326] },
   [
-    ['Pobieranie danych z rejestru PRG', 'Gotowe', 'Sondaż HTTP, pobieranie wojewódzkie, archiwizacja z sumą kontrolną'],
+    ['Pobieranie danych z rejestru PRG', 'Gotowe', 'Pobieranie wojewódzkie, archiwizacja z sumą kontrolną. Tani sondaż nagłówków HTTP okazał się niemożliwy — patrz 4.3'],
     ['Parser danych źródłowych (GML)', 'Gotowe', 'Obsługuje starą i nową strukturę; tryb rozpoznawania nieznanych plików'],
     ['Baza danych', 'Gotowe', 'Schemat, indeksy, publikacja transakcyjna'],
     ['Kontrole jakości danych', 'Gotowe', '5 kontroli, każda odpowiada realnemu incydentowi'],
-    ['Silnik wyszukiwania', 'Gotowe', 'Zmierzona mediana 0,49 ms'],
-    ['Mikroserwis HTTP', 'Gotowe', '11 punktów końcowych'],
+    ['Silnik wyszukiwania', 'Gotowe', 'Mediana ok. 4 ms na danych rzeczywistych — patrz 8.6'],
+    ['Mikroserwis HTTP', 'Gotowe', '11 punktów końcowych /v1 oraz 4 operacyjne — patrz 5.4'],
     ['Reguły walidacji adresu', 'Gotowe', 'Format, zgodność z rejestrem, poziomy pewności'],
-    ['Import słowników TERYT', 'Do zrobienia', 'Usługa sieciowa GUS, wymaga rejestracji'],
-    ['Automatyzacja cyklu aktualizacji', 'Do zrobienia', 'Zadanie cykliczne + powiadomienia'],
+    ['Import słowników TERYT', 'Gotowe', 'Pliki pełne z eTeryt, bez konta w GUS. 101 865 miejscowości, 308 888 ulic'],
+    ['Metryki i reguły alertów', 'Gotowe', '17 metryk pod /metrics, 6 reguł alertów, manifest zadania cyklicznego'],
+    ['Uruchomienie na danych rzeczywistych', 'Częściowo', '4 województwa z 16 opublikowane: 1 990 483 punkty. Pozostałe 12 pobrane, czeka na przetworzenie'],
+    ['Odbiorca metryk i powiadomienia', 'Do zrobienia', 'Metryki i reguły są, brakuje tego, co je zbiera — patrz 1.2'],
+    ['Uwierzytelnianie klientów API', 'Do zrobienia', 'Serwis nie weryfikuje dziś tożsamości klienta — patrz 5.5'],
+    ['Kopie zapasowe poza maszyną', 'Do zrobienia', 'Archiwum i zrzut bazy leżą wyłącznie na dysku lokalnym — patrz 7.3'],
+    ['Automatyzacja cyklu aktualizacji', 'Do zrobienia', 'Uruchomienie zadania cyklicznego, wznawianie przerwanych przebiegów'],
     ['Drugie źródło danych (iMPA)', 'Do zrobienia', 'Zabezpieczenie na wypadek awarii źródła podstawowego'],
-    ['Uruchomienie na pełnym zbiorze', 'Do zrobienia', '8,5 mln punktów, dotąd testy na próbkach'],
   ],
-  { rowFill: (r) => r[1] === 'Gotowe' ? C.ok : C.warn },
+  { rowFill: (r) => r[1] === 'Gotowe' ? C.ok : r[1] === 'Częściowo' ? C.head : C.warn },
 ));
 
 children.push(SPACER());
 children.push(P(
-  'Szacowany nakład do wersji produkcyjnej: 5–7 tygodni pracy jednej osoby. ' +
-  'Nie zawiera prac po stronie interfejsu użytkownika, które są przedmiotem odrębnego opracowania.'));
+  'Szacowany nakład do wersji produkcyjnej: 11–15 tygodni pracy jednej osoby (55–73 dni ' +
+  'roboczych) na sam back-end. Rozbicie na etapy znajduje się w rozdziale 10. Nakład nie ' +
+  'zawiera panelu administracyjnego ani prac po stronie interfejsu użytkownika, które są ' +
+  'przedmiotem odrębnych opracowań.'));
 
-children.push(H2('1.2. Ryzyko wymagające decyzji w ciągu najbliższych tygodni'));
+children.push(H2('1.2. Braki blokujące wdrożenie produkcyjne'));
+children.push(P(
+  'Rdzeń rozwiązania działa i został zmierzony na rzeczywistych danych. Cztery braki ' +
+  'dzielą go jednak od wersji, którą można wystawić klientom. Wymieniamy je w streszczeniu, ' +
+  'ponieważ każdy z nich wpływa na termin i na decyzje Zamawiającego.'));
+
+children.push(table(
+  { head: ['Brak', 'Na czym polega', 'Nakład'], widths: [2500, 4926, 1600] },
+  [
+    ['Serwis nie uwierzytelnia klientów', 'Nagłówek klucza API nie jest weryfikowany, a limitowanie zapytań da się obejść, wysyłając za każdym razem inną wartość nagłówka. Do czasu naprawy serwis nie powinien opuszczać sieci wewnętrznej', '9–11 dni; doraźne zamknięcie luki 0,25 dnia'],
+    ['Kopie zapasowe nie opuszczają maszyny', 'Archiwum plików źródłowych i zrzut bazy leżą wyłącznie na dysku roboczym. Deklarowany czwarty poziom odporności na awarię źródła nie istnieje jeszcze fizycznie', '5–7 dni'],
+    ['Metryki nie mają odbiorcy', 'Aplikacja wystawia 17 metryk i ma 6 gotowych reguł alertów, ale w konfiguracji uruchomieniowej nie ma niczego, co je zbiera. Awarie wykrywa dziś człowiek', '6–8 dni; pierwsze 3 dni dają większość efektu'],
+    ['Dane obejmują 4 województwa z 16', 'Rozwiązanie działa na ok. 23% kraju. Pozostałe pliki są pobrane i czekają na przetworzenie', '3–4 dni'],
+  ],
+  { rowFill: () => C.warn },
+));
+
+children.push(SPACER());
+children.push(LEAD('Kolejność ma znaczenie. ',
+  'Trzy z czterech braków są niezależne i można je prowadzić równolegle. Doraźne zamknięcie ' +
+  'luki w limitowaniu zapytań kosztuje ćwierć dnia i warto je wykonać niezależnie od decyzji ' +
+  'o pozostałych etapach — szczegóły w rozdziale 5.5.'));
+
+children.push(H2('1.3. Wrześniowa zmiana formatu danych — ryzyko zamknięte'));
 
 children.push(...box(
-  'Termin: 1 września 2026',
+  'Termin: 1 września 2026 — zabezpieczenie wykonane 6.08.2026',
   [
     'Główny Urząd Geodezji i Kartografii przestaje wtedy publikować dane adresowe w dotychczasowej strukturze. Format SHP przeszedł na nową strukturę już 1 lipca 2026.',
     'Nowa struktura nie zawiera trzech informacji, które dziś wykorzystujemy: statusu budynku (istniejący / w budowie / planowany), numeru lokalu oraz przynależności administracyjnej.',
-    'Zalecenie: pobrać i zarchiwizować pełny zrzut w starej strukturze przed tą datą. Jest to jedyna możliwość zachowania statusu budynku jako danych historycznych.',
-    'Parser obsługujący nową strukturę jest już zbudowany, więc samo przejście nie stanowi zagrożenia. Zagrożeniem jest wyłącznie bezpowrotna utrata atrybutów.',
+    'Zalecenie z wydania 1.0 zostało zrealizowane: pełny zrzut w dotychczasowej strukturze — komplet 16 województw, 1,8 GB, z sumą kontrolną każdego pliku — zarchiwizowano 6 sierpnia 2026.',
+    'Parser przeszedł przez rzeczywisty plik w nowej strukturze bez odrzucenia jednego rekordu. Ryzyko bezpowrotnej utraty atrybutów jest zamknięte; pozostaje wyłącznie brak tych trzech atrybutów w danych bieżących po 1 września.',
   ],
-  C.warn,
+  C.ok,
 ));
 
-children.push(H2('1.3. Rekomendacja'));
+children.push(LEAD('Uwaga do trwałości zabezpieczenia: ',
+  'archiwum spełnia swoją rolę tylko dopóki istnieje. Dziś jest to jedna kopia na dysku ' +
+  'roboczym — po 1 września 2026 danych w starej strukturze nie da się pobrać ponownie ' +
+  'z żadnego źródła. Wyniesienie tej kopii poza maszynę jest zadaniem pilnym, nie ' +
+  'porządkowym (rozdz. 7.3 i 10).'));
+
+children.push(H2('1.4. Rekomendacja'));
 children.push(P(
   'Rekomendujemy kontynuację w obecnym modelu: własna baza zbudowana na państwowym ' +
   'rejestrze PRG, uzupełniona o niezależne źródło zapasowe, serwowana przez bezstanowy ' +
@@ -199,7 +301,7 @@ children.push(P(
 children.push(BULLET('Dane rejestru PRG i TERYT są bezpłatne, bez licencji, z prawem do komercyjnego wykorzystania i redystrybucji. Jedynym obowiązkiem jest podanie źródła.'));
 children.push(BULLET('Brak uzależnienia od zewnętrznego dostawcy w ścieżce krytycznej — żaden podmiot nie może podnieść ceny ani wycofać usługi.'));
 children.push(BULLET('Adresy klientów nie opuszczają infrastruktury Zamawiającego, co upraszcza zgodność z RODO.'));
-children.push(BULLET('Zmierzona wydajność jest o dwa rzędy wielkości lepsza niż rozwiązania oparte na zapytaniach do bazy danych.'));
+children.push(BULLET('Zmierzona wydajność jest ok. 30-krotnie lepsza niż zapytanie do bazy z indeksem tekstowym i ponad tysiąckrotnie lepsza niż sortowanie po podobieństwie tekstowym.'));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -238,7 +340,7 @@ children.push(table(
   { head: ['Źródło', 'Zawartość', 'Dostęp i koszt', 'Licencja'], widths: [1900, 2400, 2400, 2326] },
   [
     ['PRG — punkty adresowe (GUGiK)', '8 560 617 punktów adresowych, 302 793 ulic i placów (stan 31.03.2026)', 'Bezpłatnie, bez rejestracji', 'Bez licencji — art. 40c ust. 5 Prawa geodezyjnego. Wolno komercyjnie i redystrybuować'],
-    ['TERYT (GUS)', 'Rejestr jednostek podziału terytorialnego, miejscowości i ulic', 'Pliki bez rejestracji; usługa sieciowa po zgłoszeniu mailowym', 'Dane publiczne'],
+    ['TERYT (GUS)', 'Rejestr jednostek podziału terytorialnego, miejscowości i ulic', 'Pliki bez rejestracji — sprawdzone 6.08.2026. Usługa sieciowa nie odpowiadała na zapytania, konto produkcyjne po zgłoszeniu na teryt_ws1@stat.gov.pl', 'Dane publiczne'],
     ['iMPA (Geo-System)', 'Ok. 6,3 mln punktów, ewidencja prowadzona przez ok. 1400 gmin', 'Bezpłatnie', 'Niejasna — wymaga pisemnego potwierdzenia'],
     ['Spis PNA (Poczta Polska)', 'Kody pocztowe według zakresów numerycznych — jedyne źródło autorytatywne', 'Wyszukiwarka bezpłatna; plik danych płatny', 'Zakaz redystrybucji'],
   ],
@@ -262,7 +364,8 @@ children.push(...box(
   'Konsekwencja praktyczna',
   [
     'Gdyby rejestr PRG przestał być dostępny, wszystkie trzy alternatywy zamrożą się na ostatniej pobranej wersji i przestaną się aktualizować. Nie zapewniają zabezpieczenia.',
-    'Jedynym realnie niezależnym źródłem krajowym jest iMPA — system, w którym ok. 1400 gmin prowadzi ewidencję adresową, czyli źródło zasilające PRG. Prowadzi go podmiot komercyjny, więc ryzyko ma inny charakter niż ryzyko po stronie administracji.',
+    'Jedynym niezależnym źródłem o zasięgu krajowym jest iMPA — system, w którym ok. 1400 gmin prowadzi ewidencję adresową, czyli źródło zasilające PRG. Prowadzi go podmiot komercyjny, więc ryzyko ma inny charakter niż ryzyko po stronie administracji.',
+    'Uzupełniająco, ale wyłącznie lokalnie, dostępne są otwarte dane dużych miast — patrz poziom 3 w rozdziale 7.3.',
   ],
   C.warn,
 ));
@@ -293,7 +396,7 @@ children.push(table(
   { head: ['Data', 'Zdarzenie', 'Wpływ na projekt'], widths: [1500, 3600, 3926] },
   [
     ['1.07.2026', 'Koniec publikacji danych SHP w starej strukturze', 'Zrealizowane, bez wpływu — korzystamy z formatu GML'],
-    ['1.09.2026', 'Koniec publikacji danych GML w starej strukturze', 'Wysoki — utrata trzech atrybutów; parser gotowy, wymagana archiwizacja'],
+    ['1.09.2026', 'Koniec publikacji danych GML w starej strukturze', 'Ograniczony — archiwizacja wykonana 6.08.2026, parser potwierdzony na rzeczywistym pliku. Pozostaje brak trzech atrybutów w danych bieżących'],
     ['5.10.2026', 'Głosowanie Parlamentu Europejskiego nad zmianą dyrektywy INSPIRE', 'Kierunkowy, bez bezpośrednich skutków'],
     ['ok. 2028–2029', 'Transpozycja zmienionej dyrektywy INSPIRE', 'Średni — zanikają unijne wymogi dotyczące usług sieciowych'],
     ['bez daty', 'Projekt nowelizacji Prawa geodezyjnego — uprawnienie MON do ograniczania dostępu', 'Niski — dotyczy terenów obronnych'],
@@ -306,30 +409,32 @@ children.push(P(
   'Analiza dostępności rejestru PRG w poprzednich latach wykazała dwa typy zdarzeń, ' +
   'które przekładają się bezpośrednio na wymagania wobec procesu aktualizacji:'));
 
-children.push(BULLET([
-  new TextRun({ text: 'Czerwiec 2024 — dane zamrożone. ', bold: true, size: 21 }),
-  new TextRun({ text: 'Paczki nie były odświeżane przez co najmniej dwa tygodnie. Problem wykryła i zgłosiła firma zewnętrzna, nie instytucja prowadząca rejestr.', size: 21 }),
-]));
-children.push(BULLET([
-  new TextRun({ text: 'Marzec 2016 — zrzut niekompletny. ', bold: true, size: 21 }),
-  new TextRun({ text: 'Opublikowany plik nie zawierał danych Wrocławia. Podobny przypadek dotyczył Białegostoku.', size: 21 }),
-]));
+children.push(LEADB('Czerwiec 2024 — dane zamrożone. ',
+  'Paczki nie były odświeżane przez co najmniej dwa tygodnie. Problem wykryła i zgłosiła firma zewnętrzna, nie instytucja prowadząca rejestr.'));
+children.push(LEADB('Marzec 2016 — zrzut niekompletny. ',
+  'Opublikowany plik nie zawierał danych Wrocławia. Podobny przypadek dotyczył Białegostoku.'));
 
 children.push(P(
   'Wniosek: poprawna odpowiedź serwera i poprawny plik archiwum nie stanowią wystarczającego ' +
   'potwierdzenia jakości danych. Z tego powodu proces aktualizacji zawiera zestaw kontroli ' +
-  'opisany w rozdziale 6.3.'));
+  'opisany w rozdziale 7.2.'));
 
 children.push(H2('4.3. Ograniczenia po stronie źródła'));
 children.push(table(
   { head: ['Czego brakuje', 'Zastosowane obejście'], widths: [4000, 5026] },
   [
     ['Plików różnicowych dla rejestru PRG', 'Porównanie sum kontrolnych treści i pełne przeładowanie'],
-    ['Interfejsu podającego datę aktualizacji', 'Nagłówki HTTP, a w razie ich braku — harmonogram tygodniowy i porównanie sumy kontrolnej pliku'],
+    ['Interfejsu podającego datę aktualizacji', 'Sprawdzono 6.08.2026: serwer nie zwraca ani ETag, ani Last-Modified dla żadnego z 16 województw. Obowiązuje harmonogram tygodniowy i porównanie sumy kontrolnej pobranego pliku'],
     ['Gwarancji stabilności adresów pobierania', 'Własne wersjonowane archiwum plików źródłowych'],
     ['Poprawnych schematów walidacyjnych XML', 'Własny parser strumieniowy zamiast narzędzi wymagających schematu'],
   ],
 ));
+
+children.push(SPACER());
+children.push(LEAD('Konsekwencja kosztowa braku sondażu: ',
+  'każde sprawdzenie, czy dane się zmieniły, wymaga pobrania kompletu plików (1,8 GB) ' +
+  'i policzenia sumy kontrolnej. To przesądza o tygodniowym, a nie dobowym cyklu ' +
+  'aktualizacji — patrz 5.1.'));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -344,12 +449,19 @@ children.push(P(
 children.push(table(
   { head: ['Komponent', 'Charakter', 'Uruchamianie', 'Odpowiedzialność'], widths: [1700, 1900, 2100, 3326] },
   [
-    ['Proces przetwarzania danych', 'Stanowy, zasobożerny', 'Raz na dobę, zadanie cykliczne', 'Pobranie, przetworzenie, kontrole jakości, publikacja'],
+    ['Proces przetwarzania danych', 'Stanowy, zasobożerny', 'Raz w tygodniu, zadanie cykliczne', 'Pobranie, przetworzenie, kontrole jakości, publikacja'],
     ['Mikroserwis HTTP', 'Bezstanowy, lekki', 'Ciągle, skalowany poziomo', 'Podpowiedzi, walidacja, geokodowanie'],
   ],
 ));
 
 children.push(SPACER());
+children.push(LEAD('Dlaczego tydzień, a nie doba: ',
+  'brak nagłówków umożliwiających tani sondaż (4.3) oznacza, że każde sprawdzenie to pełne ' +
+  'pobranie 1,8 GB. Rejestr aktualizowany jest przez gminy na bieżąco, ale opublikowana ' +
+  'paczka zmienia się rzadziej niż raz na dobę, więc cykl dobowy generowałby ruch bez ' +
+  'przyrostu wartości. Do archiwum trafia wyłącznie zrzut, w którym wykryto zmianę treści — ' +
+  'stąd szacunki pojemności w 7.3 liczone są dla zrzutów miesięcznych.'));
+
 children.push(H2('5.2. Kluczowa decyzja: artefakt wyszukiwania'));
 children.push(P(
   'Proces przetwarzania wytwarza pojedynczy, niezmienny plik indeksu wyszukiwania, ' +
@@ -357,32 +469,49 @@ children.push(P(
   'w pamięci operacyjnej. Podpowiedzi adresowe nie wymagają zapytań do bazy danych.'));
 
 children.push(P('Korzyści tego rozwiązania:'));
-children.push(BULLET('Wycofanie zmiany sprowadza się do zmiany wskaźnika wersji — kilkanaście sekund, bez migracji danych.'));
-children.push(BULLET('Skalowanie poziome jest trywialne — brak stanu współdzielonego między instancjami.'));
+children.push(BULLET('Wycofanie zmiany sprowadza się do przestawienia wskaźnika wersji — do minuty od przestawienia, plus czas pobrania artefaktu, bez migracji danych.'));
+children.push(BULLET('Skalowanie poziome jest trywialne — instancje nie współdzielą stanu danych.'));
 children.push(BULLET('Wyniki są w pełni powtarzalne, co umożliwia automatyczne testy regresyjne jakości wyszukiwania.'));
 children.push(BULLET('Baza danych nie jest obciążana ruchem podpowiedzi, który jest najintensywniejszy.'));
 
-children.push(H2('5.3. Warstwa danych'));
-children.push(table(
-  { head: ['Technologia', 'Zastosowanie', 'Uzasadnienie'], widths: [1900, 2600, 4526] },
+children.push(...box(
+  'Dwa ograniczenia obecnej wersji',
   [
-    ['PostgreSQL + PostGIS', 'Źródło prawdy, numery budynków, geokodowanie', 'Dane adresowe są ściśle relacyjne i przestrzenne'],
-    ['Indeks w pamięci procesu', 'Podpowiedzi adresowe', 'Dwa rzędy wielkości szybciej niż zapytania do bazy'],
-    ['Redis', 'Limitowanie zapytań, pamięć podręczna, powiadamianie o nowej wersji', 'Nie uczestniczy w wyszukiwaniu'],
-    ['Magazyn obiektowy', 'Archiwum plików źródłowych i artefaktów indeksu', 'Zabezpieczenie na wypadek niedostępności źródła'],
+    'Podmiana artefaktu działa przez odpytywanie wskaźnika wersji co 60 sekund, a nie przez powiadomienie. Bez jawnie skonfigurowanego wskaźnika podmiana bez restartu instancji nie działa wcale.',
+    'Sonda gotowości instancji odpytuje bazę danych, więc awaria bazy wyłącza instancję z ruchu również dla podpowiedzi, które bazy nie potrzebują. Rozdzielenie sond to 1 dzień pracy — pozycja w etapie komercjalizacji, rozdz. 10.',
   ],
+  C.warn,
+));
+
+children.push(H2('5.3. Warstwa danych'));
+children.push(P(
+  'Tabela rozdziela stan zbudowany od elementów przewidzianych w architekturze docelowej. ' +
+  'Rozróżnienie jest istotne przy planowaniu wdrożenia.'));
+
+children.push(table(
+  { head: ['Technologia', 'Zastosowanie', 'Stan'], widths: [1900, 4300, 2826] },
+  [
+    ['PostgreSQL + PostGIS', 'Źródło prawdy, numery budynków, geokodowanie odwrotne', 'Wdrożone — dane adresowe są ściśle relacyjne i przestrzenne'],
+    ['Indeks w pamięci procesu', 'Podpowiedzi adresowe', 'Wdrożone — ok. 30× szybciej niż zapytanie do bazy z indeksem tekstowym'],
+    ['Redis', 'Limitowanie zapytań współdzielone między instancjami, pamięć podręczna, powiadamianie o nowej wersji', 'NIEWDROŻONE — licznik limitera działa dziś w pamięci pojedynczej instancji, więc przy N replikach efektywny limit jest N-krotnie wyższy'],
+    ['Magazyn obiektowy', 'Archiwum plików źródłowych i artefaktów indeksu poza maszyną roboczą', 'NIEWDROŻONE — usługa zadeklarowana w konfiguracji uruchomieniowej, ale nic z niej nie korzysta. Archiwum leży na dysku lokalnym'],
+  ],
+  { rowFill: (r) => String(r[2]).startsWith('NIEWDROŻONE') ? C.warn : C.ok },
 ));
 
 children.push(SPACER());
-children.push(P([
-  new TextRun({ text: 'Rozwiązania świadomie odrzucone: ', bold: true, size: 21 }),
-  new TextRun({ text: 'MongoDB (brak zastosowania — model danych jest relacyjny), kolejka komunikatów w pierwszej wersji (proces aktualizacji nie wymaga brokera), zewnętrzne silniki wyszukiwania takie jak Elasticsearch czy Meilisearch (dodają infrastrukturę do problemu rozwiązanego w pamięci procesu).', size: 21 }),
-]));
+children.push(LEAD('Rozwiązania świadomie odrzucone: ',
+  'MongoDB (brak zastosowania — model danych jest relacyjny), kolejka komunikatów w pierwszej ' +
+  'wersji (proces aktualizacji nie wymaga brokera), zewnętrzne silniki wyszukiwania takie jak ' +
+  'Elasticsearch czy Meilisearch (dodają infrastrukturę do problemu rozwiązanego w pamięci procesu).'));
 
 children.push(H2('5.4. Interfejs udostępniany aplikacjom'));
 children.push(P(
-  'Mikroserwis udostępnia interfejs REST. Poniższa tabela stanowi kontrakt ' +
-  'dla zespołów budujących aplikacje konsumenckie.'));
+  'Mikroserwis udostępnia interfejs REST. Poniższa tabela opisuje zakres funkcjonalny. ' +
+  'Formalny kontrakt — specyfikacja OpenAPI z metodami, ścieżkami, parametrami i kodami ' +
+  'odpowiedzi — jest przedmiotem osobnego zadania (rozdz. 10, 1,5 dnia). Do czasu jego ' +
+  'wykonania zespoły integrujące powinny uzgadniać szczegóły z zespołem wdrożeniowym, ' +
+  'a nie wyprowadzać ich z tej tabeli.'));
 
 children.push(table(
   { head: ['Funkcja', 'Przeznaczenie', 'Źródło danych'], widths: [2700, 4100, 2226] },
@@ -395,17 +524,47 @@ children.push(table(
     ['Kod pocztowy', 'Kod dla konkretnego adresu; w razie braku — kod dominujący na ulicy z oznaczeniem', 'Baza danych'],
     ['Rozbiór adresu', 'Rozdzielenie ciągu tekstowego na pola, bez odpytywania rejestru', 'Reguły lokalne'],
     ['Walidacja adresu', 'Pełna weryfikacja z poziomem pewności i listą uwag', 'Indeks + baza'],
-    ['Walidacja wsadowa', 'Przetworzenie zbioru adresów, np. z pliku', 'Indeks + baza'],
+    ['Walidacja wsadowa (synchroniczna)', 'Do 1000 adresów przekazanych w treści żądania. Bez wysyłki pliku i bez kolejki — przetwarzanie sekwencyjne w jednym żądaniu HTTP', 'Indeks + baza'],
     ['Geokodowanie odwrotne', 'Najbliższy adres dla podanych współrzędnych', 'Baza danych'],
-    ['Metadane zbioru', 'Wersja danych, data ostatniego zrzutu, ostrzeżenie o przeterminowaniu', 'Baza danych'],
+    ['Metadane zbioru', 'Wersja danych, data ostatniego zrzutu, ostrzeżenie o przeterminowaniu', 'Indeks + baza'],
   ],
 ));
 
 children.push(SPACER());
-children.push(P([
-  new TextRun({ text: 'Uwaga dla analityka: ', bold: true, size: 21 }),
-  new TextRun({ text: 'funkcja metadanych zwraca wiek najnowszego zrzutu oraz ostrzeżenie, gdy przekracza on 30 dni. Jest to mechanizm wykrywania sytuacji, w której źródło przestało być aktualizowane — dokładnie takiej jak incydent z czerwca 2024 roku. Zaleca się objęcie tej funkcji monitorowaniem.', size: 21 }),
-]));
+children.push(P(
+  'Poza przestrzenią /v1 serwis udostępnia cztery punkty operacyjne: sondę żywotności, ' +
+  'sondę gotowości, 17 metryk w formacie Prometheusa oraz czytelny dla człowieka podgląd ' +
+  'stanu z gotowymi ostrzeżeniami. Razem daje to 15 punktów końcowych.'));
+
+children.push(...box(
+  'Uwaga dla analityka: dwa liczniki wieku danych, ta sama liczba 30 dni',
+  [
+    'Funkcja metadanych zwraca ostrzeżenie, gdy najnowszy zrzut ma ponad 30 dni. Liczy jednak wiek ostatniego POBRANEGO pliku dowolnego źródła — pobranie słowników TERYT albo paczki odrzuconej potem przez kontrole jakości wygasza to ostrzeżenie, mimo że dane produkcyjne stoją.',
+    'Do monitorowania należy użyć metryki wieku danych z punktu /metrics, która liczy wiek ostatniego OPUBLIKOWANEGO zrzutu PRG. To ona odpowiada scenariuszowi z czerwca 2024 roku.',
+    'Wyrównanie obu mechanizmów jest pozycją w planie prac. Do tego czasu ostrzeżenie z funkcji metadanych należy traktować jako informację dla aplikacji, a nie jako sygnał operacyjny.',
+  ],
+  C.head,
+));
+
+children.push(H2('5.5. Bezpieczeństwo dostępu — stan obecny'));
+
+children.push(...box(
+  'Serwis nie uwierzytelnia klientów',
+  [
+    'W mikroserwisie nie ma mechanizmu weryfikacji tożsamości klienta. Nagłówek klucza API jest odczytywany wyłącznie po to, by rozdzielić kubełki limitowania zapytań — jego wartość nie jest z niczym porównywana.',
+    'Ma to bezpośrednią konsekwencję: klient wysyłający przy każdym żądaniu losową wartość tego nagłówka otrzymuje za każdym razem świeży licznik i całkowicie omija limitowanie. To nie jest brak funkcji, lecz działający mechanizm obejścia zabezpieczenia.',
+    'Dodatkowo limiter przechowuje liczniki w pamięci pojedynczej instancji, więc przy kilku replikach efektywny limit mnoży się przez ich liczbę, a polityka pochodzenia zapytań (CORS) domyślnie dopuszcza dowolne źródło.',
+    'Wniosek: do czasu wdrożenia kluczy API z licencjami serwis nie powinien być wystawiany poza sieć wewnętrzną Zamawiającego.',
+  ],
+  C.stop,
+));
+
+children.push(LEAD('Zamknięcie doraźne — 0,25 dnia. ',
+  'Przestawienie limitowania na adres sieciowy klienta, wraz z poprawną obsługą adresu ' +
+  'przekazywanego przez warstwę wejściową, zamyka samą lukę obejścia. Nie zastępuje ' +
+  'uwierzytelniania, ale usuwa stan, w którym zabezpieczenie tylko pozornie działa. ' +
+  'Pełne rozwiązanie — klucze API z terminem ważności, limitami i licencjami — opisano ' +
+  'w rozdziale 10 jako etap komercjalizacji.'));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -414,11 +573,11 @@ children.push(H1('6. Model danych i reguły — dla analityka'));
 
 children.push(H2('6.1. Encje'));
 children.push(table(
-  { head: ['Encja', 'Klucz główny', 'Opis', 'Liczność docelowa'], widths: [1900, 1500, 3800, 1826] },
+  { head: ['Encja', 'Klucz główny', 'Opis', 'Liczność docelowa'], widths: [1700, 1500, 3900, 1926] },
   [
     ['Jednostka TERYT', 'TERC (7 znaków)', 'Województwo, powiat, gmina — hierarchia', 'ok. 3 tys.'],
     ['Miejscowość', 'SIMC (7 znaków)', 'Nazwa, rodzaj, gmina, centroid, znacznik występowania ulic', 'ok. 103 tys.'],
-    ['Ulica', 'identyfikator wewnętrzny', 'Cecha, nazwa oficjalna, nazwa potoczna, powiązanie z miejscowością', 'ok. 303 tys.'],
+    ['Ulica', 'identyfikator wewnętrzny', 'Cecha, nazwa oficjalna, nazwa potoczna, powiązanie z miejscowością. Encja scala katalog TERYT z ulicami występującymi wyłącznie w PRG', 'ponad 385 tys. — rośnie wraz z przetwarzaniem kolejnych województw'],
     ['Punkt adresowy', 'identyfikator wewnętrzny', 'Numer budynku, kod pocztowy, współrzędne, status', 'ok. 8,56 mln'],
   ],
 ));
@@ -426,18 +585,12 @@ children.push(table(
 children.push(SPACER());
 children.push(P('Trzy rozwiązania w modelu wymagają wyjaśnienia, ponieważ nie są oczywiste:'));
 
-children.push(BULLET([
-  new TextRun({ text: 'Znacznik występowania ulic przy miejscowości. ', bold: true, size: 21 }),
-  new TextRun({ text: 'Znacząca część adresów w Polsce to adresy wiejskie, gdzie numer porządkowy odnosi się bezpośrednio do miejscowości, a ulica nie istnieje. Znacznik pozwala interfejsowi ukryć pole ulicy zanim użytkownik je zobaczy. Bez niego mieszkaniec wsi widzi puste, wymagane pole „ulica”.', size: 21 }),
-]));
-children.push(BULLET([
-  new TextRun({ text: 'Identyfikator z rejestru jako klucz obcy. ', bold: true, size: 21 }),
-  new TextRun({ text: 'Umożliwia trwałe powiązanie rekordów między kolejnymi zrzutami. Bez niego każda aktualizacja wymagałaby zgadywania, który rekord odpowiada któremu.', size: 21 }),
-]));
-children.push(BULLET([
-  new TextRun({ text: 'Znacznik wycofania zamiast usuwania rekordów. ', bold: true, size: 21 }),
-  new TextRun({ text: 'Gminy popełniają błędy i je cofają. Punkt adresowy, który zniknął z rejestru, może wrócić za miesiąc, a w międzyczasie może występować w zamówieniu klienta.', size: 21 }),
-]));
+children.push(LEADB('Znacznik występowania ulic przy miejscowości. ',
+  'Znacząca część adresów w Polsce to adresy wiejskie, gdzie numer porządkowy odnosi się bezpośrednio do miejscowości, a ulica nie istnieje. Znacznik pozwala interfejsowi ukryć pole ulicy zanim użytkownik je zobaczy. Bez niego mieszkaniec wsi widzi puste, wymagane pole „ulica”.'));
+children.push(LEADB('Identyfikator z rejestru jako klucz obcy. ',
+  'Umożliwia trwałe powiązanie rekordów między kolejnymi zrzutami. Bez niego każda aktualizacja wymagałaby zgadywania, który rekord odpowiada któremu.'));
+children.push(LEADB('Znacznik wycofania zamiast usuwania rekordów. ',
+  'Gminy popełniają błędy i je cofają. Punkt adresowy, który zniknął z rejestru, może wrócić za miesiąc, a w międzyczasie może występować w zamówieniu klienta.'));
 
 children.push(H2('6.2. Zależności między polami'));
 children.push(P(
@@ -476,17 +629,24 @@ children.push(P(
   'i stanowi podstawę późniejszych decyzji biznesowych.'));
 
 children.push(table(
-  { head: ['Poziom', 'Znaczenie', 'Sugerowane zastosowanie'], widths: [2200, 3600, 3226] },
+  { head: ['Poziom', 'Znaczenie', 'Sugerowane zastosowanie', 'Kto nadaje'], widths: [1900, 2700, 2400, 2026] },
   [
-    ['Zweryfikowany wobec rejestru', 'Pełne dopasowanie, dostępny identyfikator rejestrowy i współrzędne', 'Wysyłka bez dodatkowej weryfikacji'],
-    ['Zweryfikowany częściowo', 'Miejscowość i ulica z rejestru, numer nie odnaleziony', 'Wysyłka z oznaczeniem do przeglądu'],
-    ['Poza rejestrem', 'Użytkownik świadomie potwierdził adres spoza bazy', 'Nowe budownictwo — dopuścić'],
-    ['Nietypowy', 'Tryb ręczny: skrytka pocztowa, adres tymczasowy', 'Odrębna ścieżka obsługi'],
-    ['Niezweryfikowany', 'Import bez walidacji', 'Kolejka do przeglądu'],
+    ['Zweryfikowany wobec rejestru', 'Pełne dopasowanie, dostępny identyfikator rejestrowy i współrzędne', 'Wysyłka bez dodatkowej weryfikacji', 'Komponent adresowy'],
+    ['Zweryfikowany częściowo', 'Miejscowość i ulica z rejestru, numer nie odnaleziony', 'Wysyłka z oznaczeniem do przeglądu', 'Komponent adresowy'],
+    ['Poza rejestrem', 'Użytkownik świadomie potwierdził adres spoza bazy', 'Nowe budownictwo — dopuścić', 'Aplikacja konsumencka — patrz uwaga poniżej'],
+    ['Nietypowy', 'Tryb ręczny: skrytka pocztowa, adres tymczasowy', 'Odrębna ścieżka obsługi', 'Aplikacja konsumencka; komponent przepuszcza tę wartość'],
+    ['Niezweryfikowany', 'Import bez walidacji', 'Kolejka do przeglądu', 'Komponent adresowy'],
   ],
 ));
 
 children.push(SPACER());
+children.push(LEAD('Uwaga istotna dla projektowania reguł biznesowych: ',
+  'poziom „poza rejestrem” jest przewidziany w modelu danych, ale komponent adresowy nigdy ' +
+  'go sam nie nadaje. Adres z miejscowością i ulicą z rejestru oraz numerem, którego ' +
+  'w rejestrze nie ma, otrzymuje poziom „zweryfikowany częściowo”. Poziom „poza rejestrem” ' +
+  'ustawia aplikacja konsumencka po świadomym potwierdzeniu przez użytkownika. Reguła ' +
+  'biznesowa oczekująca tej wartości z komponentu nigdy się nie uruchomi.'));
+
 children.push(...box(
   'Zasada nadrzędna: walidacja nie blokuje zapisu adresu',
   [
@@ -501,7 +661,7 @@ children.push(H2('6.4. Przypadki brzegowe wymagające uwagi analityka'));
 children.push(table(
   { head: ['Przypadek', 'Opis', 'Rozwiązanie'], widths: [2200, 3800, 3026] },
   [
-    ['Numer typu 12/14', 'Zapis dwuznaczny: może być numerem budynku narożnego albo zapisem „budynek 12, lokal 14”', 'System sprawdza w rejestrze obie interpretacje i przyjmuje tę, która istnieje'],
+    ['Numer typu 12/14', 'Zapis dwuznaczny: może być numerem budynku narożnego albo zapisem „budynek 12, lokal 14”', 'System sprawdza w rejestrze obie interpretacje i przyjmuje tę, która istnieje. Gdy istnieją obie — patrz uwaga pod tabelą'],
     ['Miejscowości bez ulic', 'Numer odnosi się bezpośrednio do miejscowości', 'Pole ulicy opcjonalne, sterowane znacznikiem'],
     ['Duplikaty nazw miejscowości', 'Nazwy takie jak „Nowa Wieś” występują setki razy', 'Wymagane rozstrzygnięcie przez użytkownika — prezentacja gminy i powiatu'],
     ['Nazwy potoczne ulic', 'Użytkownik wpisuje „Kościuszki”, rejestr zawiera „Tadeusza Kościuszki”', 'Forma potoczna wyliczana automatycznie i indeksowana jako dodatkowy klucz'],
@@ -511,19 +671,28 @@ children.push(table(
   ],
 ));
 
+children.push(SPACER());
+children.push(LEAD('Doprecyzowanie zapisu 12/14: ',
+  'gdy przy danej ulicy istnieje zarówno punkt „12”, jak i punkt „12/14” — sytuacja typowa ' +
+  'w miastach z budynkami narożnymi — obecna implementacja wybiera odczyt „budynek 12, ' +
+  'lokal 14”. Reguła docelowa daje pierwszeństwo numerowi budynku „12/14” i wymaga zamiany ' +
+  'kolejności sprawdzania; jest to pozycja do wykonania. Zapisy z literą po lewej stronie ' +
+  'ukośnika, jak „12A/5”, nie są traktowane jako dwuznaczne — zawsze czytane są jako ' +
+  'budynek i lokal.'));
+
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
 // ================= 7. PROCES AKTUALIZACJI =================
 children.push(H1('7. Proces aktualizacji danych'));
 
 children.push(H2('7.1. Przebieg'));
-children.push(NUM('Sondaż nagłówków HTTP — sprawdzenie, czy plik źródłowy uległ zmianie, bez pobierania pełnych danych.'));
-children.push(NUM('Pobranie plików w podziale na województwa, z wyliczeniem sumy kontrolnej.'));
+children.push(NUM('Pobranie plików w podziale na województwa według harmonogramu tygodniowego, z wyliczeniem sumy kontrolnej. Tani sondaż nagłówków HTTP jest niemożliwy — patrz 4.3.'));
+children.push(NUM('Porównanie sumy kontrolnej treści z ostatnim zrzutem — dalsze kroki wykonują się tylko przy wykrytej zmianie.'));
 children.push(NUM('Zapis do własnego archiwum — plik źródłowy zachowywany bez zmian.'));
 children.push(NUM('Przetworzenie strumieniowe i zasilenie obszaru przejściowego bazy danych.'));
 children.push(NUM('Wykonanie kontroli jakości — porównanie obszaru przejściowego z danymi produkcyjnymi.'));
 children.push(NUM('Publikacja transakcyjna — wyłącznie po przejściu wszystkich kontroli blokujących.'));
-children.push(NUM('Zbudowanie nowego artefaktu indeksu i powiadomienie instancji mikroserwisu.'));
+children.push(NUM('Zbudowanie nowego artefaktu indeksu i przestawienie wskaźnika wersji. Instancje mikroserwisu wykrywają zmianę, odpytując wskaźnik co 60 sekund.'));
 
 children.push(H2('7.2. Kontrole jakości'));
 children.push(P(
@@ -537,42 +706,60 @@ children.push(table(
     ['Wielkość zmiany', 'Błąd konwersji powodujący masową utratę lub duplikację danych', 'Blokująca'],
     ['Spadek w pojedynczej gminie', 'Wzorzec „zrzut bez miasta” — przypadek Wrocławia z 2016 r.', 'Blokująca'],
     ['Brak zmian w danych', 'Zamrożenie źródła — przypadek z czerwca 2024 r.', 'Ostrzeżenie'],
-    ['Poprawność geometrii', 'Odwróconą kolejność osi współrzędnych i punkty poza granicami kraju', 'Blokująca'],
+    ['Poprawność geometrii', 'Odwróconą kolejność osi współrzędnych i punkty poza granicami kraju', 'Blokująca przy punktach poza granicami kraju'],
   ],
 ));
 
 children.push(SPACER());
-children.push(P([
-  new TextRun({ text: 'Kontrola blokująca wstrzymuje publikację i pozostawia poprzedni zrzut jako aktywny. ', bold: true, size: 21 }),
-  new TextRun({ text: 'Przyjęta zasada: lepiej udostępniać dane sprzed tygodnia niż dane obejmujące połowę kraju. Obejście kontroli jest możliwe, ale wymaga jawnej decyzji operatora i pozostawia ślad w dzienniku zdarzeń.', size: 21 }),
-]));
+children.push(LEAD('Kontrola blokująca wstrzymuje publikację i pozostawia poprzedni zrzut jako aktywny. ',
+  'Przyjęta zasada: lepiej udostępniać dane sprzed tygodnia niż dane obejmujące połowę kraju. ' +
+  'Obejście kontroli jest możliwe, ale wymaga jawnej decyzji operatora i pozostawia ślad ' +
+  'w dzienniku zdarzeń.'));
+
+children.push(LEAD('Próg przy uruchomieniu częściowym. ',
+  'Domyślny próg minimalnej liczby rekordów odpowiada pełnemu krajowi. Publikacja czterech ' +
+  'województw wymagała jego świadomego obniżenia do wartości odpowiadającej temu zakresowi — ' +
+  'jest to parametryzacja kontroli, nie jej wyłączenie. Przy przejściu na komplet 16 ' +
+  'województw próg wraca do wartości domyślnej.'));
 
 children.push(H2('7.3. Odporność na niedostępność źródła'));
 children.push(table(
-  { head: ['Poziom', 'Źródło', 'Warunek uruchomienia'], widths: [1200, 3400, 4426] },
+  { head: ['Poziom', 'Źródło', 'Warunek uruchomienia', 'Stan'], widths: [900, 2600, 3300, 2226] },
   [
-    ['1', 'PRG (GUGiK)', 'Domyślny'],
-    ['2', 'iMPA (Geo-System)', 'Niedostępność PRG powyżej 7 dni lub brak zmian powyżej 30 dni'],
-    ['3', 'Otwarte dane miast', 'Uzupełnienie luk w dużych ośrodkach'],
-    ['4', 'Własne archiwum plików źródłowych', 'Awaria wszystkich źródeł zewnętrznych'],
+    ['1', 'PRG (GUGiK)', 'Domyślny', 'Działa'],
+    ['2', 'iMPA (Geo-System)', 'Niedostępność PRG powyżej 7 dni lub brak zmian powyżej 30 dni', 'Zaplanowany — wymaga wyjaśnienia licencji'],
+    ['3', 'Otwarte dane miast', 'Uzupełnienie luk w dużych ośrodkach', 'Zaplanowany'],
+    ['4', 'Własne archiwum plików źródłowych', 'Awaria wszystkich źródeł zewnętrznych', 'Częściowo — archiwum istnieje, ale nie opuszcza maszyny roboczej'],
   ],
+  { rowFill: (r) => r[3] === 'Działa' ? C.ok : C.warn },
 ));
 
 children.push(SPACER());
 children.push(P(
   'Poziom czwarty ma istotne znaczenie dla ciągłości działania. Własne wersjonowane ' +
-  'archiwum — około 900 MB na zrzut, przy zrzutach miesięcznych ok. 22 GB rocznie — ' +
-  'oznacza, że trwała niedostępność rejestru PRG powoduje degradację usługi do stanu ' +
-  '„dane nie starsze niż ostatni zrzut”, a nie jej wyłączenie.'));
+  'archiwum — około 1,8 GB na zrzut, wielkość zmierzona dla kompletu 16 województw, ' +
+  'przy zrzutach miesięcznych ok. 22 GB rocznie — oznacza, że trwała niedostępność ' +
+  'rejestru PRG powoduje degradację usługi do stanu „dane nie starsze niż ostatni zrzut”, ' +
+  'a nie jej wyłączenie.'));
+
+children.push(...box(
+  'Zastrzeżenie: dziś działają dwa poziomy z czterech',
+  [
+    'Poziomy 2 i 3 są zaprojektowane, ale nie zbudowane. Faktyczne zabezpieczenie stanowią dziś rejestr PRG i własne archiwum.',
+    'Archiwum jest przy tym pojedynczą kopią na dysku roboczym. Awaria tego dysku oznacza jednoczesną utratę poziomu 4 i — co ważniejsze — bezpowrotną utratę zrzutu w strukturze sprzed 1 września 2026, którego po tej dacie nie da się odtworzyć z żadnego źródła.',
+    'Wyniesienie archiwum do magazynu poza maszyną jest z tego powodu pozycją o wyższym priorytecie niż wynikałoby to z jej nakładu.',
+  ],
+  C.stop,
+));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
-// ================= 8. WYNIKI TESTOW =================
+// ================= 8. WYNIKI WERYFIKACJI =================
 children.push(H1('8. Wyniki weryfikacji'));
 
 children.push(H2('8.1. Test integracyjny'));
 children.push(P(
-  'Całą ścieżkę przetestowano na działającej instancji PostgreSQL 16.13 z PostGIS 3, ' +
+  'Całą ścieżkę przetestowano na działającej instancji PostgreSQL 17.5 z PostGIS 3.5, ' +
   'dla obu struktur danych źródłowych — dotychczasowej i obowiązującej od września.'));
 
 children.push(table(
@@ -590,11 +777,13 @@ children.push(table(
 ));
 
 children.push(SPACER());
-children.push(H2('8.2. Wydajność wyszukiwania'));
+children.push(H2('8.2. Wydajność wyszukiwania — pomiar wstępny na zbiorze syntetycznym'));
 children.push(P(
-  'Pomiary wykonano na zbiorze syntetycznym odwzorowującym rozkład danych rzeczywistych: ' +
-  '103 tys. miejscowości i 270 tys. ulic, łącznie 373 tys. pozycji, z uwzględnieniem ' +
-  'polskich znaków, duplikatów nazw i nazw patronackich.'));
+  'Pomiary z tego podrozdziału wykonano przed uruchomieniem na danych rzeczywistych, ' +
+  'na zbiorze syntetycznym o zbliżonej liczebności: 103 tys. miejscowości i 270 tys. ulic, ' +
+  'łącznie 373 tys. pozycji. Jak się później okazało, rozkład powtarzalności nazw w tym ' +
+  'zbiorze odbiegał od rzeczywistego — dlatego wyniki bezwzględne zostały zastąpione ' +
+  'pomiarami z podrozdziału 8.6. Zachowujemy je, ponieważ porównanie podejść pozostaje ważne.'));
 
 children.push(table(
   { head: ['Podejście', 'Mediana czasu odpowiedzi', 'Ocena przydatności'], widths: [4000, 2500, 2526] },
@@ -608,23 +797,164 @@ children.push(table(
 
 children.push(SPACER());
 children.push(table(
-  { head: ['Parametr', 'Wartość zmierzona'], widths: [4500, 4526] },
+  { head: ['Parametr', 'Zbiór syntetyczny', 'Dane rzeczywiste (8.3, 8.6)'], widths: [3200, 2900, 2926] },
   [
-    ['Mediana czasu odpowiedzi', '0,49 ms'],
-    ['95. percentyl', '1,11 ms'],
-    ['99. percentyl', '1,84 ms'],
-    ['Rozmiar artefaktu indeksu', '53 MB'],
-    ['Zużycie pamięci przez instancję', 'ok. 485 MB'],
-    ['Czas budowy artefaktu', '12 s'],
-    ['Odporność na literówki', 'Zapytanie „mickievicza” zwraca „Mickiewicza”'],
+    ['Mediana czasu odpowiedzi', '0,49 ms', 'ok. 4 ms'],
+    ['95. percentyl', '1,11 ms', 'nie przeliczono'],
+    ['99. percentyl', '1,84 ms', 'nie przeliczono'],
+    ['Rozmiar artefaktu indeksu', '53 MB', '66,4 MB'],
+    ['Liczba pozycji w indeksie', '373 tys.', '487 301'],
+    ['Czas budowy artefaktu', '12 s', '3,5 min'],
+    ['Odporność na literówki', 'Zapytanie „mickievicza” zwraca „Mickiewicza”', 'Zachowana, koszt 27 ms'],
   ],
 ));
 
 children.push(SPACER());
-children.push(P([
-  new TextRun({ text: 'Wniosek metodyczny: ', bold: true, size: 21 }),
-  new TextRun({ text: 'czynnikiem decydującym o wydajności jest liczba pozycji w indeksie, nie wybrana technologia. Ten sam mechanizm zastosowany do zbioru mniejszego 23-krotnie daje czas odpowiedzi niższy około 300-krotnie. Z tego powodu indeksowane są miejscowości i ulice, a numery budynków pobierane są z bazy dopiero po wyborze ulicy, gdy jest ich od kilkudziesięciu do kilkuset.', size: 21 }),
-]));
+children.push(LEAD('Wniosek metodyczny: ',
+  'o wydajności decyduje nie wybrana technologia, lecz liczba kandydatów, których zapytanie ' +
+  'musi uszeregować. Dlatego indeksowane są miejscowości i ulice, a numery budynków pobierane ' +
+  'są z bazy dopiero po wyborze ulicy, gdy jest ich od kilkudziesięciu do kilkuset. Rozwinięcie ' +
+  'tej obserwacji na danych rzeczywistych znajduje się w 8.6.'));
+
+children.push(H2('8.3. Uruchomienie na danych rzeczywistych'));
+children.push(P(
+  'Dotychczasowe wyniki pochodziły z próbek i zbiorów syntetycznych. 6 sierpnia 2026 ' +
+  'cała ścieżka przeszła na rzeczywistych danych PRG i TERYT.'));
+
+children.push(table(
+  { head: ['Element', 'Wynik'], widths: [3400, 5626] },
+  [
+    ['Punkty adresowe opublikowane', '1 990 483'],
+    ['Punkty z przypisaną ulicą', '1 324 563 — 100% tych, które miały odwołanie'],
+    ['Miejscowości w słowniku', '101 865'],
+    ['Ulice w katalogu', '385 436 (308 888 z TERYT, reszta z PRG)'],
+    ['Artefakt wyszukiwania', '487 301 pozycji, 66,4 MB'],
+    ['Zakres', '4 województwa z 16 — pozostałe pobrane, czekają na przetworzenie'],
+  ],
+));
+
+children.push(SPACER());
+children.push(LEAD('Zabezpieczenie zrzutu. ',
+  'Pobrano komplet 16 województw (1,8 GB) z sumą kontrolną każdego pliku. Realizuje to ' +
+  'decyzję o archiwizacji przed 1 września 2026. Sierpniowa paczka zawiera równolegle plik ' +
+  'w strukturze dotychczasowej i nowej, więc zabezpieczono obie — łącznie z atrybutami, ' +
+  'które po tej dacie znikną.'));
+
+children.push(LEAD('Słowniki TERYT pobrano bez konta w GUS. ',
+  'Usługa sieciowa nie odpowiadała na żadne zapytanie, ale te same katalogi są udostępniane ' +
+  'jako pliki bez rejestracji. Pozycja „Import słowników TERYT” z planu prac jest zamknięta, ' +
+  'a zależność od rejestracji w GUS — nieaktualna.'));
+
+children.push(...box(
+  'Najważniejszy wynik dla oceny ryzyka',
+  [
+    'Parser przeszedł przez rzeczywisty plik w strukturze obowiązującej od 1 września 2026 i nie odrzucił ani jednego rekordu. Wrześniowa zmiana formatu — dotąd największe ryzyko w tym opracowaniu — jest potwierdzona jako opanowana na danych, a nie tylko deklarowana.',
+    'Kontrole jakości zadziałały zgodnie z projektem: przy próbie publikacji jednego województwa wstrzymały podmianę, bo 1,27 mln punktów to znacznie poniżej progu ustawionego dla całego kraju. Publikacja czterech województw wymagała świadomego obniżenia progu do wartości odpowiadającej temu zakresowi — patrz 7.2.',
+  ],
+  C.ok,
+));
+
+children.push(H2('8.4. Usterki wykryte na danych rzeczywistych'));
+children.push(P(
+  'Pięć usterek ujawniło się dopiero na rzeczywistych danych czterech województw. ' +
+  'Wszystkie naprawiono.'));
+
+children.push(table(
+  { head: ['Usterka', 'Skutek przed naprawą'], widths: [4200, 4826] },
+  [
+    ['Dekodowanie porcji strumienia osobno rozcinało polskie znaki', 'Uszkodzone nazwy ulic — jedna na województwo, bez ostrzeżenia'],
+    ['Błędne wiązanie punktów z miejscowościami w nowej strukturze', 'Publikacja przerywana; przy szerszej kolumnie — ciche śmieci zamiast identyfikatorów'],
+    ['Zdublowane pozycje w słownikach źródłowych', 'Jeden zdublowany rekord wstrzymywał publikację całego kraju'],
+    ['Zapytanie wiążące punkty z ulicami bez możliwości użycia indeksu', 'Ponad 100 mld porównań — przebieg przerwany po 8 godzinach bez wyniku'],
+    ['Słowniki TERYT wstawiane rekord po rekordzie', 'Ponad 20 minut i zerwane połączenie; po zmianie — 8 minut'],
+  ],
+));
+
+children.push(SPACER());
+children.push(...box(
+  'Wniosek metodyczny',
+  [
+    'Żadnej z tych pięciu usterek nie dało się wykryć na danych testowych. Cztery z nich ujawniają się wyłącznie przy skali, a jedna dopiero po naprawieniu poprzedniej.',
+    'Harmonogram wdrożenia musi przewidywać przebieg na komplecie 16 województw przed produkcją — testy na próbkach nie wykrywają ani błędów skali, ani błędów wiązania danych. Cztery województwa to ok. 23% kraju, więc analogiczne niespodzianki przy pozostałych dwunastu są możliwe.',
+  ],
+  C.head,
+));
+
+children.push(H2('8.5. Wydajność przetwarzania'));
+children.push(P(
+  'Pomiary na komputerze przenośnym: 8 rdzeni, przetwarzanie w kontenerach, archiwum ' +
+  'na dysku hosta. Na serwerze wyniki będą lepsze, proporcje pozostaną.'));
+
+children.push(table(
+  { head: ['Etap', 'Czas'], widths: [5000, 4026] },
+  [
+    ['Parsowanie punktów adresowych (sam odczyt i odwzorowanie pól)', '902 rekordy/s'],
+    ['Parsowanie miejscowości i ulic', '~460 rekordów/s — więcej pól na rekord'],
+    ['Wczytanie województwa (1,27 mln punktów) — parsowanie wraz z zasileniem obszaru przejściowego', '~38 minut, czyli ok. 557 rekordów/s dla pełnego etapu'],
+    ['Import słowników TERYT (400 tys. rekordów)', '8 minut'],
+    ['Publikacja 4 województw', '72 minuty'],
+    ['Budowa artefaktu wyszukiwania', '3,5 minuty'],
+  ],
+));
+
+children.push(SPACER());
+children.push(P(
+  'Rozróżnienie w pierwszym i trzecim wierszu jest istotne przy planowaniu: 902 rekordy/s ' +
+  'to przepustowość samego parsowania, natomiast czas wczytania województwa obejmuje ' +
+  'dodatkowo zasilenie obszaru przejściowego i budowę indeksów. Szacunki dla całego kraju ' +
+  'należy wyprowadzać z tej drugiej wartości.'));
+
+children.push(P(
+  'Pełny przebieg dla kraju wychodził na około 4 godziny — istotnie więcej niż wcześniej ' +
+  'zakładane 40 minut. Rozbieżność usunięto: pliki wojewódzkie są niezależne, więc ' +
+  'przetwarzanie rozdzielono na równoległe procesy.'));
+
+children.push(table(
+  { head: ['Tryb', 'Przepustowość parsowania', 'Pełny przebieg dla kraju'], widths: [2400, 3300, 3326] },
+  [
+    ['Jeden proces', '902 rekordy/s', '~4 godziny'],
+    ['Cztery procesy', '3266 rekordów/s — 3,6×', '~1–1,5 godziny'],
+  ],
+));
+
+children.push(SPACER());
+children.push(LEAD('Kosztem jest pamięć: ',
+  'około 400 MB na proces. Liczbę procesów dobiera się do pamięci dostępnej dla zadania, ' +
+  'nie do liczby rdzeni.'));
+
+children.push(H2('8.6. Czasy odpowiedzi na danych rzeczywistych — sprostowanie'));
+children.push(P(
+  'Podane wcześniej 0,49 ms mediany pochodziło ze zbioru syntetycznego. Pomiar na danych ' +
+  'rzeczywistych daje inny obraz.'));
+
+children.push(table(
+  { head: ['Rodzaj zapytania', 'Czas odpowiedzi'], widths: [5200, 3826] },
+  [
+    ['Nazwa jednoznaczna (Grójecka, Puławska)', '0,7–0,8 ms'],
+    ['Nazwa częsta (Polna, 3 Maja, Krakowska)', '2,6–4,8 ms'],
+    ['Nazwa patronacka (Kościuszki)', '14 ms'],
+    ['Zapytanie z literówką (mickievicza)', '27 ms'],
+    ['Nazwa masowo powtarzalna (Nowa Wieś)', '42 ms'],
+    ['Mediana', 'ok. 4 ms'],
+  ],
+  { rowFill: (r) => r[0] === 'Mediana' ? C.head : undefined },
+));
+
+children.push(SPACER());
+children.push(P(
+  'Różnica nie wynika z wielkości zbioru, lecz z jego rozkładu: w prawdziwych danych ' +
+  '„Nowa Wieś” to setki miejscowości, a nazwy patronackie powtarzają się w tysiącach. ' +
+  'Koszt bierze się z liczby kandydatów do uszeregowania.'));
+
+children.push(...box(
+  'Co to znaczy dla produktu',
+  [
+    'Wynik pozostaje bardzo dobry — podpowiedzi są dla użytkownika natychmiastowe, a najgorszy zmierzony przypadek mieści się w typowym budżecie czasu odpowiedzi z dużym zapasem.',
+    'Planując wydajność, budżet należy przewidzieć pod nazwy pospolite i zapytania z literówką, nie pod przypadek optymistyczny.',
+    'Pomiar wykonano na danych czterech województw. Przy komplecie 16 liczba kandydatów dla nazw pospolitych wzrośnie — ponowny pomiar po pełnym przebiegu jest pozycją w planie prac.',
+  ],
+  C.head,
+));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -636,15 +966,15 @@ children.push(P(
 
 children.push(H2('9.1. Porównanie'));
 children.push(table(
-  { head: ['Kryterium', 'A. Własna baza', 'B. Hybryda', 'C. Zewnętrzne API'], widths: [2300, 2242, 2242, 2242] },
+  { head: ['Kryterium', 'A. Własna baza', 'B. Hybryda', 'C. Zewnętrzne API'], widths: [2000, 2542, 2242, 2242] },
   [
-    ['Nakład wdrożeniowy', 'Wysoki (5–7 tygodni)', 'Średni', 'Niski (kilka dni)'],
+    ['Nakład wdrożeniowy', 'Wysoki (11–15 tygodni do produkcji, rdzeń już zbudowany)', 'Średni', 'Niski (kilka dni)'],
     ['Koszt bieżący', 'Infrastruktura + utrzymanie', 'Infrastruktura + opłaty za część ruchu', 'Opłata rosnąca liniowo z ruchem'],
     ['Uzależnienie od dostawcy', 'Brak', 'Częściowe', 'Pełne'],
     ['Dane osobowe poza organizacją', 'Nie', 'Dla części zapytań', 'Tak'],
-    ['Czas odpowiedzi', '0,5 ms', '0,5 ms / opóźnienie sieci', 'Opóźnienie sieci'],
+    ['Czas odpowiedzi', 'ok. 4 ms (mediana), do 42 ms dla nazw masowo powtarzalnych — patrz 8.6', 'ok. 4 ms lokalnie / opóźnienie sieci dla ruchu kierowanego na zewnątrz', 'Opóźnienie sieci'],
     ['Identyfikatory rejestrowe', 'Tak', 'Tak', 'Zwykle nie'],
-    ['Odporność na awarię źródła', 'Cztery poziomy zabezpieczeń', 'Dwa źródła', 'Brak wpływu'],
+    ['Odporność na awarię źródła', 'Cztery poziomy w projekcie, dwa uruchomione — patrz 7.3', 'Dwa źródła', 'Usługa działa nadal, ale dane dostawcy też pochodzą z PRG i przestaną się aktualizować — patrz 3.2'],
     ['Utrzymanie', 'Konieczne, po stronie Zamawiającego', 'Konieczne', 'Po stronie dostawcy'],
   ],
   { boldFirst: true },
@@ -681,33 +1011,81 @@ children.push(new Paragraph({ children: [new PageBreak()] }));
 // ================= 10. PLAN =================
 children.push(H1('10. Plan dalszych prac'));
 
+children.push(P(
+  'Plan przepisano w wydaniu 1.3. Poprzednia wersja wyceniała pracę już wykonaną ' +
+  'i pomijała obszary ujawnione podczas uruchomienia na danych rzeczywistych. ' +
+  'Nakłady podano w dniach roboczych jednej osoby.'));
+
+children.push(H2('10.1. Pozycje zamknięte'));
 children.push(table(
-  { head: ['Etap', 'Zakres', 'Nakład', 'Zależności'], widths: [2400, 3200, 1500, 1926] },
+  { head: ['Pozycja z poprzednich wydań', 'Stan'], widths: [4000, 5026] },
   [
-    ['Archiwizacja danych', 'Pobranie i zabezpieczenie zrzutu w dotychczasowej strukturze', '1 dzień', 'Termin: przed 1.09.2026'],
-    ['Weryfikacja nowej struktury', 'Uruchomienie rozpoznania na rzeczywistym pliku, korekta odwzorowania pól', '2–3 dni', 'Dostępność pliku'],
-    ['Import słowników TERYT', 'Integracja z usługą sieciową GUS, obsługa plików różnicowych', '3–5 dni', 'Rejestracja w GUS'],
-    ['Uruchomienie na pełnym zbiorze', 'Import 8,5 mln punktów, strojenie, weryfikacja czasów', '5–8 dni', 'Poprzednie etapy'],
-    ['Automatyzacja i monitorowanie', 'Zadanie cykliczne, powiadomienia, dziennik zdarzeń', '3–5 dni', '—'],
-    ['Drugie źródło danych', 'Integracja iMPA, uzgadnianie rozbieżności', '5–8 dni', 'Wyjaśnienie licencji'],
-    ['Walidacja wsadowa', 'Przetwarzanie plików z adresami, kolejka zadań', '3–5 dni', '—'],
-    ['Utwardzenie i dokumentacja', 'Testy, zabezpieczenia, dokumentacja powdrożeniowa', '5 dni', 'Poprzednie etapy'],
+    ['Archiwizacja danych w dotychczasowej strukturze', 'WYKONANE 6.08.2026 — komplet 16 województw, 1,8 GB, sumy kontrolne'],
+    ['Weryfikacja nowej struktury danych', 'WYKONANE 6.08.2026 — rozpoznanie i odwzorowanie pól potwierdzone na rzeczywistym pliku, zero odrzuconych rekordów'],
+    ['Import słowników TERYT', 'WYKONANE 6.08.2026 — pliki pełne, bez konta w GUS. Zależność od rejestracji w GUS nieaktualna'],
+  ],
+  { rowFill: () => C.ok },
+));
+
+children.push(SPACER());
+children.push(H2('10.2. Etapy do wykonania'));
+children.push(table(
+  { head: ['Etap', 'Zakres', 'Nakład'], widths: [2500, 4926, 1600] },
+  [
+    ['1. Dokończenie bazy produkcyjnej', 'Przetworzenie pozostałych 12 województw, publikacja pełnego kraju, artefakt i pomiary na komplecie danych, archiwum poza maszyną, kopie zapasowe bazy z testem odtworzenia', '3–4 dni'],
+    ['2. Wydajność i przetwarzanie równoległe', 'Raportowanie postępu, wznawianie przerwanych przebiegów, limit czasu i wykrywanie zawieszenia, strojenie bazy pod ładowanie masowe, testy regresji wydajności', '6–8 dni'],
+    ['3. Podział na dwa serwisy', 'Rozdzielenie ról w bazie, osobne potoki budowania, kontrakt między serwisami, test skalowania poziomego', '3–5 dni'],
+    ['4. Wersjonowanie wydań', 'Rejestr wydań, wersja danych w każdej odpowiedzi, procedura wycofania, wydanie kanarkowe, przypięcie klienta do wersji', '4–5 dni'],
+    ['5. Audyt zmian i kontrola nadpisywania', 'Dziennik zmian rekordów, raport różnic między wydaniami, jawne reguły precedencji źródeł, ochrona zmian ręcznych przed nadpisaniem przez automat', '5–7 dni'],
+    ['6. Braki blokujące wdrożenie', 'Specyfikacja OpenAPI, retencja i anonimizacja logów zapytań, rejestr czynności przetwarzania, zbiór wzorcowy i testy regresji jakości wyszukiwania, cele dostępności, procedura przy awarii źródła', '8–10 dni'],
+    ['7. Monitorowanie i obserwowalność', 'Odbiorca metryk i alertów, pulpit operacyjny, alerty dla usługi, sonda syntetyczna, centralne logi, zasady eskalacji', '6–8 dni'],
+    ['8. Komercjalizacja', 'Klucze API z licencjami i limitami per klient, model wielodostępności, kopie zapasowe na osobną maszynę z cotygodniowym testem odtworzenia', '18–24 dni'],
+    ['Narzędzie do migracji bazy (poza etapami)', 'Wersjonowanie schematu z rejestrem zastosowanych migracji', '1,5 dnia'],
   ],
 ));
 
 children.push(SPACER());
-children.push(P('Łączny szacowany nakład: 5–7 tygodni pracy jednej osoby, przy założeniu braku istotnych niespodzianek po stronie struktury danych źródłowych.'));
-
-children.push(H2('10.1. Zagadnienia do zweryfikowania w trakcie wdrożenia'));
 children.push(P(
-  'Poniższe kwestie nie były możliwe do rozstrzygnięcia na etapie analizy i wymagają ' +
-  'potwierdzenia empirycznego. Żadna z nich nie zagraża przyjętej architekturze, ale każda ' +
-  'może wpłynąć na szczegóły realizacji.'));
+  'Łącznie 55–73 dni roboczych, czyli około 11–15 tygodni pracy jednej osoby na sam ' +
+  'back-end. Panel administracyjny i interfejs użytkownika doliczane osobno.'));
 
-children.push(BULLET('Czy serwer instytucji prowadzącej rejestr zwraca nagłówki umożliwiające tani sondaż zmian. W razie ich braku konieczne jest przejście na harmonogram tygodniowy.'));
-children.push(BULLET('Dokładne nazwy plików w nowej strukturze po 1 września. Kod dopasowuje pliki według wzorca, nie stałej nazwy, więc zmiana nie powinna być odczuwalna.'));
-children.push(BULLET('Czy nowa struktura zachowuje atrybuty wersjonowania obiektów. Od tego zależy, czy wykrywanie zmian może opierać się na wersjach, czy wyłącznie na sumach kontrolnych.'));
-children.push(BULLET('Warunki licencyjne źródła iMPA — wymagane wystąpienie pisemne do podmiotu prowadzącego.'));
+children.push(...box(
+  'Co można odłożyć, a czego nie',
+  [
+    'Etap 8 w całości dotyczy komercjalizacji. Jeśli nie jest ona celem pierwszego wdrożenia, można go odłożyć — z jednym wyjątkiem: doraźne zamknięcie luki w limitowaniu zapytań (0,25 dnia) należy wykonać niezależnie, bo dziś zabezpieczenie tylko pozornie działa.',
+    'Etapy 4 i 5 muszą poprzedzać prace nad panelem administracyjnym — bez rejestru wydań i dziennika zmian nie ma czym zarządzać.',
+    'Z etapu 7 warto wykonać wcześnie dwie pierwsze pozycje (odbiorca metryk i pulpit operacyjny, ok. 3 dni). Zaczynają się zwracać już w trakcie etapów 1 i 2, bo dziś przebieg przetwarzania jest nieprzejrzysty.',
+    'Etap 2 przed etapem 3, żeby nie przenosić problemów wydajnościowych do nowej struktury.',
+  ],
+  C.head,
+));
+
+children.push(H2('10.3. Zagadnienia otwarte'));
+children.push(P(
+  'Poniższe kwestie wymagają potwierdzenia empirycznego lub decyzji poza zespołem ' +
+  'wdrożeniowym. Żadna nie zagraża przyjętej architekturze.'));
+
+children.push(LEADB('ROZSTRZYGNIĘTE 6.08.2026: ',
+  'serwer nie zwraca ani ETag, ani Last-Modified dla żadnego z 16 województw. Tani sondaż jest niemożliwy — obowiązuje harmonogram tygodniowy i porównywanie sumy kontrolnej pobranego pliku. Mechanizm jest już wbudowany.'));
+children.push(LEADB('ROZSTRZYGNIĘTE 6.08.2026: ',
+  'nowa struktura zachowuje wersjonowanie obiektów, więc wykrywanie zmian może opierać się na wersjach, a nie wyłącznie na sumach kontrolnych.'));
+children.push(LEADB('CZĘŚCIOWO ROZSTRZYGNIĘTE 6.08.2026: ',
+  'pliki w nowej strukturze z paczki sierpniowej zostały pobrane i przetworzone, więc nazewnictwo jest znane empirycznie. Pozostaje potwierdzenie, że nie zmieni się po wycofaniu struktury dotychczasowej 1 września.'));
+children.push(LEADB('OTWARTE: ',
+  'warunki licencyjne źródła iMPA — wymagane wystąpienie pisemne do podmiotu prowadzącego. Blokuje poziom 2 odporności na awarię źródła.'));
+children.push(LEADB('OTWARTE: ',
+  'czy mikroserwis ma zachować połączenie z bazą danych. Dziś potrzebuje go do numerów budynków, kodów pocztowych i geokodowania odwrotnego. Włączenie tych danych do artefaktu uniezależniłoby go całkowicie, ale powiększa artefakt i wydłuża budowę — wymaga oszacowania w etapie 3.'));
+
+children.push(H2('10.4. Rozstrzygnięcia technologiczne'));
+children.push(table(
+  { head: ['Pytanie', 'Rozstrzygnięcie', 'Uzasadnienie'], widths: [2000, 2600, 4426] },
+  [
+    ['Framework serwisu danych', 'Zostaje Fastify', 'Serwis to 11 punktów końcowych bezstanowych, w których liczy się czas odpowiedzi. Projekt działa bez kroku kompilacji; przejście na framework oparty na dekoratorach odwróciłoby tę decyzję bez zysku'],
+    ['Framework serwisu administracyjnego', 'Kandydat: NestJS', 'Autoryzacja, role, walidacja wejścia i generowanie kontraktu przydają się tam, gdzie jest ich dużo, a ruch administracyjny jest znikomy, więc narzut nie ma znaczenia'],
+    ['Mapowanie obiektowo-relacyjne (ORM)', 'Nie w przetwarzaniu i w serwisie danych', 'Przetwarzanie opiera się na ładowaniu masowym, a zapytania serwisu są strojone pod konkretne indeksy, w tym przestrzenne. Ewentualnie w części administracyjnej — wtedy narzędzie leżące blisko SQL'],
+    ['Wersjonowanie schematu bazy', 'Wymagane, dziś brak', 'Migracje wykonują się wyłącznie przy inicjalizacji kontenera bazy, a poprawki trzeba wgrywać ręcznie. Jest to kruche i wpływa na procedurę odtwarzania z kopii zapasowej'],
+  ],
+));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -715,13 +1093,17 @@ children.push(new Paragraph({ children: [new PageBreak()] }));
 children.push(H1('11. Decyzje wymagane od Zamawiającego'));
 
 children.push(table(
-  { head: ['Decyzja', 'Rekomendacja', 'Termin', 'Konsekwencja zaniechania'], widths: [2400, 2500, 1400, 2726] },
+  { head: ['Decyzja', 'Rekomendacja', 'Termin', 'Konsekwencja zaniechania'], widths: [2300, 2400, 1500, 2826] },
   [
-    ['Archiwizacja danych w dotychczasowej strukturze', 'Wykonać niezwłocznie', 'Do 31.08.2026', 'Bezpowrotna utrata statusu budynku i numeru lokalu'],
-    ['Wystąpienie o warunki licencyjne iMPA', 'Wystąpić teraz', 'Najbliższe tygodnie', 'Brak zabezpieczenia na wypadek awarii źródła podstawowego'],
+    ['Archiwizacja danych w dotychczasowej strukturze', 'WYKONANE 6.08.2026', 'Zamknięte', 'Bezpowrotna utrata statusu budynku, numeru lokalu i przynależności administracyjnej'],
+    ['Wyniesienie archiwum i kopii zapasowych poza maszynę roboczą', 'Wykonać niezwłocznie', 'Najbliższe tygodnie', 'Awaria dysku oznacza bezpowrotną utratę zrzutu w strukturze sprzed 1.09.2026, którego nie da się odtworzyć'],
+    ['Doraźne zamknięcie luki w limitowaniu zapytań', 'Wykonać niezależnie od reszty planu', 'Przed jakimkolwiek wystawieniem serwisu', 'Limitowanie pozostaje możliwe do obejścia — usługa bez ochrony przed nadużyciem'],
+    ['Czy komercjalizacja jest celem pierwszego wdrożenia', 'Rozstrzygnąć przed etapem 4', 'Najbliższe tygodnie', 'Etap 8 to 18–24 dni. Odłożenie go bez decyzji grozi budowaniem wersjonowania wydań bez uwzględnienia rozliczania klientów'],
+    ['Model udostępniania: wspólna instalacja czy instancja per klient', 'Jedna wspólna instalacja', 'Przed etapem 3', 'Instancja per klient powiela ten sam artefakt w pamięci — przy 50 klientach to ponad 20 GB na dane identyczne dla wszystkich'],
+    ['Wystąpienie o warunki licencyjne iMPA', 'Wystąpić teraz', 'Najbliższe tygodnie', 'Brak zabezpieczenia na wypadek awarii źródła podstawowego — poziom 2 pozostaje niedostępny'],
     ['Zakup licencji na spis kodów pocztowych', 'Odłożyć', '—', 'Kody z rejestru pozostają przybliżeniem — akceptowalne'],
     ['Zewnętrzne API jako uzupełnienie', 'Przewidzieć, uruchamiać warunkowo', 'Przed produkcją', 'Niższa skuteczność korekty danych wprowadzanych ręcznie'],
-    ['Zakres pierwszego wdrożenia', 'Cały kraj', 'Przed etapem importu', 'Ograniczenie do wybranych województw skraca czas o ok. tydzień'],
+    ['Zakres pierwszego wdrożenia', 'Cały kraj', 'Przed przetworzeniem pozostałych 12 województw', 'Rozwiązanie działa dziś na 4 województwach (ok. 23% kraju); pozostanie przy tym zakresie ogranicza użyteczność produktu'],
     ['Model utrzymania', 'Wskazać osobę odpowiedzialną za obserwację zmian po stronie rejestru', 'Przed produkcją', 'Zmiana formatu może pozostać niezauważona'],
   ],
   { boldFirst: true },
@@ -750,6 +1132,11 @@ children.push(table(
     ['ODbL', 'Licencja danych OpenStreetMap zawierająca klauzulę zobowiązującą do udostępnienia bazy pochodnej na tych samych warunkach'],
     ['Artefakt indeksu', 'Niezmienny plik zawierający strukturę wyszukiwania, wytwarzany przez proces przetwarzania i ładowany przez mikroserwis'],
     ['Obszar przejściowy', 'Wydzielona część bazy danych, do której trafiają dane przed weryfikacją i publikacją'],
+    ['Punkt końcowy', 'Pojedynczy adres funkcji w interfejsie REST — jedna operacja, którą aplikacja może wywołać'],
+    ['Klucz API', 'Poświadczenie identyfikujące aplikację klienta. Podstawa limitowania zapytań i rozliczania. W obecnej wersji nieweryfikowany — patrz 5.5'],
+    ['Wielodostępność', 'Obsługa wielu klientów przez jedną instalację, z rozdzieleniem limitów, uprawnień i rozliczeń'],
+    ['Metryka', 'Liczba udostępniana przez usługę na potrzeby monitorowania, np. wiek danych lub czas odpowiedzi'],
+    ['Sonda gotowości', 'Zapytanie kontrolne, na podstawie którego środowisko uruchomieniowe decyduje, czy kierować ruch do danej instancji'],
   ],
 ));
 
@@ -806,7 +1193,7 @@ const doc = new Document({
           border: { top: { style: BorderStyle.SINGLE, size: 4, color: 'D5DBE0' } },
           spacing: { before: 120 },
           children: [
-            new TextRun({ text: 'Komponent walidacji danych adresowych  ·  wersja 1.0', size: 16, color: C.muted }),
+            new TextRun({ text: `Komponent walidacji danych adresowych  ·  wersja ${WERSJA}`, size: 16, color: C.muted }),
             new TextRun({ text: '\t', size: 16 }),
             new TextRun({ children: ['Strona ', PageNumber.CURRENT, ' z ', PageNumber.TOTAL_PAGES], size: 16, color: C.muted }),
           ],
@@ -818,7 +1205,9 @@ const doc = new Document({
 });
 
 Packer.toBuffer(doc).then((buf) => {
-  const out = path.join(__dirname, 'raport-baza-mikroserwis.docx');
+  const dir = path.join(__dirname, 'raport');
+  fs.mkdirSync(dir, { recursive: true });
+  const out = path.join(dir, `raport-baza-mikroserwis-v${WERSJA}.docx`);
   fs.writeFileSync(out, buf);
   console.log('OK', (buf.length / 1024).toFixed(0), 'KB ->', out);
 });
