@@ -212,28 +212,79 @@ BEGIN
     pobrano = now(),
     wycofany_od = NULL;
 
+  -- Wydzielenie slowa rodzajowego z nazwy do kolumny cechy.
+  --
+  -- PRG nie wypelnia `cecha` w ogole i dla czesci ulic wstawia typ do samej
+  -- nazwy: "ulica Marszalkowska" zamiast cechy "ul." i nazwy "Marszalkowska".
+  -- W Warszawie dotyczylo to 97% ulic. Bez tego kroku migracja 003 zostalaby
+  -- cofnieta przy pierwszej publikacji, bo PRG wnioslby nazwy z przedrostkiem
+  -- z powrotem. Regula jest ta sama, co w 003 - trzymac je zgodne.
+  UPDATE staging.ulica s
+     SET cecha      = COALESCE(s.cecha, r.skrot),
+         nazwa      = regexp_replace(s.nazwa, '^\S+\s+', ''),
+         nazwa_norm = regexp_replace(s.nazwa_norm, '^\S+\s+', '')
+    FROM (VALUES ('ulica','ul.'), ('aleja','al.'), ('plac','pl.'),
+                 ('osiedle','os.'), ('rondo','rondo'), ('skwer','skwer'),
+                 ('bulwar','bulw.'), ('droga','droga'), ('szosa','szosa'))
+         AS r(slowo, skrot)
+   WHERE lower(split_part(s.nazwa, ' ', 1)) = r.slowo
+     AND position(' ' in s.nazwa) > 0;
+
+  -- Katalog ulic: scalanie po SYM_UL, nie po nazwie.
+  --
+  -- Do 9.08.2026 kluczem konfliktu bylo (simc, nazwa_norm, cecha). TERYT
+  -- ustawia cecha 'ul.', PRG zostawia NULL, wiec ten sam obiekt wchodzil DWA
+  -- RAZY - 363 823 nadmiarowe wiersze, 53% katalogu. Punkty wiazaly sie tylko
+  -- z jednym wpisem, drugi zostawal z zerem i zasmiecal podpowiedzi.
+  -- SYM_UL to identyfikator z urzedowego katalogu ULIC; jest wypelniony
+  -- dla 99,98% wierszy i byl dostepny od poczatku.
   INSERT INTO adres.ulica AS u (
     simc, sym_ul, cecha, nazwa, nazwa_norm, nazwa_skroc, nazwa_skroc_norm,
     nazwa_1, nazwa_2, zrodlo, zrodlo_wersja, prg_local_id, pobrano
   )
-  -- Jak wyzej. Ulice dubluja sie czesciej niz miejscowosci: w jednym zrzucie
-  -- wojewodzkim bylo 329 takich grup. Preferujemy wariant z SYM_UL, bo to
-  -- identyfikator z katalogu ULIC, ktorego PRG czesto nie podaje.
+  SELECT DISTINCT ON (s.simc, s.sym_ul)
+         s.simc, s.sym_ul, s.cecha, s.nazwa, s.nazwa_norm,
+         s.nazwa_skroc, s.nazwa_skroc_norm, s.nazwa_1, s.nazwa_2,
+         s.zrodlo, s.zrodlo_wersja, s.prg_local_id, now()
+    FROM staging.ulica s
+   WHERE s.simc IS NOT NULL AND s.sym_ul IS NOT NULL
+     AND EXISTS (SELECT 1 FROM adres.miejscowosc m WHERE m.simc = s.simc)
+   -- TERYT pierwszy, bo z niego bierzemy nazwe urzedowa
+   ORDER BY s.simc, s.sym_ul, (s.zrodlo <> 'teryt'), s.prg_local_id
+  ON CONFLICT (simc, sym_ul) WHERE sym_ul IS NOT NULL AND wycofany_od IS NULL
+  DO UPDATE SET
+    -- nazwa urzedowa z TERYT ma pierwszenstwo (patrz komentarz wyzej)
+    nazwa            = CASE WHEN EXCLUDED.zrodlo = 'teryt' THEN EXCLUDED.nazwa            ELSE u.nazwa            END,
+    nazwa_norm       = CASE WHEN EXCLUDED.zrodlo = 'teryt' THEN EXCLUDED.nazwa_norm       ELSE u.nazwa_norm       END,
+    cecha            = CASE WHEN EXCLUDED.zrodlo = 'teryt' THEN EXCLUDED.cecha            ELSE COALESCE(u.cecha, EXCLUDED.cecha) END,
+    nazwa_skroc      = CASE WHEN EXCLUDED.zrodlo = 'teryt' THEN EXCLUDED.nazwa_skroc      ELSE COALESCE(u.nazwa_skroc, EXCLUDED.nazwa_skroc) END,
+    nazwa_skroc_norm = CASE WHEN EXCLUDED.zrodlo = 'teryt' THEN EXCLUDED.nazwa_skroc_norm ELSE COALESCE(u.nazwa_skroc_norm, EXCLUDED.nazwa_skroc_norm) END,
+    nazwa_1 = COALESCE(u.nazwa_1, EXCLUDED.nazwa_1),
+    nazwa_2 = COALESCE(u.nazwa_2, EXCLUDED.nazwa_2),
+    prg_local_id = COALESCE(u.prg_local_id, EXCLUDED.prg_local_id),
+    zrodlo_wersja = EXCLUDED.zrodlo_wersja,
+    pobrano = now(),
+    wycofany_od = NULL;
+
+  -- Ulice bez SYM_UL (ok. 130 w skali kraju) - brak klucza katalogowego,
+  -- wiec dla nich zostaje dopasowanie po nazwie. Osobny indeks czesciowy.
+  INSERT INTO adres.ulica AS u (
+    simc, sym_ul, cecha, nazwa, nazwa_norm, nazwa_skroc, nazwa_skroc_norm,
+    nazwa_1, nazwa_2, zrodlo, zrodlo_wersja, prg_local_id, pobrano
+  )
   SELECT DISTINCT ON (s.simc, s.nazwa_norm, s.cecha)
          s.simc, s.sym_ul, s.cecha, s.nazwa, s.nazwa_norm,
          s.nazwa_skroc, s.nazwa_skroc_norm, s.nazwa_1, s.nazwa_2,
          s.zrodlo, s.zrodlo_wersja, s.prg_local_id, now()
     FROM staging.ulica s
-   WHERE s.simc IS NOT NULL
+   WHERE s.simc IS NOT NULL AND s.sym_ul IS NULL
      AND EXISTS (SELECT 1 FROM adres.miejscowosc m WHERE m.simc = s.simc)
-   ORDER BY s.simc, s.nazwa_norm, s.cecha, (s.sym_ul IS NULL), s.prg_local_id
-  ON CONFLICT (simc, nazwa_norm, cecha) DO UPDATE SET
-    -- SYM_UL: PRG czesto go nie ma, TERYT ma zawsze
-    sym_ul = COALESCE(u.sym_ul, EXCLUDED.sym_ul),
-    -- nazwa urzedowa z TERYT ma pierwszenstwo (patrz komentarz wyzej)
-    nazwa            = CASE WHEN u.zrodlo = 'teryt' THEN u.nazwa            ELSE EXCLUDED.nazwa            END,
-    nazwa_skroc      = CASE WHEN u.zrodlo = 'teryt' THEN u.nazwa_skroc      ELSE EXCLUDED.nazwa_skroc      END,
-    nazwa_skroc_norm = CASE WHEN u.zrodlo = 'teryt' THEN u.nazwa_skroc_norm ELSE EXCLUDED.nazwa_skroc_norm END,
+     AND NOT EXISTS (SELECT 1 FROM adres.ulica x
+                      WHERE x.simc = s.simc AND x.nazwa_norm = s.nazwa_norm
+                        AND x.sym_ul IS NOT NULL AND x.wycofany_od IS NULL)
+   ORDER BY s.simc, s.nazwa_norm, s.cecha, s.prg_local_id
+  ON CONFLICT (simc, nazwa_norm, cecha) WHERE sym_ul IS NULL AND wycofany_od IS NULL
+  DO UPDATE SET
     nazwa_1 = COALESCE(u.nazwa_1, EXCLUDED.nazwa_1),
     nazwa_2 = COALESCE(u.nazwa_2, EXCLUDED.nazwa_2),
     zrodlo_wersja = EXCLUDED.zrodlo_wersja,
