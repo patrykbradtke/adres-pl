@@ -21,9 +21,19 @@ info:
     Podpowiedzi adresowe, walidacja i geokodowanie odwrotne na danych
     Państwowego Rejestru Granic (PRG) i TERYT.
 
-    **Uwierzytelnianie: brak.** Serwis nie weryfikuje tożsamości klienta.
-    Limitowanie zapytań działa po adresie sieciowym. Do czasu wdrożenia
-    kluczy API serwis nie powinien być wystawiany poza sieć wewnętrzną.
+    **Uwierzytelnianie: klucz API w nagłówku `X-API-Key`.** Klucz ma postać
+    `adr_live_<32 znaki>_<6 znaków sumy>` i jest pokazywany **jeden raz**,
+    przy wystawieniu — serwis przechowuje wyłącznie jego skrót.
+
+    Limit zapytań liczony jest po **zweryfikowanym kliencie**, nie po kluczu
+    ani po nagłówku: wszystkie klucze jednego klienta dzielą wspólny licznik.
+    Ruch bez ważnego klucza podlega osobnemu, niższemu limitowi po adresie
+    sieciowym. Limit obowiązuje **na instancję usługi** — przy wielu replikach
+    łączna przepustowość jest odpowiednio wyższa.
+
+    Sondy operacyjne (`/health`, `/ready`, `/metrics`, `/status`) pozostają
+    bez uwierzytelniania: są potrzebne Kubernetesowi i Prometheuszowi, a odcina
+    się je na warstwie sieciowej, nie w aplikacji.
 
     **Wersja danych** jest niezależna od wersji API. Zwracają ją `/v1/meta`
     oraz pola `wersjaDanych` w odpowiedziach wyszukiwania i walidacji.
@@ -33,6 +43,13 @@ info:
 servers:
   - url: http://localhost:3000
     description: Instalacja lokalna
+
+# Obowiazuje wszystkie operacje POZA tymi, ktore maja jawne `security: []`
+# (sondy operacyjne). Wpisanie tego globalnie, a nie przy kazdej operacji,
+# sprawia, ze nowy endpoint jest chroniony DOMYSLNIE - trzeba swiadomie
+# napisac `security: []`, zeby go otworzyc.
+security:
+  - KluczApi: []
 
 tags:
   - name: podpowiedzi
@@ -72,6 +89,8 @@ paths:
                   czasMs: { type: number, description: Czas samego wyszukiwania, bez obsługi żądania. }
                   wersjaDanych: { type: string, example: '2026-08-06' }
         '400': { $ref: '#/components/responses/BladWalidacji' }
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /v1/localities:
@@ -92,6 +111,8 @@ paths:
                 properties:
                   results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
         '400': { $ref: '#/components/responses/BladWalidacji' }
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /v1/streets:
@@ -120,6 +141,8 @@ paths:
                   simc: { type: string }
                   results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
         '400': { $ref: '#/components/responses/BladWalidacji' }
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /v1/numbers:
@@ -150,6 +173,8 @@ paths:
                   count: { type: integer }
                   results: { type: array, items: { $ref: '#/components/schemas/NumerBudynku' } }
         '400': { $ref: '#/components/responses/BladZadania' }
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /v1/postal-code:
@@ -185,6 +210,8 @@ paths:
                     type: string
                     description: Obecne wyłącznie gdy `zrodlo` nie jest `rejestr_prg`.
         '400': { $ref: '#/components/responses/BladZadania' }
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /v1/reverse:
@@ -215,6 +242,8 @@ paths:
                           properties:
                             odleglosc_m: { type: number }
         '400': { $ref: '#/components/responses/BladWalidacji' }
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /v1/locality/{simc}:
@@ -234,6 +263,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Miejscowosc' }
         '404': { $ref: '#/components/responses/BladZadania' }
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /v1/parse:
@@ -258,6 +289,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AdresRozebrany' }
         '400': { $ref: '#/components/responses/BladWalidacji' }
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /v1/validate:
@@ -283,6 +316,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/WynikWalidacji' }
         '400': { $ref: '#/components/responses/BladWalidacji' }
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /v1/batch:
@@ -325,6 +360,8 @@ paths:
                     description: Liczność każdego poziomu pewności.
                   results: { type: array, items: { $ref: '#/components/schemas/WynikWalidacji' } }
         '400': { $ref: '#/components/responses/BladWalidacji' }
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /v1/meta:
@@ -377,9 +414,13 @@ paths:
                   ostrzezenie:
                     type: string
                     description: Obecne wyłącznie gdy wiek przekracza 30 dni.
+        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
+        '403': { $ref: '#/components/responses/BrakUprawnien' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
   /health:
     get:
+      security: []
       tags: [operacyjne]
       summary: Sonda żywotności
       description: Sprawdza wyłącznie, czy indeks jest w pamięci. **Nie zależy od bazy.**
@@ -389,6 +430,7 @@ paths:
 
   /ready:
     get:
+      security: []
       tags: [operacyjne]
       summary: Sonda gotowości
       description: |
@@ -401,6 +443,7 @@ paths:
 
   /metrics:
     get:
+      security: []
       tags: [operacyjne]
       summary: Metryki w formacie Prometheusa
       description: 17 rodzin metryk. Liczebności są cache'owane; dostępność bazy nie.
@@ -412,6 +455,7 @@ paths:
 
   /status:
     get:
+      security: []
       tags: [operacyjne]
       summary: Stan usługi w postaci czytelnej dla człowieka
       responses:
@@ -421,7 +465,44 @@ paths:
             application/json: { schema: { type: object, additionalProperties: true } }
 
 components:
+  securitySchemes:
+    KluczApi:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Klucz klienta. **Wyłącznie w nagłówku** — klucz podany w query stringu
+        jest traktowany jak jego brak, bo trafiłby do access logu ingressu,
+        do nagłówka `Referer` i do historii przeglądarki.
+
   responses:
+    BrakUwierzytelnienia:
+      description: |
+        Brak klucza albo klucz nieprawidłowy.
+
+        Zły format, zła suma kontrolna i klucz nieznany dają **identyczną**
+        odpowiedź — rozróżnienie zamieniłoby ją w wyrocznię dla zgadującego.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, code]
+            properties:
+              error: { type: string, example: 'Klucz API nieprawidlowy.' }
+              code: { type: string, enum: [BRAK_KLUCZA, NIEPRAWIDLOWY] }
+    BrakUprawnien:
+      description: |
+        Klucz rozpoznany, ale nieczynny. Kod mówi wprost, co się stało —
+        na tym etapie klient udowodnił już posiadanie całego sekretu, więc
+        nie ma czego chronić, a integrator musi wiedzieć, co zrobić.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, code]
+            properties:
+              error: { type: string, example: 'Klucz API wygasl.' }
+              code: { type: string, enum: [WYGASLY, UNIEWAZNIONY, ZAWIESZONY] }
     BladWalidacji:
       description: Parametry nie przeszły walidacji schematu.
       content:

@@ -17,6 +17,9 @@ import { registerSearchRoutes } from './routes/search.ts';
 import { registerLookupRoutes } from './routes/lookup.ts';
 import { registerValidateRoutes } from './routes/validate.ts';
 import { registerMetricsRoutes, Metrics } from './routes/metrics.ts';
+import { registerAuth, type ApiKeyMode } from './keys/auth.ts';
+import { KeyRegistry } from './keys/registry.ts';
+import { Peppers, pepperEntriesFromEnv } from './keys/pepper.ts';
 
 export interface ServerConfig {
   port: number;
@@ -28,6 +31,14 @@ export interface ServerConfig {
   rateLimitMax: number;
   trustProxy: boolean | number | string;
   corsOrigin: string | string[] | boolean;
+  /** Etap 8A. Domyslnie wylaczony - wlaczenie jest osobna decyzja (8.9). */
+  apiKeyMode: ApiKeyMode;
+  /** Limit na minute z jednego adresu dla ruchu bez waznego klucza. */
+  rateLimitNieuwierzytelniony: number;
+  kluczeOdswiezanieMs: number;
+  /** Pieprze jako zwykle dane - konfiguracja pozostaje serializowalna. */
+  pieprze: Array<[number, string]>;
+  pieprzAktywny: number | null;
 }
 
 /**
@@ -59,7 +70,19 @@ export function loadConfig(env = process.env): ServerConfig {
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 600),
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
     corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : true,
+    // loadConfig zostaje CZYSTA i nie rzuca, takze przy niespojnej konfiguracji
+    // (np. tryb wymagany bez pieprza). Kontrola spojnosci siedzi w buildServer -
+    // dzieki temu da sie zbadac sama konfiguracje, nie stawiajac serwera.
+    apiKeyMode: parseApiKeyMode(env.API_KEY_MODE),
+    rateLimitNieuwierzytelniony: Number(env.RATE_LIMIT_NIEUWIERZYTELNIONY ?? 60),
+    kluczeOdswiezanieMs: Number(env.KLUCZE_ODSWIEZANIE_MS ?? 10_000),
+    ...(() => { const { sekrety, aktywna } = pepperEntriesFromEnv(env); return { pieprze: sekrety, pieprzAktywny: aktywna }; })(),
   };
+}
+
+/** Nieznana wartosc daje 'wylaczony' - najbezpieczniejsza wobec zgodnosci wstecz. */
+export function parseApiKeyMode(v?: string): ApiKeyMode {
+  return v === 'wymagany' || v === 'opcjonalny' || v === 'wylaczony' ? v : 'wylaczony';
 }
 
 export async function buildServer(cfg: ServerConfig): Promise<FastifyInstance> {
@@ -71,28 +94,6 @@ export async function buildServer(cfg: ServerConfig): Promise<FastifyInstance> {
   });
 
   await app.register(cors, { origin: cfg.corsOrigin });
-  await app.register(rateLimit, {
-    max: cfg.rateLimitMax,
-    timeWindow: '1 minute',
-    /**
-     * Limitujemy WYLACZNIE po adresie klienta.
-     *
-     * Wczesniej kluczem byl naglowek x-api-key z odwrotem na req.ip. Naglowka
-     * nikt nie weryfikuje, wiec klient losujacy jego wartosc przy kazdym zadaniu
-     * dostawal za kazdym razem swiezy licznik i calkowicie omijal limitowanie.
-     * Nie byl to brak funkcji, tylko dzialajacy mechanizm obejscia.
-     *
-     * Klucze API z wlasnymi, wyzszymi limitami wracaja dopiero razem
-     * z uwierzytelnianiem (etap 8A planu) - kluczem limitowania moze byc
-     * wylacznie wartosc, ktora zostala wczesniej zweryfikowana.
-     */
-    keyGenerator: (req) => req.ip,
-  });
-
-  if (cfg.trustProxy === false) {
-    app.log.info('TRUST_PROXY wylaczone - limitowanie po adresie polaczenia. ' +
-      'Za ingressem ustawic TRUST_PROXY na liczbe przeskokow albo liste CIDR.');
-  }
 
   const pool = new pg.Pool({
     connectionString: cfg.databaseUrl,
@@ -100,6 +101,110 @@ export async function buildServer(cfg: ServerConfig): Promise<FastifyInstance> {
     // Typeahead nie dotyka bazy, wiec pula moze byc mala.
     idleTimeoutMillis: 30_000,
   });
+
+  // Zbieracz metryk powstaje wczesnie, bo hook uwierzytelniajacy raportuje
+  // do niego wyniki, a rejestrowany jest przed trasami.
+  const metrics = new Metrics();
+
+  /**
+   * Kontrola spojnosci konfiguracji - TUTAJ, nie w loadConfig.
+   *
+   * Tryb inny niz wylaczony bez pieprza oznaczalby, ze zadnego klucza nie da
+   * sie zweryfikowac, czyli 401 na calym ruchu przy w pelni sprawnej usludze.
+   * Lepiej nie wstac, i to z komunikatem mowiacym, czego brakuje.
+   *
+   * loadConfig zostaje czysta i nie rzuca - dzieki temu da sie zbadac sama
+   * konfiguracje bez stawiania serwera.
+   */
+  const pieprze = cfg.pieprze.length && cfg.pieprzAktywny !== null
+    ? new Peppers(new Map(cfg.pieprze), cfg.pieprzAktywny)
+    : null;
+  if (cfg.apiKeyMode !== 'wylaczony' && !pieprze) {
+    throw new Error(
+      `API_KEY_MODE=${cfg.apiKeyMode} wymaga co najmniej jednego pieprza. ` +
+      'Ustaw API_KEY_PEPPER_1 (nowy sekret: patrz .env.example).');
+  }
+
+  const rejestr = new KeyRegistry({
+    pool,
+    connectionString: cfg.databaseUrl,
+    odswiezanieMs: cfg.kluczeOdswiezanieMs,
+    onError: (err, gdzie) => app.log.error({ err, gdzie }, 'rejestr kluczy'),
+    onInfo: (msg) => app.log.info(msg),
+  });
+
+  /**
+   * Rejestr rusza WYLACZNIE w trybie innym niz wylaczony.
+   *
+   * Inaczej tryb przejsciowy przestalby znaczyc "zerowa zmiana": kazdy
+   * istniejacy zestaw testow i kazde uruchomienie serwisu zaczelyby wymagac
+   * zywej bazy z wgrana migracja 003.
+   */
+  if (cfg.apiKeyMode !== 'wylaczony') {
+    await rejestr.start();
+  }
+
+  await app.register(rateLimit, {
+    /**
+     * Limit zalezy od ZWERYFIKOWANEGO klienta, a nie od czegokolwiek, co
+     * przyszlo w zadaniu. Funkcja dostaje juz wyliczony klucz kubelka, wiec
+     * dziala tylko wtedy, gdy keyGenerator zwrocil tozsamosc - mechanizm
+     * sam sie egzekwuje.
+     *
+     * Math.min, nie ??: limit na kluczu moze wartosc z klienta tylko OBNIZYC.
+     * Inaczej klient podnosilby sobie limit, wystawiajac dodatkowy klucz.
+     */
+    max: (req) => {
+      const k = req.klient;
+      if (!k) return cfg.rateLimitMax;
+      return Math.min(k.limitKlientaNaMinute, k.limitKluczaNaMinute ?? Infinity);
+    },
+    timeWindow: '1 minute',
+    /**
+     * KLUCZEM LIMITOWANIA MOZE BYC WYLACZNIE WARTOSC WCZESNIEJ ZWERYFIKOWANA.
+     *
+     * Do 8.08.2026 bylo tu `req.headers['x-api-key'] ?? req.ip`. Nagowka nikt
+     * nie weryfikowal, wiec klient losujacy jego wartosc przy kazdym zadaniu
+     * dostawal swiezy licznik i CALKOWICIE omijal limitowanie. Zadanie 8.1
+     * przestawilo to na req.ip.
+     *
+     * Klucze API wracaja tu w etapie 8A, ale czytamy WYLACZNIE req.klient,
+     * ktore ustawia jedna funkcja - hook uwierzytelniajacy z keys/auth.ts,
+     * dzialajacy w onRequest poziomu instancji, czyli zawsze PRZED tym
+     * limiterem (Fastify sklada hooki instancji przed hookami trasy).
+     * Surowy naglowek nie moze tu trafic zadna droga.
+     *
+     * Kubelek jest PER KLIENT, nie per klucz: inaczej klient podnosilby sobie
+     * przepustowosc, wystawiajac kolejne klucze.
+     *
+     * Prefiksy 'k:' i 'ip:' sa konieczne - bez nich przestrzenie identyfikatorow
+     * klientow i adresow moglyby sie zlac.
+     */
+    keyGenerator: (req) => (req.klient ? `k:${req.klient.klientId}` : `ip:${req.ip}`),
+    /**
+     * Domyslne 5000 wpisow to LRU wypychajace najstarsze liczniki - przy
+     * wiekszej przestrzeni kluczy limit dalby sie obejsc samym rozproszeniem.
+     * To druga, niezalezna od zadania 8.1 droga obejscia.
+     */
+    cache: 20_000,
+  });
+
+  if (cfg.apiKeyMode !== 'wylaczony') {
+    registerAuth(app, {
+      rejestr,
+      pieprze: pieprze!,
+      cfg: {
+        mode: cfg.apiKeyMode,
+        limitNieuwierzytelniony: cfg.rateLimitNieuwierzytelniony,
+      },
+      onWynik: (wynik) => metrics.uwierzytelnienie(wynik),
+    });
+  }
+
+  if (cfg.trustProxy === false) {
+    app.log.info('TRUST_PROXY wylaczone - limitowanie po adresie polaczenia. ' +
+      'Za ingressem ustawic TRUST_PROXY na liczbe przeskokow albo liste CIDR.');
+  }
 
   const holder = new IndexHolder({
     source: cfg.indexSource,
@@ -114,8 +219,7 @@ export async function buildServer(cfg: ServerConfig): Promise<FastifyInstance> {
 
   await holder.start();
 
-  const metrics = new Metrics();
-  registerMetricsRoutes(app, pool, holder, metrics);
+  registerMetricsRoutes(app, pool, holder, metrics, rejestr);
   registerSearchRoutes(app, holder);
   registerLookupRoutes(app, pool);
   registerValidateRoutes(app, pool, holder);
@@ -168,6 +272,10 @@ export async function buildServer(cfg: ServerConfig): Promise<FastifyInstance> {
 
   app.addHook('onClose', async () => {
     holder.stop();
+    // Rejestr trzyma wlasne polaczenie nasluchujace i interwal odswiezania.
+    // Bez tego wiersza app.close() konczy sie, ale PROCES NIE - petla zdarzen
+    // ma wciaz zywe uchwyty. Objaw: test albo skrypt wisi po zakonczeniu pracy.
+    rejestr.stop();
     await pool.end();
   });
 

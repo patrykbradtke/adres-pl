@@ -112,16 +112,34 @@ export function hashesEqual(a: string, b: string): boolean {
  * sie zbadac sama konfiguracje bez stawiania serwera.
  */
 export function peppersFromEnv(env: NodeJS.ProcessEnv = process.env): Peppers | null {
-  const secrets = new Map<number, string>();
+  const { sekrety, aktywna } = pepperEntriesFromEnv(env);
+  if (sekrety.length === 0 || aktywna === null) return null;
+  return new Peppers(new Map(sekrety), aktywna);
+}
+
+/**
+ * Ten sam odczyt, ale w postaci ZWYKLYCH DANYCH.
+ *
+ * Potrzebny, bo konfiguracja serwera jest budowana z przekazanego otoczenia
+ * (loadConfig(env)), a nie z process.env - inaczej kazdy test musialby
+ * zanieczyszczac globalne process.env, zeby podac pieprz.
+ */
+export function pepperEntriesFromEnv(env: NodeJS.ProcessEnv = process.env): {
+  sekrety: Array<[number, string]>;
+  aktywna: number | null;
+} {
+  const sekrety: Array<[number, string]> = [];
   for (const [nazwa, wartosc] of Object.entries(env)) {
     const m = /^API_KEY_PEPPER_(\d+)$/.exec(nazwa);
-    if (m && wartosc) secrets.set(Number(m[1]), wartosc);
+    if (m && wartosc) sekrety.push([Number(m[1]), wartosc]);
   }
-  if (secrets.size === 0) return null;
+  sekrety.sort((a, b) => a[0] - b[0]);
+  if (sekrety.length === 0) return { sekrety, aktywna: null };
 
+  const numery = sekrety.map(([n]) => n);
   const zEnv = Number(env.API_KEY_PEPPER_AKTYWNY);
-  const aktywna = Number.isInteger(zEnv) && secrets.has(zEnv)
+  const aktywna = Number.isInteger(zEnv) && numery.includes(zEnv)
     ? zEnv
-    : Math.max(...secrets.keys());
-  return new Peppers(secrets, aktywna);
+    : Math.max(...numery);
+  return { sekrety, aktywna };
 }

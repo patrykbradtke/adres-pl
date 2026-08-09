@@ -33,6 +33,18 @@ export class Metrics {
   private hist = new Map<string, number[]>();
   readonly startedAt = Date.now();
 
+  /**
+   * Wyniki uwierzytelnienia. Zbior wartosci jest DOMKNIETY (ok, brak_klucza,
+   * nieprawidlowy, wygasly, uniewazniony, zawieszony, limit_prob) - zadnego
+   * identyfikatora klienta ani prefiksu klucza, bo to wysadziloby kardynalnosc
+   * Prometheusa. Wymiar klienta to osobne zadanie (8.12).
+   */
+  private uwierzytelnienia = new Map<string, number>();
+
+  uwierzytelnienie(wynik: string): void {
+    this.uwierzytelnienia.set(wynik, (this.uwierzytelnienia.get(wynik) ?? 0) + 1);
+  }
+
   observe(endpoint: string, ms: number): void {
     this.counts.set(endpoint, (this.counts.get(endpoint) ?? 0) + 1);
     this.sumMs.set(endpoint, (this.sumMs.get(endpoint) ?? 0) + ms);
@@ -62,6 +74,14 @@ export class Metrics {
       out.push(`adres_zapytanie_ms_sum{endpoint="${ep}"} ${(this.sumMs.get(ep) ?? 0).toFixed(3)}`);
       out.push(`adres_zapytanie_ms_count{endpoint="${ep}"} ${cum}`);
     }
+
+    if (this.uwierzytelnienia.size > 0) {
+      out.push('# HELP adres_uwierzytelnienie_total Rozstrzygniecia uwierzytelnienia klucza API.');
+      out.push('# TYPE adres_uwierzytelnienie_total counter');
+      for (const [wynik, n] of this.uwierzytelnienia) {
+        out.push(`adres_uwierzytelnienie_total{wynik="${wynik}"} ${n}`);
+      }
+    }
     return out;
   }
 }
@@ -71,13 +91,29 @@ export function registerMetricsRoutes(
   pool: pg.Pool,
   holder: IndexHolder,
   metrics: Metrics,
+  rejestr?: { rozmiar: number; wiekMs: number; zaladowana: boolean; liczbaPowiadomien: number },
 ): void {
-  // Pomiar czasu dla kazdego zapytania /v1/*
+  /**
+   * Pomiar czasu dla zapytan /v1/*.
+   *
+   * Dwa warunki, oba istotne:
+   *
+   * 1. Etykieta liczona WYLACZNIE z req.routeOptions.url, bez odwrotu na
+   *    req.url. Odwrot byl luka kardynalnosci: zadania na nieistniejace
+   *    sciezki maja routeOptions.url === undefined, wiec do etykiety trafialby
+   *    dowolny ciag podany przez klienta. Skanowanie sciezek zamienialoby sie
+   *    w nieograniczona liczbe szeregow czasowych w Prometheusie.
+   *
+   * 2. Tylko odpowiedzi ponizej 400. Odrzucenia uwierzytelnienia i limitu
+   *    konczy sie w onRequest, bez dotkniecia bazy i indeksu - rzad 0,05 ms.
+   *    Wpadajac do tego samego histogramu, zanizalyby p50/p95/p99, a wraz
+   *    z nimi uniewaznily prog alertu WysokaLatencjaPodpowiedzi (60 ms)
+   *    i utopily prog "+0,3 ms" z zadania 8.8.
+   */
   app.addHook('onResponse', async (req, reply) => {
-    const url = req.routeOptions?.url ?? req.url.split('?')[0];
-    if (url.startsWith('/v1/')) {
-      metrics.observe(url, reply.elapsedTime);
-    }
+    const url = req.routeOptions?.url;
+    if (!url || !url.startsWith('/v1/') || reply.statusCode >= 400) return;
+    metrics.observe(url, reply.elapsedTime);
   });
 
   /**
@@ -225,6 +261,30 @@ export function registerMetricsRoutes(
     lines.push('# HELP adres_proces_uptime_s Czas dzialania procesu.');
     lines.push('# TYPE adres_proces_uptime_s gauge');
     lines.push(`adres_proces_uptime_s ${Math.round(process.uptime())}`);
+
+    /**
+     * Stan repliki rejestru kluczy.
+     *
+     * adres_klucze_wiek_s jest tu metryka numer jeden: przy awarii bazy
+     * uwierzytelnianie dziala dalej z repliki (fail-open), wiec JEDYNYM
+     * widocznym objawem jest rosnacy wiek. Bez niej awaria kanalu
+     * odswiezania wyglada identycznie jak stan zdrowy.
+     *
+     * adres_klucze_powiadomienia_total pozwala odroznic "NOTIFY nie dziala,
+     * ratuje odpytywanie" od "wszystko gra" - bez tego cicha awaria kanalu
+     * jest niewidoczna.
+     */
+    if (rejestr) {
+      lines.push('# HELP adres_klucze_w_replice Liczba kluczy API w replice w pamieci.');
+      lines.push('# TYPE adres_klucze_w_replice gauge');
+      lines.push(`adres_klucze_w_replice ${rejestr.rozmiar}`);
+      lines.push('# HELP adres_klucze_wiek_s Czas od ostatniego udanego odswiezenia repliki.');
+      lines.push('# TYPE adres_klucze_wiek_s gauge');
+      lines.push(`adres_klucze_wiek_s ${Number.isFinite(rejestr.wiekMs) ? Math.round(rejestr.wiekMs / 1000) : -1}`);
+      lines.push('# HELP adres_klucze_powiadomienia_total Powiadomienia NOTIFY o zmianie klucza.');
+      lines.push('# TYPE adres_klucze_powiadomienia_total counter');
+      lines.push(`adres_klucze_powiadomienia_total ${rejestr.liczbaPowiadomien}`);
+    }
 
     lines.push(...metrics.render());
 
