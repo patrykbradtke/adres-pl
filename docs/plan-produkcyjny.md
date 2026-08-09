@@ -173,7 +173,7 @@ Z rozpoznania rynku, uporządkowane wg pilności.
 
 | # | zadanie | nakład | uwagi |
 |---|---|---|---|
-| 6.5 | Specyfikacja OpenAPI jako źródło prawdy | 1,5 d | 11 endpointów `/v1/*` bez formalnego kontraktu |
+| 6.5 | ~~Specyfikacja OpenAPI jako źródło prawdy~~ **WYKONANE 9.08.2026** — `packages/api/openapi.yaml`, wszystkie 15 tras, kształty odpowiedzi zdjęte z działającej usługi. Test `openapi-zgodnosc.ts` porównuje specyfikację z trasami Fastify w obie strony, więc nie da się jej po cichu rozjechać | — | — |
 | 6.6 | Polityka wycofywania wersji API | 0,5 d | ile wstecz, z jakim wyprzedzeniem |
 | 6.7 | Dokumentacja dla integratorów | 2 d | |
 

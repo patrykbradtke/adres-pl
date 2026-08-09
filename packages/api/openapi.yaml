@@ -1,0 +1,557 @@
+openapi: 3.1.0
+
+# ---------------------------------------------------------------------------
+# Kontrakt mikroserwisu adresowego.
+#
+# ZRODLO PRAWDY dla zespolow integrujacych. Do 9.08.2026 jedynym opisem
+# interfejsu byla tabela w rozdziale 5.4 raportu, ktora podawala nazwy funkcji
+# i przeznaczenie, ale nie metody, sciezki, parametry ani kody odpowiedzi -
+# czyli nie dalo sie na jej podstawie napisac integracji.
+#
+# Ksztalty odpowiedzi w tym pliku pochodza z ODPYTANIA dzialajacej uslugi na
+# pelnych danych krajowych, nie z lektury kodu. Zgodnosc z rzeczywistymi
+# trasami pilnuje test packages/api/test/openapi-zgodnosc.ts - bez niego
+# specyfikacja rozjechalaby sie z kodem tak samo, jak zrobil to raport.
+# ---------------------------------------------------------------------------
+
+info:
+  title: adres-pl — mikroserwis adresowy
+  version: '1.0'
+  description: |
+    Podpowiedzi adresowe, walidacja i geokodowanie odwrotne na danych
+    Państwowego Rejestru Granic (PRG) i TERYT.
+
+    **Uwierzytelnianie: brak.** Serwis nie weryfikuje tożsamości klienta.
+    Limitowanie zapytań działa po adresie sieciowym. Do czasu wdrożenia
+    kluczy API serwis nie powinien być wystawiany poza sieć wewnętrzną.
+
+    **Wersja danych** jest niezależna od wersji API. Zwracają ją `/v1/meta`
+    oraz pola `wersjaDanych` w odpowiedziach wyszukiwania i walidacji.
+  license:
+    name: Dane PRG bez licencji (art. 40c ust. 5 Prawa geodezyjnego)
+
+servers:
+  - url: http://localhost:3000
+    description: Instalacja lokalna
+
+tags:
+  - name: podpowiedzi
+    description: Obsługiwane wyłącznie z indeksu w pamięci. Nie dotykają bazy.
+  - name: wyszukiwanie
+    description: Zapytania do bazy — numery, kody pocztowe, geokodowanie.
+  - name: walidacja
+    description: Rozbiór i weryfikacja adresu wobec rejestru.
+  - name: operacyjne
+    description: Sondy i metryki. Poza przestrzenią /v1, nie dla aplikacji klienckich.
+
+paths:
+  /v1/suggest:
+    get:
+      tags: [podpowiedzi]
+      summary: Podpowiedzi uniwersalne — miejscowości i ulice łącznie
+      description: Zasila pojedyncze pole „zacznij pisać adres”.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 120 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
+        - { name: type, in: query, schema: { type: string, enum: [locality, street] } }
+        - name: simc
+          in: query
+          description: Zawężenie do jednej miejscowości.
+          schema: { type: string, pattern: '^[0-9]{7}$' }
+      responses:
+        '200':
+          description: Lista podpowiedzi uszeregowana malejąco po trafności.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [query, results, czasMs, wersjaDanych]
+                properties:
+                  query: { type: string }
+                  results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
+                  czasMs: { type: number, description: Czas samego wyszukiwania, bez obsługi żądania. }
+                  wersjaDanych: { type: string, example: '2026-08-06' }
+        '400': { $ref: '#/components/responses/BladWalidacji' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+
+  /v1/localities:
+    get:
+      tags: [podpowiedzi]
+      summary: Podpowiedzi miejscowości
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 120 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
+      responses:
+        '200':
+          description: Same miejscowości.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
+        '400': { $ref: '#/components/responses/BladWalidacji' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+
+  /v1/streets:
+    get:
+      tags: [podpowiedzi]
+      summary: Podpowiedzi ulic w wybranej miejscowości
+      description: |
+        `simc` jest **wymagany**. Bez zawężenia lista ulic w Polsce jest
+        bezużyteczna — „Polna” występuje w tysiącach miejscowości.
+
+        Puste `q` oznacza „pokaż wszystkie ulice w tej miejscowości”:
+        użytkownik kliknął w pole i chce zobaczyć listę, zanim cokolwiek napisze.
+      parameters:
+        - { name: simc, in: query, required: true, schema: { type: string, pattern: '^[0-9]{7}$' } }
+        - { name: q, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 20 } }
+      responses:
+        '200':
+          description: Ulice w miejscowości.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [simc, results]
+                properties:
+                  simc: { type: string }
+                  results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
+        '400': { $ref: '#/components/responses/BladWalidacji' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+
+  /v1/numbers:
+    get:
+      tags: [wyszukiwanie]
+      summary: Numery budynków na ulicy albo w miejscowości bez ulic
+      description: |
+        Wymagany dokładnie jeden z `ulicId` lub `simc`; brak obu daje 400.
+        Zwracamy całą listę i pozwalamy filtrować po stronie klienta — to
+        tańsze niż obieg sieciowy przy każdym znaku.
+      parameters:
+        - { name: ulicId, in: query, schema: { type: integer } }
+        - name: simc
+          in: query
+          description: Dla miejscowości bez ulic. Zwraca wyłącznie punkty bez przypisanej ulicy.
+          schema: { type: string, pattern: '^[0-9]{7}$' }
+        - { name: prefix, in: query, schema: { type: string, maxLength: 12 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 2000, default: 500 } }
+      responses:
+        '200':
+          description: Numery uszeregowane naturalnie (2 przed 10).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count, results]
+                properties:
+                  count: { type: integer }
+                  results: { type: array, items: { $ref: '#/components/schemas/NumerBudynku' } }
+        '400': { $ref: '#/components/responses/BladZadania' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+
+  /v1/postal-code:
+    get:
+      tags: [wyszukiwanie]
+      summary: Kod pocztowy dla adresu
+      description: |
+        Kod pochodzi z PRG, czyli z ewidencji gminnych — **nie od Poczty
+        Polskiej**. Autorytatywny jest Spis PNA (płatny, bez interfejsu
+        programistycznego). Rozbieżności są normalne i nie powinny blokować
+        zapisu adresu.
+
+        Gdy numeru nie ma w rejestrze, zwracany jest kod dominujący na ulicy
+        wraz z polem `uwaga`. Wymagany dokładnie jeden z `ulicId` lub `simc`.
+      parameters:
+        - { name: nr, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 20 } }
+        - { name: ulicId, in: query, schema: { type: integer } }
+        - { name: simc, in: query, schema: { type: string, pattern: '^[0-9]{7}$' } }
+      responses:
+        '200':
+          description: Kod pocztowy albo jego przybliżenie.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kodPocztowy, zrodlo]
+                properties:
+                  kodPocztowy: { type: [string, 'null'], example: '00-624' }
+                  zrodlo:
+                    type: string
+                    enum: [rejestr_prg, dominujacy_na_ulicy, brak]
+                  uwaga:
+                    type: string
+                    description: Obecne wyłącznie gdy `zrodlo` nie jest `rejestr_prg`.
+        '400': { $ref: '#/components/responses/BladZadania' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+
+  /v1/reverse:
+    get:
+      tags: [wyszukiwanie]
+      summary: Geokodowanie odwrotne — najbliższe adresy
+      description: Współrzędne poza prostokątem obejmującym Polskę dają 400.
+      parameters:
+        - { name: lat, in: query, required: true, schema: { type: number, minimum: 48.9, maximum: 55.0 } }
+        - { name: lon, in: query, required: true, schema: { type: number, minimum: 13.9, maximum: 24.3 } }
+        - { name: maxM, in: query, schema: { type: integer, minimum: 1, maximum: 5000, default: 500 } }
+      responses:
+        '200':
+          description: Do pięciu najbliższych punktów, od najbliższego.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    maxItems: 5
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/AdresPelny'
+                        - type: object
+                          properties:
+                            odleglosc_m: { type: number }
+        '400': { $ref: '#/components/responses/BladWalidacji' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+
+  /v1/locality/{simc}:
+    get:
+      tags: [wyszukiwanie]
+      summary: Szczegóły miejscowości
+      description: |
+        Pole `ma_ulice` steruje formularzem: gdy `false`, pole ulicy należy
+        **ukryć**, a nie zablokować — numer odnosi się wtedy bezpośrednio
+        do miejscowości.
+      parameters:
+        - { name: simc, in: path, required: true, schema: { type: string, pattern: '^[0-9]{7}$' } }
+      responses:
+        '200':
+          description: Miejscowość wraz z hierarchią administracyjną.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Miejscowosc' }
+        '404': { $ref: '#/components/responses/BladZadania' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+
+  /v1/parse:
+    post:
+      tags: [walidacja]
+      summary: Rozbiór adresu na pola
+      description: Reguły lokalne, bez odpytywania rejestru. Tanie, do podglądu.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [raw]
+              properties:
+                raw: { type: string, maxLength: 500 }
+            example: { raw: 'ul. Kościuszki 12A/3, 00-950 Warszawa' }
+      responses:
+        '200':
+          description: Pola wydzielone z ciągu tekstowego.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdresRozebrany' }
+        '400': { $ref: '#/components/responses/BladWalidacji' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+
+  /v1/validate:
+    post:
+      tags: [walidacja]
+      summary: Walidacja adresu wobec rejestru
+      description: |
+        Podaj `raw` **albo** `address`. Walidacja **nie blokuje** zapisu —
+        klasyfikuje i ostrzega, a decyzję podejmuje logika biznesowa aplikacji.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                raw: { type: string, maxLength: 500 }
+                address: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Adres wraz z poziomem pewności i listą uwag.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WynikWalidacji' }
+        '400': { $ref: '#/components/responses/BladWalidacji' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+
+  /v1/batch:
+    post:
+      tags: [walidacja]
+      summary: Walidacja wsadowa — synchroniczna
+      description: |
+        **Bez wysyłki pliku i bez kolejki.** Do 1000 adresów przekazanych
+        w treści żądania, przetwarzanych sekwencyjnie w jednym żądaniu HTTP.
+        Każda pozycja wykonuje od jednego do czterech zapytań do bazy, więc
+        pełna paczka to kilka tysięcy obiegów — przy dużych wsadach należy
+        liczyć się z długim czasem odpowiedzi i dzielić dane po stronie klienta.
+
+        Przetwarzanie plików i kolejka zadań są osobną pozycją w planie prac.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  maxItems: 1000
+                  items: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Wyniki wraz z podsumowaniem według poziomu pewności.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count, podsumowanie, results]
+                properties:
+                  count: { type: integer }
+                  podsumowanie:
+                    type: object
+                    additionalProperties: { type: integer }
+                    description: Liczność każdego poziomu pewności.
+                  results: { type: array, items: { $ref: '#/components/schemas/WynikWalidacji' } }
+        '400': { $ref: '#/components/responses/BladWalidacji' }
+        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+
+  /v1/meta:
+    get:
+      tags: [walidacja]
+      summary: Metadane zbioru
+      description: |
+        Pozwala wykryć, że dane przestały być aktualizowane.
+
+        **Uwaga:** `wiekNajnowszegoZrzutuDni` liczy wiek ostatniego
+        **pobranego** pliku dowolnego źródła, więc pobranie słowników TERYT
+        albo paczki odrzuconej przez kontrole jakości wygasza ostrzeżenie,
+        mimo że dane produkcyjne stoją. Do **monitorowania** służy metryka
+        `adres_dane_wiek_dni` z `/metrics`, która liczy wiek ostatniego
+        **opublikowanego** zrzutu PRG.
+      responses:
+        '200':
+          description: Wersja danych, historia zrzutów, wiek najnowszego.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [indeks, zrzuty, wiekNajnowszegoZrzutuDni]
+                properties:
+                  indeks:
+                    type: object
+                    properties:
+                      wersjaDanych: { type: string }
+                      zbudowano: { type: string, format: date-time }
+                      liczby:
+                        type: object
+                        properties:
+                          docs: { type: integer }
+                          keys: { type: integer }
+                          localities: { type: integer }
+                          streets: { type: integer }
+                          addressPoints:
+                            type: integer
+                            description: Zawsze 0 — punkty adresowe nie trafiają do indeksu, są pobierane z bazy po wyborze ulicy.
+                  zrzuty:
+                    type: array
+                    maxItems: 10
+                    items:
+                      type: object
+                      properties:
+                        zrodlo: { type: string, enum: [prg, teryt, impa, krakow] }
+                        wersja: { type: string }
+                        pobrano: { type: string, format: date-time }
+                  wiekNajnowszegoZrzutuDni: { type: number }
+                  ostrzezenie:
+                    type: string
+                    description: Obecne wyłącznie gdy wiek przekracza 30 dni.
+
+  /health:
+    get:
+      tags: [operacyjne]
+      summary: Sonda żywotności
+      description: Sprawdza wyłącznie, czy indeks jest w pamięci. **Nie zależy od bazy.**
+      responses:
+        '200': { description: Instancja żyje. }
+        '503': { description: Indeks niezaładowany. }
+
+  /ready:
+    get:
+      tags: [operacyjne]
+      summary: Sonda gotowości
+      description: |
+        Sprawdza indeks **oraz bazę**. Konsekwencja: awaria bazy wyłącza
+        instancję z ruchu również dla podpowiedzi, które bazy nie potrzebują.
+        Rozdzielenie sond jest pozycją w planie prac.
+      responses:
+        '200': { description: Gotowa do przyjmowania ruchu. }
+        '503': { description: Indeks niezaładowany albo baza nie odpowiada. }
+
+  /metrics:
+    get:
+      tags: [operacyjne]
+      summary: Metryki w formacie Prometheusa
+      description: 17 rodzin metryk. Liczebności są cache'owane; dostępność bazy nie.
+      responses:
+        '200':
+          description: Metryki.
+          content:
+            text/plain: { schema: { type: string } }
+
+  /status:
+    get:
+      tags: [operacyjne]
+      summary: Stan usługi w postaci czytelnej dla człowieka
+      responses:
+        '200':
+          description: Stan danych, przebiegów i indeksu wraz z gotowymi ostrzeżeniami.
+          content:
+            application/json: { schema: { type: object, additionalProperties: true } }
+
+components:
+  responses:
+    BladWalidacji:
+      description: Parametry nie przeszły walidacji schematu.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              statusCode: { type: integer, example: 400 }
+              code: { type: string, example: FST_ERR_VALIDATION }
+              error: { type: string, example: Bad Request }
+              message: { type: string, example: 'querystring/simc must match pattern "^[0-9]{7}$"' }
+    BladZadania:
+      description: Żądanie poprawne składniowo, ale niewykonalne.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { type: string, example: 'Podaj ulicId albo simc.' }
+    PrzekroczonyLimit:
+      description: |
+        Przekroczony limit zapytań. Limit liczony jest po adresie sieciowym
+        klienta, domyślnie 600 żądań na minutę.
+
+  schemas:
+    Podpowiedz:
+      type: object
+      required: [type, label, score, simc, locality, maUlice, liczbaPunktow]
+      properties:
+        type: { type: string, enum: [locality, street] }
+        label: { type: string, description: 'Gotowa do wyświetlenia etykieta, np. „Marszałkowska, Cmolas”.' }
+        score: { type: integer, description: Trafność. Wyżej znaczy lepiej; wartości nie są porównywalne między zapytaniami. }
+        simc: { type: string }
+        ulicId: { type: integer, description: Obecne wyłącznie dla `type=street`. Klucz do `/v1/numbers`. }
+        locality: { type: string }
+        street: { type: string }
+        gmina: { type: string }
+        powiat: { type: string }
+        wojewodztwo: { type: string }
+        maUlice: { type: boolean }
+        liczbaPunktow: { type: integer, description: Liczba punktów adresowych. Steruje kolejnością — większe miejscowości wyżej. }
+
+    NumerBudynku:
+      type: object
+      properties:
+        id: { type: integer }
+        prg_local_id: { type: string, description: Identyfikator rejestrowy. Trwały między zrzutami. }
+        nr_budynku: { type: string, example: 12A }
+        kod_pocztowy: { type: [string, 'null'] }
+        status: { type: [string, 'null'], description: 'Status budynku z PRG. Atrybut znika ze źródła po 1.09.2026 — wartości są zamrożone.' }
+        lat: { type: number }
+        lon: { type: number }
+
+    Miejscowosc:
+      type: object
+      properties:
+        simc: { type: string }
+        nazwa: { type: string }
+        rodzaj: { type: integer }
+        rodzaj_nazwa: { type: [string, 'null'], example: miasto }
+        ma_ulice: { type: boolean }
+        liczba_punktow: { type: integer }
+        terc_gminy: { type: string }
+        gmina: { type: string }
+        powiat: { type: [string, 'null'] }
+        wojewodztwo: { type: [string, 'null'] }
+        lat: { type: [number, 'null'] }
+        lon: { type: [number, 'null'] }
+
+    AdresRozebrany:
+      type: object
+      properties:
+        raw: { type: string }
+        miejscowosc: { type: string }
+        cecha: { type: string, example: 'ul.' }
+        ulica: { type: string }
+        nrBudynku: { type: string }
+        nrLokalu: { type: string }
+        kodPocztowy: { type: string }
+        reszta: { type: array, items: { type: string }, description: Fragmenty, których nie udało się przypisać. }
+
+    AdresPelny:
+      type: object
+      additionalProperties: true
+      description: Adres z widoku `adres_pelny` — miejscowość, ulica, numer, kod, współrzędne i hierarchia administracyjna.
+
+    Confidence:
+      type: string
+      enum: [zweryfikowany_rejestr, zweryfikowany_czesciowo, poza_rejestrem, nietypowy, niezweryfikowany]
+      description: |
+        Poziom pewności dopasowania.
+
+        **`poza_rejestrem` nie jest nigdy nadawany przez serwis** — ustawia go
+        aplikacja konsumencka po świadomym potwierdzeniu adresu przez
+        użytkownika. Adres z miejscowością i ulicą z rejestru, ale numerem
+        spoza niego, otrzymuje `zweryfikowany_czesciowo`. Reguła biznesowa
+        oczekująca `poza_rejestrem` z tego interfejsu nigdy się nie uruchomi.
+
+    Uwaga:
+      type: object
+      required: [code, severity, message]
+      properties:
+        code: { type: string, example: WIELE_KANDYDATOW }
+        severity: { type: string, enum: [info, warning, error] }
+        field: { type: string }
+        message: { type: string }
+
+    WynikWalidacji:
+      type: object
+      required: [address, issues, confidence]
+      properties:
+        address:
+          type: object
+          additionalProperties: true
+          properties:
+            kraj: { type: string, enum: [PL] }
+            simc: { type: string }
+            miejscowosc: { type: string }
+            cecha: { type: string }
+            ulica: { type: string }
+            nrBudynku: { type: string }
+            nrLokalu: { type: string, description: 'Zawsze wolny tekst. Nigdy nie weryfikowany wobec rejestru.' }
+            kodPocztowy: { type: string }
+            tercGminy: { type: string }
+            lat: { type: number }
+            lon: { type: number }
+            prgLocalId: { type: string }
+            confidence: { $ref: '#/components/schemas/Confidence' }
+            raw: { type: string }
+        issues: { type: array, items: { $ref: '#/components/schemas/Uwaga' } }
+        confidence: { $ref: '#/components/schemas/Confidence' }
+        wersjaDanych: { type: string }
