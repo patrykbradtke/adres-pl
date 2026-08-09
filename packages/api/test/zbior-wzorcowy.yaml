@@ -57,6 +57,20 @@ podpowiedzi:
     wTop: 1
     dlaczego: Cecha podana skrotem nie moze pogorszyc wyniku.
 
+  # --- podpowiedzi nie moga prowadzic donikad ---
+  - q: gdansk
+    bezSlepychZaulkow: true
+    wTop: 10
+    dlaczego: >
+      Zadna podpowiedz nie moze miec zera punktow adresowych, jesli nie ma tez
+      ulic - taki wybor konczy sie pustym formularzem. Do 9.08.2026 zapytanie
+      "gdansk" zwracalo na drugim miejscu czesc o tej nazwie w gminie Lidzbark,
+      bez jednego adresu, powyzej Starogardu Gdanskiego z 6 829 adresami.
+
+  - q: warszawa
+    bezSlepychZaulkow: true
+    wTop: 10
+
   # --- duplikaty nazw: rozstrzyga uzytkownik, wiec musi dostac czym ---
   - q: nowa wies
     oczekiwane: { label: 'Nowa Wieś', type: locality }

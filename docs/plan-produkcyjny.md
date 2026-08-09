@@ -199,7 +199,7 @@ występować, zestaw upomina się o zdjęcie znacznika.
 | 6.18 | ~~Parser wymaga przecinka jako separatora pól~~ **NAPRAWIONE 9.08.2026** — przy braku przecinka podział w miejscu kodu pocztowego | — |
 | 6.19 | **Ranking prawie nie uwzględnia wielkości miejscowości** | Ulica we wsi z 67 punktami wygrywa z ulicą w mieście z 126 tys. Wymaga decyzji: czy i jak ważyć | 0,5 d + decyzja |
 | 6.20 | ~~Pięciocyfrowy numer budynku czytany jako kod pocztowy~~ **NAPRAWIONE 9.08.2026** — kod bez myślnika odrzucany, gdy wychodzi na zaślepkę | — |
-| 6.21 | Miejscowości-widma z zerową liczbą punktów w podpowiedziach | „gdansk" zwraca Gdańsk właściwy i drugi Gdańsk z 0 punktami — szum w liście | 0,25 d |
+| 6.21 | ~~Miejscowości-widma z zerową liczbą punktów~~ **NAPRAWIONE 9.08.2026** — z indeksu wypadają miejscowości bez punktów I bez ulic (49 079, 48% słownika). Filtr funkcjonalny, nie słownikowy: 921 wpisów typu „część" ma własne adresy | — |
 
 **6.16 — co naprawiono, a co zostaje.** Naprawiona jest warstwa wyszukiwania:
 `score()` traktuje wiodące słowo rodzajowe jako przezroczyste — nie przyznaje

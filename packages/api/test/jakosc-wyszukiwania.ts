@@ -23,6 +23,7 @@ interface PrzypadekPodpowiedzi {
   oczekiwaneZawiera?: string;
   oczekiwaneMiejscowosc?: string;
   roznychSimc?: number;
+  bezSlepychZaulkow?: boolean;
   wTop: number;
   dlaczego?: string;
   znaneOdstepstwo?: string;
@@ -80,7 +81,15 @@ for (const p of zbior.podpowiedzi) {
   let ok: boolean;
   let opis: string;
 
-  if (p.roznychSimc !== undefined) {
+  if (p.bezSlepychZaulkow) {
+    // Miejscowosc bez punktow i bez ulic to slepy zaulek - po jej wybraniu
+    // formularz nie ma czego zaproponowac. Ulic nie widzimy z poziomu
+    // podpowiedzi, ale `maUlice` odpowiada na to samo pytanie.
+    const slepe = top.filter((x) => x.type === 'locality' && x.liczbaPunktow === 0 && x.maUlice === false);
+    ok = slepe.length === 0;
+    opis = `"${p.q}" — slepych zaulkow w top ${p.wTop}: ${slepe.length}` +
+      (slepe.length ? ` (${slepe.map((x) => `${x.label}/${x.powiat}`).join(', ')})` : '');
+  } else if (p.roznychSimc !== undefined) {
     const ile = new Set(top.map((x) => x.simc)).size;
     ok = ile >= p.roznychSimc;
     opis = `"${p.q}" — roznych miejscowosci w top ${p.wTop}: ${ile} (wymagane ${p.roznychSimc})`;

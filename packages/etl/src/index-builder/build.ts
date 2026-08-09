@@ -201,6 +201,23 @@ export const SQL_INDEX_DOCS = `
   LEFT JOIN adres.teryt_jednostka pw ON pw.terc = g.parent_terc
   LEFT JOIN adres.teryt_jednostka w  ON w.terc = pw.parent_terc
   WHERE m.wycofany_od IS NULL
+    -- Pomijamy miejscowosci, w ktorych zadna sciezka nie prowadzi do adresu:
+    -- zero punktow adresowych I zero ulic. Jest ich 49 079, czyli 48% slownika.
+    --
+    -- To nie sa bledy w danych - to glownie jednostki typu "czesc" i "czesc
+    -- miasta", ktore w TERYT z definicji nie sa adresowalne, bo adresy naleza
+    -- do miejscowosci nadrzednej. W polu adresowym sa jednak slepym zaulkiem:
+    -- uzytkownik wybiera "Gdansk" w gminie Lidzbark i nie ma czego wybrac dalej.
+    --
+    -- Filtr jest FUNKCJONALNY, nie slownikowy, i to celowo: 921 wpisow typu
+    -- "czesc" ma wlasne adresy (do 688), wiec wykluczanie po rodzaju bylo by
+    -- bledem. Zostaja tez 246 miejscowosci bez punktow, ale z ulicami -
+    -- np. dzielnica Targowek z 409 ulicami, gdzie punkty wisza przy Warszawie.
+    --
+    -- Same rekordy zostaja w bazie i sa dostepne przez /v1/locality/{simc}.
+    AND (m.liczba_punktow > 0
+         OR EXISTS (SELECT 1 FROM adres.ulica u
+                     WHERE u.simc = m.simc AND u.wycofany_od IS NULL))
 
   UNION ALL
 
