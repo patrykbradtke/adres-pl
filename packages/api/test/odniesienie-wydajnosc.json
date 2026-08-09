@@ -1,0 +1,38 @@
+{
+  "opis": "Wartosci odniesienia dla progu z zadania 8.8. Mierzone app.inject, czyli pelny cykl zycia zadania w Fastify bez gniazda systemowego.",
+  "zmierzono": "2026-08-09T19:45:06.424Z",
+  "etap": "przed 8A (bez uwierzytelniania)",
+  "maszyna": "darwin-x64, node v22.23.2",
+  "artefakt": "atrapa testowa",
+  "zadanNaSerie": 180000,
+  "rozgrzewka": 8000,
+  "czuloscMs": {
+    "p50": 0.0013109999999999788,
+    "p95": 0.015445000000000153,
+    "p99": 0.18683700000000059
+  },
+  "serie": [
+    {
+      "id": "A",
+      "opis": "bez uwierzytelniania",
+      "n": 180000,
+      "p50": 0.17996,
+      "p95": 2.532558,
+      "p99": 13.493541,
+      "kody": {
+        "200": 180000
+      }
+    },
+    {
+      "id": "A-kontrolna",
+      "opis": "bez uwierzytelniania (podloga szumu)",
+      "n": 180000,
+      "p50": 0.181271,
+      "p95": 2.548003,
+      "p99": 13.306704,
+      "kody": {
+        "200": 180000
+      }
+    }
+  ]
+}

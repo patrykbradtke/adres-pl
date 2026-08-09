@@ -150,12 +150,32 @@ błędy wydajnościowe — uznać za nieaktualną.
 nałożonych indeksach (`resolve_refs` + wiązanie z ulicami wewnątrz publikacji).
 303 GB zapisów przy zbiorze 12 GB. To one, nie parsowanie, wyznaczają czas cyklu.
 
-**Wyszukiwanie na pełnym kraju** (`bench-realny.ts`, po rozgrzewce):
+**Wyszukiwanie na pełnym kraju** (po rozgrzewce):
 
-| metoda | p50 | p95 | p99 |
-|---|---|---|---|
-| silnik bezpośrednio | 0,81 ms | 4,63 ms | 9,38 ms |
-| pełna ścieżka HTTP | **1,71 ms** | 9,41 ms | 27,94 ms |
+| metoda | p50 | p95 | p99 | czym zmierzone |
+|---|---|---|---|---|
+| silnik bezpośrednio | 0,81 ms | 4,63 ms | 9,38 ms | `bench-realny.ts` |
+| pełna ścieżka HTTP | **1,71 ms** | 9,41 ms | 27,94 ms | pomiar doraźny, 9.08.2026 |
+
+**Sprostowanie atrybucji (9.08.2026).** Wiersz „pełna ścieżka HTTP" był tu
+i w `deploy/alerty.yaml` przypisany skryptowi `bench-realny.ts`. Ten skrypt
+tych liczb dać nie może: importuje `SearchIndex` i mierzy `idx.search()`
+bezpośrednio, bez routingu, bez hooków i bez serializacji — grep po „fastify"
+nie daje w nim ani jednego trafienia. Liczby pochodzą z pomiaru doraźnego,
+którego nie ma w repozytorium.
+
+Znaczenie praktyczne: uwierzytelnianie z etapu 8A siedzi w hooku `onRequest`,
+który w `bench-realny.ts` w ogóle się nie wykonuje. Pomiar „przed i po" tym
+skryptem pokazałby różnicę zero przy dowolnym koszcie hooka. Stąd
+`packages/api/test/bench-http.ts` (`npm run bench`) — mierzy pełny cykl życia
+żądania w Fastify i **sam sprawdza własną czułość**, puszczając dwie identyczne
+serie przeplotem.
+
+Zmierzona czułość na maszynie deweloperskiej: przy 3 tys. żądań na serię podłoga
+szumu p99 wynosi 6,03 ms, przy 60 tys. — 0,659 ms, a dopiero przy 180 tys.
+schodzi do 0,04–0,19 ms. **Próg „+0,3 ms do p99" z zadania 8.8 jest więc
+mierzalny, ale wyłącznie na próbie rzędu 180 tys. żądań** (ok. 7 minut na
+przebieg). Zmierzony na mniejszej próbie byłby liczbą bez wartości.
 
 Wyniki są **lepsze** niż wcześniejsze ~4 ms mimo dwukrotnie większego zbioru.
 Przyczyna jest metodyczna: pierwsze zapytanie po starcie procesu daje 82 ms,

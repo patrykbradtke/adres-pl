@@ -60,8 +60,14 @@ groups:
       #
       # Poprzednio 25 ms, z wartoscia odniesienia 1,84 ms - obie liczby
       # pochodzily ze zbioru syntetycznego, ktory projekt sam wycofal.
-      # Zmierzone na 8,6 mln punktow (bench-realny.ts, po rozgrzewce):
+      # Zmierzone na 8,6 mln punktow, po rozgrzewce:
       # p50 1,71 ms, p95 9,41 ms, p99 27,94 ms przez pelna sciezke HTTP.
+      #
+      # SPROSTOWANIE 9.08.2026: te liczby byly tu przypisane skryptowi
+      # bench-realny.ts, ktory ich dac nie moze - mierzy idx.search()
+      # bezposrednio, bez routingu, hookow i serializacji. Pochodza z pomiaru
+      # doraznego. Przyrzad mierzacy pelny cykl zycia zadania powstal jako
+      # packages/api/test/bench-http.ts (npm run bench).
       # Stary prog odpalilby sie natychmiast po wdrozeniu.
       #
       # 60 ms to ok. 2x zmierzone p99 - lapie realna degradacje, a nie
