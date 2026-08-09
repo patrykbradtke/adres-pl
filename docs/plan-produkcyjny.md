@@ -308,14 +308,43 @@ zapytaniem, bez skanu tabeli.
 | # | zadanie | nakład |
 |---|---|---|
 | 8.1 | ~~**PILNE:** poprawka `keyGenerator` — limitowanie po IP do czasu wdrożenia uwierzytelniania~~ **WYKONANE 8.08.2026** — limitowanie po `req.ip`, `TRUST_PROXY` dla pracy za ingressem, test regresji `packages/api/test/limit-obejscie.ts` | — |
-| 8.2 | Model danych: `klient`, `klucz_api` (prefiks, hash, ważność, limity, status) | 1,5 d |
-| 8.3 | Generowanie i weryfikacja klucza w `@adres-pl/core` | 1 d |
-| 8.4 | Plugin uwierzytelniający Fastify jako `preHandler`, cache w procesie | 2 d |
+| 8.0 | ~~Środowisko i hermetyczny baseline testów~~ **WYKONANE 9.08.2026** — atrapa artefaktu budowana produkcyjnym `buildIndex`, `npm test` przechodzi w świeżym klonie bez ETL i bez bazy; `.env` dopisany do `.gitignore` i `.dockerignore` (nie był ignorowany, a `Dockerfile` robi `COPY . .`) | — |
+| 8.2 | ~~Model danych: `klient`, `klucz_api`, `zuzycie`~~ **WYKONANE 9.08.2026** — `db/migrations/003_licencje.sql`, osobny schemat `licencje` bez kluczy obcych w stronę `adres` (bo `e2e.sh` robi `TRUNCATE adres.* CASCADE`), unikat na skrócie **pełny, nie częściowy**, wyzwalacze `NOTIFY` na obu tabelach | — |
+| 8.3 | ~~Generowanie i weryfikacja klucza w `@adres-pl/core`~~ **WYKONANE 9.08.2026** — `core/src/api-key.ts` bez ani jednego importu `node:*` (własny base64url i CRC32), suma kontrolna liczona **bez pieprza**, bo skaner wycieków musi potwierdzić kształt klucza bez naszego sekretu; HMAC z rotacją w `api/src/keys/pepper.ts` | — |
+| 8.4 | ~~Uwierzytelnianie i limitowanie po zweryfikowanym kliencie~~ **WYKONANE 9.08.2026** — **zapis „jako `preHandler`" był błędny**, patrz sprostowanie niżej. Hook w `onRequest` poziomu instancji, pełna replika rejestru w pamięci zamiast cache, drugi poziom limitu dla ruchu bez ważnego klucza | — |
 | 8.5 | Limity i kwoty per klient, magazyn współdzielony między instancjami | 1,5 d |
 | 8.6 | Cykl życia klucza: rotacja bezprzerwowa, okres przejściowy, unieważnianie | 1,5 d |
 | 8.7 | Endpointy administracyjne pod panel (klucz jawny pokazywany raz) | 1,5 d |
-| 8.8 | Test wydajnościowy: próg regresji nie więcej niż +0,3 ms do p99 | 1,5 d |
+| 8.8 | Test wydajnościowy: próg regresji nie więcej niż +0,3 ms do p99 — **część a wykonana 9.08.2026**: przyrząd `npm run bench` mierzy pełny cykl życia żądania i **własną czułość**; próg jest mierzalny dopiero przy 180 tys. żądań na serię | 0,75 d |
 | 8.9 | Zgłoszenie prefiksu do wykrywania wycieków, dokumentacja dla integratorów | 0,75 d |
+
+**Sprostowanie zapisu 8.4 (9.08.2026): `preHandler` był błędem.** Rekomendacja
+mówiła „plugin uwierzytelniający Fastify jako `preHandler`". Wzięta dosłownie,
+odtwarzałaby lukę z zadania 8.1.
+
+`@fastify/rate-limit` nie zakłada hooka na instancji: jedyne `addHook` w jego
+`index.js` to `onRoute` (linia 142), a właściwy limiter jest wpychany do
+`routeOptions[hook]` osobno dla każdej trasy (201–211), domyślnie w fazie
+`onRequest` (11, 87). `preHandler` biegnie **cztery fazy po** `onRequest`, więc
+`keyGenerator` wykonałby się przed weryfikacją i jedyne, co miałby pod ręką, to
+surowa wartość nagłówka — czyli dokładnie to, co pozwalało omijać limitowanie.
+
+Rozwiązanie: uwierzytelnianie w `onRequest` **poziomu instancji**. Fastify składa
+tablice hooków trasy na `preReady` jako `this[kHooks][hook].concat(opts[hook] || [])`
+(`lib/route.js:391`), więc hooki instancji **zawsze** wyprzedzają hooki trasy.
+Szczelność wynika z konstrukcji Fastify, a nie z ostrożnej kolejności wywołań.
+
+Odrzucona odwrotna łatka — przestawienie limitera na `hook: 'preHandler'`:
+przestałby odrzucać przed parsowaniem ciała, a `/v1/batch` przyjmuje do 1000
+pozycji, więc klient ponad limitem najpierw obciążyłby proces parsowaniem JSON.
+
+**Uwaga do 8.8 (9.08.2026): próg „+0,3 ms do p99" wymaga próby 180 tys. żądań.**
+Zmierzona podłoga szumu: 6,03 ms przy 3 tys. żądań na serię, 0,659 ms przy
+60 tys., 0,04–0,19 ms przy 180 tys. Zmierzony na małej próbie próg dałby liczbę
+wyglądającą tak samo i wartą zero. Przy okazji sprostowano atrybucję: wiersz
+„pełna ścieżka HTTP" w `STAN-PRAC.md` i `alerty.yaml` był przypisany skryptowi
+`bench-realny.ts`, który Fastify w ogóle nie dotyka — hook uwierzytelniający
+nie wykonuje się tam wcale, więc pomiar „przed i po" pokazywałby zero.
 
 **Zastrzeżenie weryfikacji — nie budować cache w Redisie.** Rekomendacja
 proponowała dwa poziomy cache (w procesie + Redis). Weryfikator wykazał błąd:
