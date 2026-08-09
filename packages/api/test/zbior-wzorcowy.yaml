@@ -97,15 +97,6 @@ walidacja:
   - raw: 'Marszałkowska 1 00-624 Warszawa'
     oczekiwane: { simc: '0918123', confidence: zweryfikowany_rejestr }
     dlaczego: Brak przecinkow i cechy - typowy zapis wklejony z innego systemu.
-    znaneOdstepstwo: >
-      Parser traktuje przecinek jako JEDYNY separator pol. Bez niego cala reszta
-      lqduje w jednym polu: "Marszalkowska 1 Warszawa" trafia do miejscowosci,
-      a przy podanej cesze - do nazwy ulicy. Kod pocztowy jest wylapywany
-      osobno wyrazeniem regularnym, wiec tylko on ocaleje.
-      Ksztalt czesty: adresy wklejane z faktur i PDF-ow gubia przecinki, a REGON
-      zwraca pola osobno - naiwne zlaczenie spacja daje dokladnie to.
-      Zawodzi bezpiecznie (niezweryfikowany, bez falszywej pewnosci),
-      wiec priorytet nizszy niz skrytka pocztowa.
 
   # --- numer spoza rejestru: ostrzezenie, nie blad ---
   - raw: 'ul. Marszałkowska 199, Warszawa'
@@ -134,19 +125,24 @@ walidacja:
       Miejscowosc bez ulic - numer odnosi sie bezposrednio do miejscowosci.
       Rozdzial 6.4.
 
+  # --- kod pocztowy bez mysnika nadal ma dzialac ---
+  - raw: 'ul. Marszałkowska 1, 00950 Warszawa'
+    oczekiwane: { kodPocztowy: '00-950', simc: '0918123' }
+    dlaczego: >
+      Straznik poprawki 6.20. Odrzucamy kody-zaslepki podane bez mysnika,
+      ale zwykly kod bez mysnika musi przechodzic dalej.
+
   # --- skrytka pocztowa ---
   - raw: 'skr. poczt. 15, Warszawa'
     oczekiwane: { confidence: nietypowy }
-    znaneOdstepstwo: >
-      System zwraca zweryfikowany_rejestr, czyli najwyzszy poziom pewnosci,
-      dopasowujac numer skrytki do numeru budynku. Rozdzial 6.4 raportu mowi
-      wprost: skrytki nie maja odpowiednika w rejestrze i ida trybem adresu
-      nietypowego. Skutek: przesylka trafia do wysylki bez przegladu.
+
+  # --- nazwa ulicy podobna do markera skrytki ---
+  - raw: 'ul. Skrytkowa 5, Warszawa'
+    oczekiwane: { ulica: 'Skrytkowa', confidence: zweryfikowany_czesciowo }
+    dlaczego: >
+      Straznik poprawki 6.17. Marker skrytki dopasowuje sie do calego slowa,
+      wiec "Skrytkowa" nie moze byc brana za skrytke pocztowa.
 
   # --- absurdalny numer ---
   - raw: 'ul. Marszałkowska 99999, Warszawa'
     oczekiwane: { nrBudynku: '99999' }
-    znaneOdstepstwo: >
-      Pieciocyfrowy token jest odczytywany jako kod pocztowy "99-999",
-      a numer budynku wychodzi pusty. Numer 99999 jest absurdalny, ale sposob
-      niepowodzenia zly: dane sa cicho reinterpretowane zamiast odrzucone.

@@ -195,10 +195,10 @@ występować, zestaw upomina się o zdjęcie znacznika.
 | # | wada | skutek | nakład |
 |---|---|---|---|
 | 6.16 | ~~Słowo rodzajowe wtopione w nazwę ulicy~~ **NAPRAWIONE 9.08.2026** — punktacja pomija wiodące słowo rodzajowe. Marszałkowska poz. 2, Grójecka poz. 4, Puławska poz. 1 (było: poza pierwszą 25). Zostaje warstwa danych — patrz niżej | — | — |
-| 6.17 | **Skrytka pocztowa dostaje `zweryfikowany_rejestr`** — numer skrytki dopasowany do numeru budynku | Najwyższy poziom pewności dla adresu, który nie istnieje w rejestrze. Przesyłka idzie do wysyłki bez przeglądu. Rozdz. 6.4 raportu mówi: tryb adresu nietypowego | 0,5 d |
-| 6.18 | **Parser wymaga przecinka jako separatora pól** | „Marszałkowska 1 00-624 Warszawa" → cała reszta ląduje w jednym polu. Adresy z faktur i PDF-ów regularnie gubią przecinki; REGON zwraca pola osobno. Zawodzi bezpiecznie | 1 d |
+| 6.17 | ~~Skrytka pocztowa dostaje `zweryfikowany_rejestr`~~ **NAPRAWIONE 9.08.2026** — marker rozpoznawany przed resztą parsowania, numer skrytki nie trafia w numer budynku | — |
+| 6.18 | ~~Parser wymaga przecinka jako separatora pól~~ **NAPRAWIONE 9.08.2026** — przy braku przecinka podział w miejscu kodu pocztowego | — |
 | 6.19 | **Ranking prawie nie uwzględnia wielkości miejscowości** | Ulica we wsi z 67 punktami wygrywa z ulicą w mieście z 126 tys. Wymaga decyzji: czy i jak ważyć | 0,5 d + decyzja |
-| 6.20 | Pięciocyfrowy numer budynku czytany jako kod pocztowy | „99999" → kod „99-999", numer pusty. Ciche przeinaczenie zamiast odrzucenia | 0,25 d |
+| 6.20 | ~~Pięciocyfrowy numer budynku czytany jako kod pocztowy~~ **NAPRAWIONE 9.08.2026** — kod bez myślnika odrzucany, gdy wychodzi na zaślepkę | — |
 | 6.21 | Miejscowości-widma z zerową liczbą punktów w podpowiedziach | „gdansk" zwraca Gdańsk właściwy i drugi Gdańsk z 0 punktami — szum w liście | 0,25 d |
 
 **6.16 — co naprawiono, a co zostaje.** Naprawiona jest warstwa wyszukiwania:

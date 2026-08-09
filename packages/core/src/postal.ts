@@ -48,7 +48,14 @@ export function extractPostalCode(text: string): { code: string; index: number; 
   const plain = /(?<![\d/])(\d{5})(?![\d/])/.exec(text);
   if (plain) {
     const normalized = normalizePostalCode(plain[1]);
-    if (normalized) return { code: normalized, index: plain.index, length: plain[0].length };
+    // Forma bez mysnika jest niejednoznaczna, wiec odrzucamy wynik, ktory
+    // wychodzi na kod-zaslepke. "Marszalkowska 99999" dawalo wczesniej kod
+    // "99-999" i PUSTY numer budynku: dane byly cicho reinterpretowane
+    // zamiast odrzucone. Zapis z mysnikiem zostawiamy - tam intencja jest jawna
+    // i zaslepke lepiej pokazac niz ukryc.
+    if (normalized && !isPlaceholderPostalCode(normalized)) {
+      return { code: normalized, index: plain.index, length: plain[0].length };
+    }
   }
   return null;
 }

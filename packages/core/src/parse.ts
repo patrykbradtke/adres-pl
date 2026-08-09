@@ -20,6 +20,17 @@ import { splitStreetPrefix } from './street.ts';
 const NOISE = /\b(?:polska|poland|pl|rzeczpospolita\s+polska)\b\.?/gi;
 
 /**
+ * Skrytka pocztowa. Nie jest punktem adresowym i nie ma odpowiednika w PRG.
+ *
+ * Rozpoznajemy ja PRZED reszta parsowania, bo inaczej marker zostaje odrzucony
+ * jako nierozpoznany fragment, numer skrytki wpada w pole numeru budynku
+ * i - jesli w tej miejscowosci istnieje budynek o tym numerze - adres dostaje
+ * `zweryfikowany_rejestr`. Tak bylo do 9.08.2026: "skr. poczt. 15, Warszawa"
+ * wracalo z najwyzszym poziomem pewnosci i szlo do wysylki bez przegladu.
+ */
+const SKRYTKA = /\b(?:skr(?:ytka)?\.?\s*poczt(?:owa|\.)?|skrytka|p\.?\s?o\.?\s?box)\b/i;
+
+/**
  * Rozbija ciag adresowy na pola.
  *
  * Wejscie:  "ul. Marszalkowska 12/34, 00-026 Warszawa"
@@ -34,17 +45,43 @@ export function parseAddressLine(raw: string): ParsedAddressLine {
   let work = cleanText(raw).replace(NOISE, ' ').replace(/\s+/g, ' ').trim();
   if (!work) return out;
 
+  // --- 0. skrytka pocztowa ---------------------------------------------
+  // Wykrywamy przed wszystkim innym. Numer skrytki NIE jest numerem budynku,
+  // wiec usuwamy marker razem z nim i nie probujemy dopasowac do rejestru.
+  if (SKRYTKA.test(work)) {
+    out.nietypowy = 'skrytka_pocztowa';
+    work = work.replace(SKRYTKA, ' ').replace(/(?:^|\s)\d{1,6}[A-Za-z]?(?=\s|$|,)/, ' ')
+      .replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '').trim();
+  }
+
   // --- 1. kod pocztowy -------------------------------------------------
   const postal = extractPostalCode(work);
+  // Podzial zapamietujemy PRZED wycieciem kodu - potem pozycje sie przesuwaja.
+  let przedKodem = '';
+  let poKodzie = '';
   if (postal) {
     out.kodPocztowy = postal.code;
+    przedKodem = work.slice(0, postal.index).replace(/\s+/g, ' ').replace(/[\s,]+$/, '').trim();
+    poKodzie = work.slice(postal.index + postal.length).replace(/\s+/g, ' ').replace(/^[\s,]+/, '').trim();
     work = (work.slice(0, postal.index) + ' ' + work.slice(postal.index + postal.length))
       .replace(/\s+/g, ' ')
       .trim();
   }
 
-  // --- 2. podzial na segmenty po przecinkach ---------------------------
-  const segments = work.split(/\s*,\s*/).map((s) => s.trim()).filter(Boolean);
+  // --- 2. podzial na segmenty ------------------------------------------
+  let segments = work.split(/\s*,\s*/).map((s) => s.trim()).filter(Boolean);
+
+  // Brak przecinkow, a byl kod pocztowy: dzielimy w miejscu, gdzie kod stal.
+  //
+  // Przecinek byl wczesniej JEDYNYM separatorem pol, wiec zapis bez niego -
+  // "Marszalkowska 1 00-624 Warszawa" - lądował w calosci w jednym polu jako
+  // nazwa miejscowosci. Ksztalt czesty: adresy wklejane z faktur i PDF-ow gubia
+  // przecinki, a REGON zwraca pola osobno i naiwne zlaczenie spacja daje
+  // dokladnie to. Kod pocztowy stoi w polskim zapisie miedzy czescia ulicowa
+  // a miejscowoscia, wiec jego pozycja jest wiarygodnym punktem podzialu.
+  if (segments.length === 1 && przedKodem && poKodzie) {
+    segments = [przedKodem, poKodzie];
+  }
 
   // --- 3. cecha ulicy w ktoryms z segmentow ----------------------------
   let streetSegIdx = -1;

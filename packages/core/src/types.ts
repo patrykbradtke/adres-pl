@@ -63,6 +63,16 @@ export interface ParsedAddressLine {
   /** Fragmenty, których nie udało się zakwalifikować. */
   reszta: string[];
   raw: string;
+  /**
+   * Adres nie jest punktem adresowym i nie ma odpowiednika w rejestrze —
+   * dziś wyłącznie skrytka pocztowa.
+   *
+   * Bez tego sygnału „skr. poczt. 15, Warszawa" przechodziło ścieżką zwykłego
+   * adresu: marker był odrzucany jako nierozpoznany, numer skrytki trafiał
+   * w pole numeru budynku i adres dostawał `zweryfikowany_rejestr` — najwyższy
+   * poziom pewności dla miejsca, które nie istnieje.
+   */
+  nietypowy?: 'skrytka_pocztowa';
 }
 
 /** Rozbicie numeru na budynek i lokal. */

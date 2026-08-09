@@ -104,6 +104,9 @@ async function validateOne(
       nrLokalu: p.nrLokalu,
       kodPocztowy: p.kodPocztowy,
       raw: body.raw,
+      // Skrytka pocztowa nie ma odpowiednika w rejestrze - deriveConfidence
+      // przepuszcza `nietypowy` bez proby dopasowania. Rozdzial 6.4 raportu.
+      ...(p.nietypowy ? { confidence: 'nietypowy' as const } : {}),
     };
   } else {
     addr = { ...body.address, kraj: 'PL' };
