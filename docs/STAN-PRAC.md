@@ -89,7 +89,15 @@ Przy usterce 10 uwaga projektowa: cache'owane są **tylko zliczenia**.
 Dostępność bazy idzie osobną, tanią sondą `SELECT 1` przy każdym zbieraniu —
 cache'owanie jej maskowałoby awarię, a to sygnał dla alertu z progiem 2 minut.
 
-Testy regresji: `packages/api/test/loader-podmiana.ts`, `limit-obejscie.ts`.
+Testy regresji: `npm test` — cztery zestawy w `packages/api/test/`.
+
+**Zbiór wzorcowy jakości (9.08, zadanie 6.8) ujawnił sześć wad.** Najpoważniejsza:
+**„marszalkowska" nie zwraca Warszawy nawet w pierwszej 25** — 10 992 z 11 338 ulic
+Warszawy ma słowo rodzajowe wtopione w nazwę („ulica Marszałkowska") przy pustej
+kolumnie `cecha`, więc przegrywają ze wsiami, gdzie nazwa jest czysta. W kraju
+32 418 takich ulic. Druga co do wagi: **skrytka pocztowa dostaje
+`zweryfikowany_rejestr`**, choć rozdz. 6.4 raportu przewiduje tryb nietypowy.
+Komplet z nakładami: `plan-produkcyjny.md`, pozycje 6.16–6.21.
 
 Poza tym: naprawiony niekompletny `package-lock.json`, dodany `.dockerignore`,
 `build-index` tworzy teraz stabilną nazwę `current.bin`, loader API czyta

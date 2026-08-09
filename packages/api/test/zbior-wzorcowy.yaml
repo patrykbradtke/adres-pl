@@ -1,0 +1,159 @@
+# Zbior wzorcowy jakosci wyszukiwania i walidacji.
+#
+# PO CO: aktualizacja danych albo zmiana w silniku moze po cichu pogorszyc
+# wyniki. Nic tego dzis nie wykrywa - uslugа nadal odpowiada, kody sa 200,
+# metryki zielone, a "Kosciuszki" przestaje zwracac wlasciwa ulice.
+#
+# ZASADA: zapisujemy odpowiedz POPRAWNA, nie biezaca. Zbior wzorcowy, ktory
+# utrwala stan faktyczny, utrwala rowniez bledy i przestaje byc wzorcem.
+# Tam, gdzie system dzis odpowiada zle, przypadek ma `znaneOdstepstwo`
+# z uzasadnieniem. Uruchamiajacy raportuje je osobno i nie przewraca zestawu,
+# ale pilnuje, zeby po naprawie znacznik zostal zdjety.
+#
+# Zamrozone na danych: 2026-08-06 (16 wojewodztw, 8 605 682 punkty).
+# Uruchomienie: node --experimental-strip-types packages/api/test/jakosc-wyszukiwania.ts
+
+wersjaDanych: '2026-08-06'
+
+podpowiedzi:
+  # --- brak polskich znakow: uzytkownik prawie nigdy ich nie wpisuje ---
+  - q: lodz
+    oczekiwane: { label: 'Łódź', type: locality }
+    wTop: 1
+    dlaczego: Zapis bez znakow diakrytycznych to najczestszy sposob wpisywania.
+
+  - q: gdansk
+    oczekiwane: { label: 'Gdańsk', type: locality }
+    wTop: 1
+
+  - q: krakow
+    oczekiwane: { label: 'Kraków', type: locality }
+    wTop: 1
+
+  - q: zoliborz
+    oczekiwane: { label: 'Żoliborz', type: locality }
+    wTop: 2
+    dlaczego: Zoliborz wystepuje wielokrotnie; wystarczy, ze trafi wysoko.
+
+  # --- literowki ---
+  - q: mickievicza
+    oczekiwaneZawiera: Mickiewicza
+    wTop: 3
+    dlaczego: Podmiana litery to typowa literowka klawiaturowa.
+
+  - q: marszalkowsak
+    oczekiwaneZawiera: Marszałkowska
+    wTop: 5
+    dlaczego: Przestawienie dwoch ostatnich liter.
+
+  # --- formy potoczne i skroty cechy ---
+  - q: jerozolimskie
+    oczekiwane: { label: 'Aleje Jerozolimskie, Warszawa' }
+    wTop: 1
+    dlaczego: Nazwa unikatowa w skali kraju - musi trafic w pierwsze miejsce.
+
+  - q: al. jerozolimskie
+    oczekiwane: { label: 'Aleje Jerozolimskie, Warszawa' }
+    wTop: 1
+    dlaczego: Cecha podana skrotem nie moze pogorszyc wyniku.
+
+  # --- duplikaty nazw: rozstrzyga uzytkownik, wiec musi dostac czym ---
+  - q: nowa wies
+    oczekiwane: { label: 'Nowa Wieś', type: locality }
+    wTop: 1
+  - q: nowa wies
+    roznychSimc: 5
+    wTop: 10
+    dlaczego: >
+      Nazwa wystepuje setki razy. Lista musi pokazac kilka roznych miejscowosci,
+      a nie te sama - inaczej uzytkownik nie ma czego wybrac. Rozdzial 6.4.
+
+  # --- duze miasta wobec wsi o tej samej nazwie ulicy ---
+  - q: marszalkowska
+    oczekiwaneMiejscowosc: Warszawa
+    wTop: 10
+    znaneOdstepstwo: >
+      Warszawa nie mieści się nawet w pierwszej 25. Przyczyna: 10 992 z 11 338
+      ulic Warszawy ma slowo rodzajowe wtopione w nazwe ("ulica Marszalkowska")
+      przy pustej kolumnie cechy, wiec zapytanie o sama nazwe dopasowuje sie
+      gorzej niz do wsi, gdzie nazwa jest czysta. Dotyczy 32 418 ulic w kraju.
+
+  - q: grojecka
+    oczekiwaneMiejscowosc: Warszawa
+    wTop: 10
+    znaneOdstepstwo: To samo zrodlo co przy Marszalkowskiej.
+
+  - q: pulawska
+    oczekiwaneMiejscowosc: Warszawa
+    wTop: 10
+    znaneOdstepstwo: To samo zrodlo co przy Marszalkowskiej.
+
+walidacja:
+  # --- adres wzorcowy ---
+  - raw: 'ul. Marszałkowska 1, 00-624 Warszawa'
+    oczekiwane: { simc: '0918123', confidence: zweryfikowany_rejestr }
+
+  # --- ksztalt, w jakim adresy przychodza z rejestru REGON ---
+  - raw: 'UL. MARSZALKOWSKA 1, 00-624 WARSZAWA'
+    oczekiwane: { simc: '0918123', confidence: zweryfikowany_rejestr }
+    dlaczego: >
+      Wersaliki bez znakow diakrytycznych i cecha skrotem - tak wyglada adres
+      zwracany przez wyszukiwarke REGON. Jesli adres-pl ma byc drugim krokiem
+      po odpytaniu REGON, musi to obsluzyc.
+
+  - raw: 'Marszałkowska 1 00-624 Warszawa'
+    oczekiwane: { simc: '0918123', confidence: zweryfikowany_rejestr }
+    dlaczego: Brak przecinkow i cechy - typowy zapis wklejony z innego systemu.
+    znaneOdstepstwo: >
+      Parser traktuje przecinek jako JEDYNY separator pol. Bez niego cala reszta
+      lqduje w jednym polu: "Marszalkowska 1 Warszawa" trafia do miejscowosci,
+      a przy podanej cesze - do nazwy ulicy. Kod pocztowy jest wylapywany
+      osobno wyrazeniem regularnym, wiec tylko on ocaleje.
+      Ksztalt czesty: adresy wklejane z faktur i PDF-ow gubia przecinki, a REGON
+      zwraca pola osobno - naiwne zlaczenie spacja daje dokladnie to.
+      Zawodzi bezpiecznie (niezweryfikowany, bez falszywej pewnosci),
+      wiec priorytet nizszy niz skrytka pocztowa.
+
+  # --- numer spoza rejestru: ostrzezenie, nie blad ---
+  - raw: 'ul. Marszałkowska 199, Warszawa'
+    oczekiwane: { simc: '0918123', confidence: zweryfikowany_czesciowo }
+    zawieraUwage: NUMER_SPOZA_REJESTRU
+    dlaczego: >
+      Zasada nadrzedna z rozdzialu 6.3: walidacja nie blokuje zapisu.
+      Nowe budownictwo musi przejsc z obnizonym poziomem pewnosci.
+
+  # --- zapis dwuznaczny 12/14 ---
+  - raw: 'ul. Marszałkowska 12/14, Warszawa'
+    oczekiwane: { nrBudynku: '12', nrLokalu: '14' }
+    dlaczego: >
+      Obecna implementacja przyjmuje odczyt budynek + lokal, gdy istnieja obie
+      interpretacje. Docelowa regula daje pierwszenstwo numerowi "12/14";
+      przypadek pilnuje, zeby zmiana byla swiadoma, a nie przypadkowa.
+
+  - raw: 'ul. Marszałkowska 12 m. 5, Warszawa'
+    oczekiwane: { nrBudynku: '12', nrLokalu: '5' }
+    dlaczego: Jawny marker lokalu nie moze byc dwuznaczny.
+
+  # --- miejscowosc bez ulic ---
+  - raw: 'Wólka Pełkińska 10'
+    oczekiwane: { simc: '0603632' }
+    dlaczego: >
+      Miejscowosc bez ulic - numer odnosi sie bezposrednio do miejscowosci.
+      Rozdzial 6.4.
+
+  # --- skrytka pocztowa ---
+  - raw: 'skr. poczt. 15, Warszawa'
+    oczekiwane: { confidence: nietypowy }
+    znaneOdstepstwo: >
+      System zwraca zweryfikowany_rejestr, czyli najwyzszy poziom pewnosci,
+      dopasowujac numer skrytki do numeru budynku. Rozdzial 6.4 raportu mowi
+      wprost: skrytki nie maja odpowiednika w rejestrze i ida trybem adresu
+      nietypowego. Skutek: przesylka trafia do wysylki bez przegladu.
+
+  # --- absurdalny numer ---
+  - raw: 'ul. Marszałkowska 99999, Warszawa'
+    oczekiwane: { nrBudynku: '99999' }
+    znaneOdstepstwo: >
+      Pieciocyfrowy token jest odczytywany jako kod pocztowy "99-999",
+      a numer budynku wychodzi pusty. Numer 99999 jest absurdalny, ale sposob
+      niepowodzenia zly: dane sa cicho reinterpretowane zamiast odrzucone.

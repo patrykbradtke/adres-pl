@@ -181,10 +181,30 @@ Z rozpoznania rynku, uporządkowane wg pilności.
 
 | # | zadanie | nakład | uwagi |
 |---|---|---|---|
-| 6.8 | Zbiór wzorcowy i testy regresji jakości wyszukiwania | 2 d | bez tego aktualizacja może cicho pogorszyć wyniki |
+| 6.8 | ~~Zbiór wzorcowy i testy regresji jakości wyszukiwania~~ **WYKONANE 9.08.2026** — 22 przypadki, `npm run jakosc`. Ujawnił 6 wad, opisanych niżej | — | — |
 | 6.9 | Cele dostępności i czasu odpowiedzi, alarmy przy przekroczeniu | 1 d | `/metrics` i alarmy istnieją, brak progów |
 | 6.10 | Powiadomienie o nowej wersji danych (webhook) | 1 d | klient wie, kiedy odświeżyć |
 | 6.11 | Procedura postępowania przy awarii źródła | 0,5 d | poziomy odporności opisane, nieprzećwiczone |
+
+### Wady ujawnione przez zbiór wzorcowy (9.08.2026)
+
+Zbiór opisuje odpowiedź **poprawną**, nie bieżącą. Sześć przypadków ma znacznik
+`znaneOdstepstwo` — nie przewracają zestawu, ale są wypisywane, a gdy przestaną
+występować, zestaw upomina się o zdjęcie znacznika.
+
+| # | wada | skutek | nakład |
+|---|---|---|---|
+| 6.16 | **Słowo rodzajowe wtopione w nazwę ulicy** — 32 418 ulic, w tym **10 992 z 11 338 w Warszawie (97%)**. `nazwa` = „ulica Marszałkowska", `cecha` pusta | Zapytanie „marszalkowska" **nie zwraca Warszawy nawet w pierwszej 25** — same wsie. Dotyczy też Katowic, Białegostoku, Gdańska, Opola, Bydgoszczy | 1,5–2 d |
+| 6.17 | **Skrytka pocztowa dostaje `zweryfikowany_rejestr`** — numer skrytki dopasowany do numeru budynku | Najwyższy poziom pewności dla adresu, który nie istnieje w rejestrze. Przesyłka idzie do wysyłki bez przeglądu. Rozdz. 6.4 raportu mówi: tryb adresu nietypowego | 0,5 d |
+| 6.18 | **Parser wymaga przecinka jako separatora pól** | „Marszałkowska 1 00-624 Warszawa" → cała reszta ląduje w jednym polu. Adresy z faktur i PDF-ów regularnie gubią przecinki; REGON zwraca pola osobno. Zawodzi bezpiecznie | 1 d |
+| 6.19 | **Ranking prawie nie uwzględnia wielkości miejscowości** | Ulica we wsi z 67 punktami wygrywa z ulicą w mieście z 126 tys. Wymaga decyzji: czy i jak ważyć | 0,5 d + decyzja |
+| 6.20 | Pięciocyfrowy numer budynku czytany jako kod pocztowy | „99999" → kod „99-999", numer pusty. Ciche przeinaczenie zamiast odrzucenia | 0,25 d |
+| 6.21 | Miejscowości-widma z zerową liczbą punktów w podpowiedziach | „gdansk" zwraca Gdańsk właściwy i drugi Gdańsk z 0 punktami — szum w liście | 0,25 d |
+
+**Pozycja 6.16 jest najpilniejsza z całej tabeli etapu 6.** Wyszukiwanie adresów
+w największym mieście kraju jest dziś praktycznie niesprawne dla naturalnego
+sposobu wpisywania, a wada była niewidoczna, bo nikt nie sprawdzał wyników
+wobec oczekiwań.
 
 ### Odłożone świadomie
 

@@ -14,7 +14,8 @@
     "etl": "node --experimental-strip-types packages/etl/src/cli.ts",
     "api": "node --experimental-strip-types packages/api/src/server.ts",
     "raport": "node docs/build-report.js",
-    "test": "node --experimental-strip-types packages/api/test/limit-obejscie.ts && node --experimental-strip-types packages/api/test/loader-podmiana.ts && node --experimental-strip-types packages/api/test/openapi-zgodnosc.ts"
+    "test": "node --experimental-strip-types packages/api/test/limit-obejscie.ts && node --experimental-strip-types packages/api/test/loader-podmiana.ts && node --experimental-strip-types packages/api/test/openapi-zgodnosc.ts && node --experimental-strip-types packages/api/test/jakosc-wyszukiwania.ts",
+    "jakosc": "node --experimental-strip-types packages/api/test/jakosc-wyszukiwania.ts"
   },
   "devDependencies": {
     "docx": "^9.7.1",
