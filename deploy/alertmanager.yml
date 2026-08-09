@@ -1,0 +1,30 @@
+# Routing alertow.
+#
+# Zasada z planu (etap 7.8): alert bez adresata jest bezuzyteczny. Lokalnie
+# odbiorca jest pozorny - chodzi o to, zeby lancuch byl kompletny i dal sie
+# przecwiczyc. Przed produkcja podmienic receivers na realny kanal i uzupelnic
+# zasady eskalacji: co budzi w nocy, a co czeka do rana.
+route:
+  receiver: domyslny
+  group_by: [alertname, serwis]
+  group_wait: 30s
+  group_interval: 5m
+  # Powtorzenie raz na dobe. Alerty tego systemu opisuja stany trwale
+  # (zamrozone dane, wstrzymana publikacja), a nie chwilowe skoki.
+  repeat_interval: 24h
+  routes:
+    - matchers: [severity="critical"]
+      receiver: krytyczne
+      group_wait: 10s
+      repeat_interval: 4h
+
+receivers:
+  - name: domyslny
+  - name: krytyczne
+
+# Wstrzymanie publikacji przez kontrole jakosci nie jest awaria uslugi, ale
+# gdy baza lezy, to i tak wazniejsze - nie zasypywac dwoma alertami naraz.
+inhibit_rules:
+  - source_matchers: [alertname="BazaNiedostepna"]
+    target_matchers: [alertname="PublikacjaWstrzymana"]
+    equal: [serwis]

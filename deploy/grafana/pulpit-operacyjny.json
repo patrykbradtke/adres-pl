@@ -1,0 +1,190 @@
+{
+  "title": "adres-pl — pulpit operacyjny",
+  "uid": "adres-pl-ops",
+  "tags": ["adres-pl"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Czy jest dobrze",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "Wiek danych",
+      "description": "Wiek ostatniego OPUBLIKOWANEGO zrzutu PRG. Powyżej 30 dni oznacza zamrożenie źródła — incydent z czerwca 2024.",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 1 },
+      "targets": [{ "expr": "adres_dane_wiek_dni", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 14 },
+              { "color": "red", "value": 30 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Baza danych",
+      "description": "Awaria bazy nie zatrzymuje podpowiedzi (indeks jest w pamięci), ale zatrzymuje numery budynków, walidację i geokodowanie.",
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 1 },
+      "targets": [{ "expr": "adres_baza_dostepna", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "0": { "text": "NIEDOSTĘPNA", "color": "red", "index": 0 }, "1": { "text": "OK", "color": "green", "index": 1 } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Indeks wyszukiwania",
+      "description": "0 = instancja bez załadowanego artefaktu, nie obsłuży podpowiedzi.",
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 1 },
+      "targets": [{ "expr": "adres_indeks_zaladowany", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "0": { "text": "BRAK", "color": "red", "index": 0 }, "1": { "text": "ZAŁADOWANY", "color": "green", "index": 1 } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Spójność artefaktu",
+      "description": "1 = artefakt starszy niż opublikowane dane. Podpowiedzi rozjeżdżają się z walidacją.",
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 1 },
+      "targets": [{ "expr": "adres_indeks_niespojny", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "0": { "text": "SPÓJNY", "color": "green", "index": 0 }, "1": { "text": "NIESPÓJNY", "color": "red", "index": 1 } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Zbieranie metryk",
+      "description": "Gdy to spadnie do 0, wszystkie pozostałe reguły milkną — cisza nie oznacza wtedy, że jest dobrze.",
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 1 },
+      "targets": [{ "expr": "up{job=\"adres-api\"}", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "0": { "text": "BRAK", "color": "red", "index": 0 }, "1": { "text": "OK", "color": "green", "index": 1 } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Pamięć procesu",
+      "description": "Limit poda to 1 GB. Artefakt pełnego kraju (109 MB) daje ok. 239 MB RSS.",
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 1 },
+      "targets": [{ "expr": "adres_proces_rss_bajty", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 700000000 }, { "color": "red", "value": 900000000 }] }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area", "textMode": "value" }
+    },
+    {
+      "type": "row",
+      "title": "Wydajność API",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Czas odpowiedzi — percentyle",
+      "description": "Odniesienie na pełnym kraju: p50 1,71 ms, p95 9,41 ms, p99 27,94 ms. Świeżo uruchomiona instancja ma pierwsze zapytania rzędu 80 ms.",
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 7 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(adres_zapytanie_ms_bucket[5m])) by (le, endpoint))", "legendFormat": "p50 {{endpoint}}", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(adres_zapytanie_ms_bucket[5m])) by (le, endpoint))", "legendFormat": "p95 {{endpoint}}", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum(rate(adres_zapytanie_ms_bucket[5m])) by (le, endpoint))", "legendFormat": "p99 {{endpoint}}", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2, "fillOpacity": 5 } } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Zapytania na sekundę",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 7 },
+      "targets": [{ "expr": "sum(rate(adres_zapytania_total[5m])) by (endpoint)", "legendFormat": "{{endpoint}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 10, "stacking": { "mode": "normal" } } } }
+    },
+    {
+      "type": "row",
+      "title": "Dane i przetwarzanie",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 }
+    },
+    {
+      "type": "stat",
+      "title": "Punkty adresowe",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 16 },
+      "targets": [{ "expr": "adres_punkty_total", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } },
+      "options": { "colorMode": "none", "graphMode": "area", "textMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Miejscowości",
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 16 },
+      "targets": [{ "expr": "adres_miejscowosci_total", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } },
+      "options": { "colorMode": "none", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Ulice",
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 16 },
+      "targets": [{ "expr": "adres_ulice_total", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } },
+      "options": { "colorMode": "none", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Pozycji w indeksie",
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 16 },
+      "targets": [{ "expr": "adres_indeks_dokumenty", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } },
+      "options": { "colorMode": "none", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Od ostatniego cyklu ETL",
+      "description": "Cykl chodzi tygodniowo — patrz rozdział 5.1 raportu.",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 16 },
+      "targets": [{ "expr": "adres_etl_od_ostatniego_s", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 864000 }, { "color": "red", "value": 2592000 }] }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "timeseries",
+      "title": "Przebiegi ETL według statusu",
+      "description": "Status 'wstrzymany' to zadziałanie kontroli jakości, nie awaria — ale wymaga decyzji człowieka.",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 21 },
+      "targets": [{ "expr": "adres_etl_przebiegi_total", "legendFormat": "{{status}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "bars" } } }
+    }
+  ]
+}

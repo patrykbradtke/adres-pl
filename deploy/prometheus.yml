@@ -1,0 +1,32 @@
+# Konfiguracja Prometheusa dla adres-pl.
+#
+# Aplikacja wystawiala 17 metryk i miala 6 regul alertow, ale w konfiguracji
+# uruchomieniowej nie bylo NICZEGO, co by je zbieralo - jedynym sposobem
+# sprawdzenia stanu bylo reczne odpytanie /status. Ten plik zamyka te luke.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    srodowisko: lokalne
+
+rule_files:
+  - /etc/prometheus/alerty.yaml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
+
+scrape_configs:
+  # Mikroserwis danych. Endpoint /metrics jest bez uwierzytelniania, tak samo
+  # jak reszta API - patrz rozdzial 5.5 raportu i etap 8A planu.
+  - job_name: adres-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: [api:3000]
+        labels: { serwis: api }
+
+  # Sam Prometheus - zeby bylo widac, czy zbieranie w ogole dziala.
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]

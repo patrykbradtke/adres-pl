@@ -80,34 +80,63 @@ export function registerMetricsRoutes(
     }
   });
 
+  /**
+   * Cache zliczen ze stanu danych - uzasadnienie przy uzyciu, nizej.
+   * Domyslnie 60 s: dane zmieniaja sie po publikacji, czyli raz w tygodniu,
+   * a zbieranie metryk chodzi co 15 s.
+   */
+  const STAN_DANYCH_TTL_MS = Number(process.env.METRICS_CACHE_MS ?? 60_000);
+  let stanDanych = { wiekDni: -1, punkty: 0, miejscowosci: 0, ulice: 0 };
+  let staneDanychTs = 0;
+
   app.get('/metrics', async (_req, reply) => {
     const lines: string[] = [];
 
     // --- stan danych -------------------------------------------------
-    let wiekDni = -1;
-    let punkty = 0;
-    let miejscowosci = 0;
-    let ulice = 0;
+    //
+    // Zliczenia sa CACHOWANE, dostepnosc bazy NIE.
+    //
+    // Trzy `count(*)` na tabelach produkcyjnych kosztuja na pelnym kraju
+    // 4,4 s (8,6 mln punktow, zmierzone 9.08.2026). Przy zbieraniu co 15 s
+    // i domyslnym limicie 10 s oznacza to endpoint stale na granicy timeoutu,
+    // a kazde zbieranie obciaza baze pelnym skanem. Liczby zmieniaja sie
+    // wylacznie po publikacji, czyli raz w tygodniu - cache jest tu darmowy.
+    //
+    // Dostepnosci bazy cachowac nie wolno: to sygnal dla alertu
+    // BazaNiedostepna z progiem 2 minut. Zamiast tego tania sonda SELECT 1
+    // przy kazdym zbieraniu.
     let bazaOk = 1;
     try {
-      const { rows: [d] } = await pool.query<{
-        wiek: string | null; punkty: string; miejscowosci: string; ulice: string;
-      }>(`
-        SELECT
-          EXTRACT(EPOCH FROM now() - (
-            SELECT max(pobrano) FROM adres.zrzut
-             WHERE zrodlo='prg' AND status='opublikowany'))::text AS wiek,
-          (SELECT count(*) FROM adres.punkt_adresowy WHERE wycofany_od IS NULL)::text AS punkty,
-          (SELECT count(*) FROM adres.miejscowosc  WHERE wycofany_od IS NULL)::text AS miejscowosci,
-          (SELECT count(*) FROM adres.ulica        WHERE wycofany_od IS NULL)::text AS ulice
-      `);
-      wiekDni = d.wiek ? Number(d.wiek) / 86400 : -1;
-      punkty = Number(d.punkty);
-      miejscowosci = Number(d.miejscowosci);
-      ulice = Number(d.ulice);
+      await pool.query('SELECT 1');
     } catch {
       bazaOk = 0;
     }
+
+    if (bazaOk === 1 && Date.now() - staneDanychTs > STAN_DANYCH_TTL_MS) {
+      try {
+        const { rows: [d] } = await pool.query<{
+          wiek: string | null; punkty: string; miejscowosci: string; ulice: string;
+        }>(`
+          SELECT
+            EXTRACT(EPOCH FROM now() - (
+              SELECT max(pobrano) FROM adres.zrzut
+               WHERE zrodlo='prg' AND status='opublikowany'))::text AS wiek,
+            (SELECT count(*) FROM adres.punkt_adresowy WHERE wycofany_od IS NULL)::text AS punkty,
+            (SELECT count(*) FROM adres.miejscowosc  WHERE wycofany_od IS NULL)::text AS miejscowosci,
+            (SELECT count(*) FROM adres.ulica        WHERE wycofany_od IS NULL)::text AS ulice
+        `);
+        stanDanych = {
+          wiekDni: d.wiek ? Number(d.wiek) / 86400 : -1,
+          punkty: Number(d.punkty),
+          miejscowosci: Number(d.miejscowosci),
+          ulice: Number(d.ulice),
+        };
+        staneDanychTs = Date.now();
+      } catch {
+        bazaOk = 0;   // sonda przeszla, ale odczyt nie - i tak zglaszamy problem
+      }
+    }
+    const { wiekDni, punkty, miejscowosci, ulice } = stanDanych;
 
     lines.push('# HELP adres_baza_dostepna Czy baza danych odpowiada (1/0).');
     lines.push('# TYPE adres_baza_dostepna gauge');

@@ -74,9 +74,22 @@ poczucie zabezpieczenia**. Pierwsza publikacja zawsze idzie na pustą bazę, wi�
 cała klasa błędów „porównanie stanu poprzedniego z nowym” jest wtedy niewidoczna.
 Wniosek do harmonogramu: **dwie pełne publikacje pod obserwacją, nie jedna.**
 
-Poprawka 8 jest w `002_staging.sql`, ale **jeszcze nie wgrana do działającej
-bazy** — migracje wykonują się wyłącznie przy inicjalizacji kontenera:
-`psql "$DATABASE_URL" -f db/migrations/002_staging.sql`.
+Poprawka 8 **wgrana do działającej bazy 9.08.2026** — zysk zmierzyć kolejnym
+pełnym przebiegiem. Przy odtwarzaniu bazy od zera migracja wejdzie sama.
+
+**Dwie kolejne po podpięciu monitoringu (9.08)** — obie niewidoczne wcześniej
+dokładnie dlatego, że nikt nie zbierał metryk:
+
+| # | usterka | gdzie | skutek przed naprawą |
+|---|---|---|---|
+| 9 | Loader porównywał `dataVersion` („2026-08-06") z **nazwą pliku** ze wskaźnika („idx-2026-08-06.bin") | `search/loader.ts` | warunek „nic się nie zmieniło" nie zatrzymywał niczego — **każda instancja czytała i parsowała 109 MB co 60 s** |
+| 10 | `/metrics` liczył trzy `count(*)` na tabelach produkcyjnych | `routes/metrics.ts` | 4,4 s przy limicie zbierania 10 s; po cache'owaniu zliczeń **0,05–0,12 s** |
+
+Przy usterce 10 uwaga projektowa: cache'owane są **tylko zliczenia**.
+Dostępność bazy idzie osobną, tanią sondą `SELECT 1` przy każdym zbieraniu —
+cache'owanie jej maskowałoby awarię, a to sygnał dla alertu z progiem 2 minut.
+
+Testy regresji: `packages/api/test/loader-podmiana.ts`, `limit-obejscie.ts`.
 
 Poza tym: naprawiony niekompletny `package-lock.json`, dodany `.dockerignore`,
 `build-index` tworzy teraz stabilną nazwę `current.bin`, loader API czyta
@@ -183,6 +196,9 @@ docker compose run --rm etl build-index
 # serwis
 docker compose up -d api
 curl "localhost:3000/v1/suggest?q=marszalkowska"
+
+# monitoring: Prometheus 9090, Grafana 3001 (pulpit bez logowania), Alertmanager 9093
+docker compose --profile monitoring up -d
 ```
 
 Lokalnie (Node 22 jest już domyślny) zadziała też `npm run etl -- ...`

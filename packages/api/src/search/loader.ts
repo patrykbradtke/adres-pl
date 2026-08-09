@@ -33,6 +33,8 @@ export class IndexHolder {
   private timer: NodeJS.Timeout | null = null;
   private loading = false;
   private cfg: LoaderConfig;
+  /** Sciezka artefaktu, ktory faktycznie siedzi w pamieci. */
+  private loadedFrom: string | null = null;
 
   // Jawne przypisanie zamiast parameter property - Node w trybie
   // --experimental-strip-types wycina tylko typy i nie generuje kodu,
@@ -91,10 +93,23 @@ export class IndexHolder {
     if (this.loading || !this.cfg.pointer) return;
     try {
       const raw = await fetchText(this.cfg.pointer);
-      const { current } = JSON.parse(raw) as { current: string };
+      const { current, dataVersion } = JSON.parse(raw) as { current: string; dataVersion?: string };
       if (!current) return;
       const wanted = resolveSibling(this.cfg.source, current);
-      if (this.index && this.index.dataVersion === current) return;
+
+      // Porownanie musi isc po TYCH SAMYCH wielkosciach po obu stronach.
+      //
+      // Bylo: `this.index.dataVersion === current`, czyli wersja danych
+      // ("2026-08-06") zestawiana z nazwa pliku ("idx-2026-08-06.bin").
+      // Te dwie wartosci nie moga byc rowne nigdy, wiec warunek nie zatrzymywal
+      // niczego i instancja przeladowywala artefakt przy KAZDYM odpytaniu
+      // wskaznika - co 60 s pelny odczyt i parsowanie 109 MB, bez zmiany wersji.
+      // W logu bylo to widoczne jako "podmieniono artefakt" z 2026-08-06
+      // na 2026-08-06 w kolko. Wykryte dopiero po podpieciu monitoringu.
+      const tenSamPlik = this.loadedFrom === wanted;
+      const taSamaWersja = !dataVersion || this.index?.dataVersion === dataVersion;
+      if (this.index && tenSamPlik && taSamaWersja) return;
+
       await this.load(wanted);
     } catch (e) {
       this.cfg.onError?.(e as Error);
@@ -110,6 +125,7 @@ export class IndexHolder {
       // Atomowe z punktu widzenia petli zdarzen Node - trwajace zapytania
       // dokoncza sie na starym indeksie.
       this.index = next;
+      this.loadedFrom = source;
       this.cfg.onSwap?.(prev, next.dataVersion);
     } finally {
       this.loading = false;

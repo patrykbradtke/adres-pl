@@ -56,14 +56,42 @@ groups:
             Przestana natomiast dzialac numery budynkow, walidacja i geokodowanie
             odwrotne.
 
+      # PROG PRZELICZONY 9.08.2026 na danych calego kraju.
+      #
+      # Poprzednio 25 ms, z wartoscia odniesienia 1,84 ms - obie liczby
+      # pochodzily ze zbioru syntetycznego, ktory projekt sam wycofal.
+      # Zmierzone na 8,6 mln punktow (bench-realny.ts, po rozgrzewce):
+      # p50 1,71 ms, p95 9,41 ms, p99 27,94 ms przez pelna sciezke HTTP.
+      # Stary prog odpalilby sie natychmiast po wdrozeniu.
+      #
+      # 60 ms to ok. 2x zmierzone p99 - lapie realna degradacje, a nie
+      # normalna prace. Przeliczyc ponownie po zadaniu 2.11 (rozgrzewanie
+      # instancji), bo powinno scisnac ogon rozkladu.
       - alert: WysokaLatencjaPodpowiedzi
         expr: >
           histogram_quantile(0.99,
-            sum(rate(adres_zapytanie_ms_bucket{endpoint="/v1/suggest"}[5m])) by (le)) > 25
+            sum(rate(adres_zapytanie_ms_bucket{endpoint="/v1/suggest"}[5m])) by (le)) > 60
         for: 10m
         labels: { severity: warning }
         annotations:
-          summary: "99. percentyl podpowiedzi powyzej 25 ms"
+          summary: "99. percentyl podpowiedzi powyzej 60 ms"
           description: >
-            Wartosc odniesienia to 1,84 ms. Przekroczenie 25 ms sugeruje
-            wyczerpanie pamieci, swapowanie albo zbyt duzy artefakt.
+            Wartosc odniesienia na pelnym kraju to 27,94 ms (p99, HTTP).
+            Przekroczenie 60 ms sugeruje wyczerpanie pamieci, swapowanie
+            albo zbyt duzy artefakt. Uwaga: swiezo uruchomiona instancja
+            ma pierwsze zapytania rzedu 80 ms zanim sie rozgrzeje - jesli
+            alert zapala sie po kazdym wdrozeniu, to jest to objaw braku
+            rozgrzewania, a nie degradacji.
+
+      # Pierwsza linia obrony przed cicha awaria zbierania metryk: jesli
+      # Prometheus przestanie widziec mikroserwis, wszystkie powyzsze reguly
+      # milkna i cisza wyglada identycznie jak stan zdrowy.
+      - alert: BrakMetrykZSerwisu
+        expr: up{job="adres-api"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Prometheus nie zbiera metryk z mikroserwisu"
+          description: >
+            Dopoki to trwa, pozostale reguly nie moga sie zapalic niezaleznie
+            od stanu uslugi. Brak alertow NIE oznacza wtedy, ze jest dobrze.

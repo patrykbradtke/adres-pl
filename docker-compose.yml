@@ -71,4 +71,55 @@ services:
     volumes: ["./data:/data"]
     profiles: ["tools"]   # uruchamiany na zadanie: docker compose run --rm etl ...
 
-volumes: { pgdata: {}, miniodata: {} }
+  # ---------------------------------------------------------------------
+  # Stos monitorujacy - profil "monitoring".
+  #
+  #   docker compose --profile monitoring up -d
+  #
+  # Aplikacja wystawiala 17 metryk i miala 6 regul alertow, ale nie bylo
+  # NICZEGO, co by je zbieralo. Jedynym sposobem sprawdzenia stanu bylo
+  # reczne odpytanie /status - tak wlasnie wykryto osmiogodzinny przebieg
+  # bez konca, czyli nie wykryto go wcale, zglosil go czlowiek.
+  #
+  # Za profilem, bo caly stos to ~500 MB RAM, a przy przetwarzaniu pamiec
+  # jest potrzebna gdzie indziej.
+  # ---------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: ["monitoring"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/alerty.yaml:/etc/prometheus/alerty.yaml:ro
+      - promdata:/prometheus
+    ports: ["9090:9090"]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    profiles: ["monitoring"]
+    volumes:
+      - ./deploy/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports: ["9093:9093"]
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    profiles: ["monitoring"]
+    depends_on: [prometheus]
+    environment:
+      # Pulpit ma byc widoczny od razu, bez logowania - to instalacja lokalna.
+      # Przed wdrozeniem wlaczyc uwierzytelnianie.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/pulpit-operacyjny.json
+    volumes:
+      - ./deploy/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./deploy/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./deploy/grafana/pulpit-operacyjny.json:/etc/grafana/provisioning/dashboards/pulpit-operacyjny.json:ro
+      - grafanadata:/var/lib/grafana
+    ports: ["3001:3000"]
+
+volumes: { pgdata: {}, miniodata: {}, promdata: {}, grafanadata: {} }

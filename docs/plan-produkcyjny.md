@@ -205,16 +205,31 @@ spójność artefaktu z bazą, zużycie pamięci, dostępność bazy) oraz ma go
 trzy reguły alertów w `deploy/alerty.yaml`, każdą przypisaną do konkretnego
 scenariusza awarii — łącznie z zamrożeniem danych po stronie źródła.
 
-Czego brakuje: **czegokolwiek, co te metryki zbiera**. W konfiguracji
-uruchomieniowej nie ma Prometheusa ani Grafany, reguły alertów nie są nigdzie
-wczytane. Dziś jedynym sposobem sprawdzenia stanu jest ręczne odpytanie
-`/status`. Tak wykryliśmy w tej sesji ośmiogodzinny przebieg bez końca — czyli
-nie wykryliśmy go wcale, zgłosił go człowiek.
+**Odbiorca metryk powstał 9.08.2026** — `docker compose --profile monitoring up -d`:
+Prometheus na 9090, Grafana na 3001, Alertmanager na 9093, 7 reguł wczytanych,
+oba cele zbierane.
+
+**Podpięcie monitoringu natychmiast ujawniło dwa defekty**, niewidoczne wcześniej
+dokładnie dlatego, że nikt nie patrzył:
+
+| defekt | objaw | skutek |
+|---|---|---|
+| Loader porównywał wersję danych z **nazwą pliku** ze wskaźnika | log „podmieniono artefakt 2026-08-06 → 2026-08-06" co 60 s | każda instancja czytała i parsowała 109 MB **co minutę**, bez zmiany wersji |
+| `/metrics` liczył trzy `count(*)` na tabelach produkcyjnych | odpowiedź 4,4 s przy limicie zbierania 10 s | endpoint na granicy timeoutu, każde zbieranie to pełny skan 8,6 mln wierszy |
+
+Po naprawie: jedno ładowanie artefaktu na start, `/metrics` w 0,05–0,12 s.
+Test regresji: `packages/api/test/loader-podmiana.ts`.
+
+**Próg alertu `WysokaLatencjaPodpowiedzi` przeliczony** z 25 ms na 60 ms.
+Poprzedni był skalibrowany do wycofanego pomiaru syntetycznego (1,84 ms)
+i **odpaliłby się natychmiast po wdrożeniu** — zmierzone p99 na pełnym kraju
+to 27,94 ms. Dołożona reguła `BrakMetrykZSerwisu`: bez niej cisza po awarii
+zbierania wygląda identycznie jak stan zdrowy.
 
 | # | zadanie | nakład | uzasadnienie |
 |---|---|---|---|
-| 7.1 | Stos monitorujący: Prometheus + Grafana + Alertmanager, w konfiguracji lokalnej i wdrożeniowej | 1,5 d | metryki i reguły już są, brakuje odbiorcy |
-| 7.2 | Pulpit operacyjny: stan danych, przebiegi, wydajność API, zużycie zasobów | 1,5 d | jeden ekran odpowiadający na pytanie „czy jest dobrze” |
+| 7.1 | ~~Stos monitorujący: Prometheus + Grafana + Alertmanager~~ **WYKONANE 9.08.2026** — profil `monitoring` w compose, 7 reguł wczytanych, oba cele zbierane | — | — |
+| 7.2 | ~~Pulpit operacyjny~~ **WYKONANE 9.08.2026** — `deploy/grafana/pulpit-operacyjny.json`, port 3001 | — | — |
 | 7.3 | Metryki przebiegu ETL w czasie rzeczywistym: postęp per proces i województwo | 1 d | wspólne z 2.1 — dziś przetwarzanie jest nieprzejrzyste |
 | 7.4 | Alerty dla API: czas odpowiedzi p95/p99, błędy 5xx, zużycie pamięci wobec limitu 1 GB | 1 d | istniejące alerty pilnują wyłącznie danych, nie usługi |
 | 7.5 | Sonda syntetyczna: cykliczne zapytanie kontrolne z weryfikacją treści odpowiedzi | 0,5 d | wykrywa „usługa odpowiada, ale zwraca bzdury” |

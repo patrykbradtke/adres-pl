@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const WERSJA = '1.4';
+const WERSJA = '1.5';
 const DATA = '9 sierpnia 2026';
 
 const W = 9026;                 // szerokosc kolumny tekstu A4 przy marginesach 1"
@@ -183,18 +183,19 @@ children.push(table(
     ['1.2', '7.08.2026', 'Publikacja 1 990 483 punktów, pięć usterek wykrytych na danych rzeczywistych, sprostowanie czasu pełnego przebiegu i czasów odpowiedzi'],
     ['1.3', '8.08.2026', 'Uzgodnienie raportu ze stanem repozytorium. Ujawnione braki blokujące produkcję, przepisany plan prac na 11–15 tygodni, usunięte deklaracje o elementach, których nie zbudowano'],
     ['1.4', '9.08.2026', 'Uruchomienie na całym kraju: 8 605 682 punkty ze wszystkich 16 województw. Trzy kolejne usterki wykryte dopiero przy pełnej skali, w tym kontrola jakości, która nigdy nie działała. Nowe pomiary czasów odpowiedzi i przetwarzania'],
+    ['1.5', '9.08.2026', 'Uruchomiony odbiorca metryk i pulpit operacyjny. Podpięcie monitoringu ujawniło w pierwszej godzinie dwa kolejne defekty i wykazało, że próg jednego z alertów odpaliłby się natychmiast po wdrożeniu'],
   ],
-  { rowFill: (r) => r[0] === '1.4' ? C.ok : undefined },
+  { rowFill: (r) => r[0] === '1.5' ? C.ok : undefined },
 ));
 
 children.push(SPACER());
 children.push(...box(
-  'Co zmieniło się w wydaniu 1.4',
+  'Co zmieniło się w wydaniach 1.4 i 1.5',
   [
     'Rozwiązanie działa na komplecie danych: 8 605 682 punkty adresowe ze wszystkich 16 województw, wobec 1 990 483 z czterech w wydaniu 1.3. Pozycja „uruchomienie na pełnym zbiorze” jest zamknięta.',
-    'Przejście na pełną skalę ujawniło trzy kolejne usterki — rozdział 8.4. Jedna z nich to kontrola jakości, która nie zadziałałaby w produkcji ani razu.',
+    'Uruchomiono odbiorcę metryk i pulpit operacyjny. Awarie przestały być wykrywane wyłącznie przez człowieka — to był jeden z trzech braków blokujących produkcję.',
+    'Przejście na pełną skalę ujawniło pięć kolejnych usterek — rozdział 8.4. Jedna z nich to kontrola jakości, która nie zadziałałaby w produkcji ani razu; dwie kolejne wyszły w pierwszej godzinie po podpięciu monitoringu.',
     'Czasy odpowiedzi przemierzono na danych rzeczywistych dwiema metodami. Wyniki są znacznie lepsze od podanych w wydaniach 1.2–1.3, a rozbieżność ma źródło metodyczne — rozdział 8.6.',
-    'Wcześniejsza zmiana z wydania 1.3 pozostaje w mocy: raport rozdziela architekturę docelową od stanu zbudowanego, a elementy niewdrożone oznacza wprost.',
   ],
   C.head,
 ));
@@ -234,9 +235,10 @@ children.push(table(
     ['Mikroserwis HTTP', 'Gotowe', '11 punktów końcowych /v1 oraz 4 operacyjne — patrz 5.4'],
     ['Reguły walidacji adresu', 'Gotowe', 'Format, zgodność z rejestrem, poziomy pewności'],
     ['Import słowników TERYT', 'Gotowe', 'Pliki pełne z eTeryt, bez konta w GUS'],
-    ['Metryki i reguły alertów', 'Gotowe', '17 metryk pod /metrics, 6 reguł alertów, manifest zadania cyklicznego'],
+    ['Metryki i reguły alertów', 'Gotowe', '17 metryk pod /metrics, 7 reguł alertów, manifest zadania cyklicznego'],
+    ['Odbiorca metryk i pulpit operacyjny', 'Gotowe', 'Uruchomiony 9.08.2026 — zbieranie metryk, reguły wczytane, jeden ekran stanu usługi'],
     ['Uruchomienie na pełnym zbiorze', 'Gotowe', 'Wszystkie 16 województw opublikowane 9.08.2026: 8 605 682 punkty — patrz 8.3'],
-    ['Odbiorca metryk i powiadomienia', 'Do zrobienia', 'Metryki i reguły są, brakuje tego, co je zbiera — patrz 1.2'],
+    ['Powiadomienia i zasady eskalacji', 'Do zrobienia', 'Zbieranie i pulpit działają; brakuje realnego kanału powiadomień i ustalenia, co budzi w nocy'],
     ['Uwierzytelnianie klientów API', 'Do zrobienia', 'Serwis nie weryfikuje dziś tożsamości klienta — patrz 5.5'],
     ['Kopie zapasowe poza maszyną', 'Do zrobienia', 'Archiwum i zrzut bazy leżą wyłącznie na dysku lokalnym — patrz 7.3'],
     ['Automatyzacja cyklu aktualizacji', 'Do zrobienia', 'Uruchomienie zadania cyklicznego, wznawianie przerwanych przebiegów'],
@@ -264,7 +266,7 @@ children.push(table(
   [
     ['Serwis nie uwierzytelnia klientów', 'Serwis nie weryfikuje tożsamości klienta, więc nie da się rozdzielić limitów ani rozliczeń per klient. Do czasu naprawy nie powinien opuszczać sieci wewnętrznej. Możliwość obejścia limitowania zamknięto 8.08.2026 — patrz 5.5', '9–11 dni'],
     ['Kopie zapasowe nie opuszczają maszyny', 'Archiwum plików źródłowych i zrzut bazy leżą wyłącznie na dysku roboczym. Deklarowany czwarty poziom odporności na awarię źródła nie istnieje jeszcze fizycznie', '5–7 dni'],
-    ['Metryki nie mają odbiorcy', 'Aplikacja wystawia 17 metryk i ma 6 gotowych reguł alertów, ale w konfiguracji uruchomieniowej nie ma niczego, co je zbiera. Awarie wykrywa dziś człowiek — w trakcie prac z 8–9 sierpnia dwukrotnie się to potwierdziło', '6–8 dni; pierwsze 3 dni dają większość efektu'],
+    ['Alerty nie mają adresata', 'Zbieranie metryk i pulpit operacyjny uruchomiono 9.08.2026, więc awarie są już widoczne. Brakuje realnego kanału powiadomień oraz ustalenia, kto co dostaje i co budzi w nocy', '3–5 dni'],
   ],
   { rowFill: () => C.warn },
 ));
@@ -893,10 +895,11 @@ children.push(...box(
 
 children.push(H2('8.4. Usterki wykryte na danych rzeczywistych'));
 children.push(P(
-  'Osiem usterek ujawniło się dopiero na danych rzeczywistych — pięć przy pierwszym ' +
-  'uruchomieniu na czterech województwach, trzy kolejne przy przejściu na pełny kraj. ' +
-  'Wszystkie naprawiono. Podział jest istotny dla planowania: druga grupa była niewykrywalna ' +
-  'przy zakresie częściowym.'));
+  'Dziesięć usterek ujawniło się dopiero na danych rzeczywistych: pięć przy pierwszym ' +
+  'uruchomieniu na czterech województwach, trzy przy przejściu na pełny kraj i dwie ' +
+  'w pierwszej godzinie po uruchomieniu monitoringu. Wszystkie naprawiono. Podział jest ' +
+  'istotny dla planowania, bo każda grupa wymagała innego warunku, żeby w ogóle stać się ' +
+  'widoczna.'));
 
 children.push(H3('Wykryte przy pierwszym uruchomieniu (4 województwa)'));
 
@@ -934,12 +937,33 @@ children.push(...box(
   C.stop,
 ));
 
+children.push(H3('Wykryte w pierwszej godzinie po uruchomieniu monitoringu'));
+children.push(table(
+  { head: ['Usterka', 'Skutek przed naprawą'], widths: [4200, 4826] },
+  [
+    ['Instancja porównywała wersję danych z nazwą pliku wskaźnika — wartości, które nigdy nie mogą być równe', 'Warunek „nic się nie zmieniło” nie zatrzymywał niczego: każda instancja wczytywała i przetwarzała cały artefakt (109 MB) co 60 sekund, mimo braku nowej wersji'],
+    ['Funkcja metryk przeliczała liczebności pełnym skanem tabel produkcyjnych', 'Odpowiedź 4,4 s przy dziesięciosekundowym limicie zbierania — punkt stale na granicy przekroczenia, a każde zbieranie obciążało bazę skanem 8,6 mln wierszy. Po wprowadzeniu pamięci podręcznej: 0,05–0,12 s'],
+  ],
+));
+
+children.push(SPACER());
+children.push(...box(
+  'Monitorowanie zwróciło się, zanim skończyło się jego wdrażanie',
+  [
+    'Obie powyższe usterki istniały od miesięcy i nie objawiały się niczym, co dałoby się zauważyć bez obserwacji: usługa odpowiadała poprawnie, wyniki były prawidłowe, nic się nie przewracało.',
+    'Pierwsza oznaczała, że każda instancja w produkcji wykonywałaby bezużyteczną pracę co minutę, przez cały czas działania — koszt rosnący liniowo z liczbą instancji i wielkością artefaktu.',
+    'Druga jest groźniejsza w skutkach pośrednich: punkt metryk na granicy limitu czasu oznacza, że przy pierwszym wzroście obciążenia monitoring zamilkłby dokładnie wtedy, gdy jest najbardziej potrzebny.',
+    'Wnioskiem z wydania 1.3 było, że monitorowanie warto zacząć wcześnie. Wydanie 1.5 to potwierdza wynikiem: dwie realne usterki w pierwszej godzinie, przy nakładzie liczonym w dniach.',
+  ],
+  C.ok,
+));
+
 children.push(...box(
   'Wniosek metodyczny',
   [
-    'Żadnej z ośmiu usterek nie dało się wykryć na danych testowych. Wykrywalność zależy przy tym od etapu: pięć pierwszych ujawnia sama skala, trzy kolejne wymagały pełnego zakresu danych albo drugiej publikacji na niepustej bazie.',
-    'To ostatnie jest najważniejsze dla harmonogramu. Pierwsze uruchomienie zawsze odbywa się na pustej bazie, więc cała klasa błędów porównania „stan poprzedni wobec nowego” pozostaje wtedy niewidoczna. Plan wdrożenia musi przewidywać co najmniej dwie pełne publikacje pod obserwacją, nie jedną.',
-    'Wnioskiem z wydania 1.3 było „przebieg na komplecie 16 województw przed produkcją”. Wydanie 1.4 go zaostrza: dwa przebiegi, drugi na danych już opublikowanych.',
+    'Żadnej z dziesięciu usterek nie dało się wykryć na danych testowych. Wykrywalność zależy od warunku: pięć pierwszych ujawnia sama skala, trzy wymagały pełnego zakresu danych albo drugiej publikacji na niepustej bazie, a dwie — obserwacji działającej usługi.',
+    'Dla harmonogramu najważniejsza jest grupa druga. Pierwsze uruchomienie zawsze odbywa się na pustej bazie, więc cała klasa błędów porównania „stan poprzedni wobec nowego” pozostaje wtedy niewidoczna. Plan wdrożenia musi przewidywać co najmniej dwie pełne publikacje pod obserwacją, nie jedną.',
+    'Dla kolejności prac — grupa trzecia. Monitorowanie nie jest czynnością porządkową wykonywaną na koniec; jest narzędziem wykrywania usterek i im wcześniej działa, tym więcej znajduje.',
   ],
   C.head,
 ));
@@ -1125,7 +1149,7 @@ children.push(table(
     ['4. Wersjonowanie wydań', 'Rejestr wydań, wersja danych w każdej odpowiedzi, procedura wycofania, wydanie kanarkowe, przypięcie klienta do wersji', '4–5 dni'],
     ['5. Audyt zmian i kontrola nadpisywania', 'Dziennik zmian rekordów, raport różnic między wydaniami, jawne reguły precedencji źródeł, ochrona zmian ręcznych przed nadpisaniem przez automat', '5–7 dni'],
     ['6. Braki blokujące wdrożenie', 'Specyfikacja OpenAPI, retencja i anonimizacja logów zapytań, rejestr czynności przetwarzania, zbiór wzorcowy i testy regresji jakości wyszukiwania, cele dostępności, procedura przy awarii źródła', '8–10 dni'],
-    ['7. Monitorowanie i obserwowalność', 'Odbiorca metryk i alertów, pulpit operacyjny, alerty dla usługi, sonda syntetyczna, centralne logi, zasady eskalacji', '6–8 dni'],
+    ['7. Monitorowanie i obserwowalność', 'Odbiorca metryk i pulpit operacyjny — WYKONANE 9.08.2026. Pozostaje kanał powiadomień, sonda syntetyczna, centralne logi, cele poziomu usługi i zasady eskalacji', '3–5 dni'],
     ['8. Komercjalizacja', 'Klucze API z licencjami i limitami per klient, model wielodostępności, kopie zapasowe na osobną maszynę z cotygodniowym testem odtworzenia', '18–24 dni'],
     ['Narzędzie do migracji bazy (poza etapami)', 'Wersjonowanie schematu z rejestrem zastosowanych migracji', '1,5 dnia'],
   ],
