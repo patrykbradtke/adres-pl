@@ -85,13 +85,33 @@ export function parseApiKeyMode(v?: string): ApiKeyMode {
   return v === 'wymagany' || v === 'opcjonalny' || v === 'wylaczony' ? v : 'wylaczony';
 }
 
-export async function buildServer(cfg: ServerConfig): Promise<FastifyInstance> {
+export interface BuildOptions {
+  /**
+   * Podglad rejestrowanych tras. Wolane dla KAZDEJ trasy, w momencie jej
+   * rejestracji.
+   *
+   * Istnieje dla testu zgodnosci z openapi.yaml, ktory wczesniej odczytywal
+   * trasy z wydruku printRoutes - a ten jest rysunkiem drzewa dla czlowieka,
+   * nie interfejsem programistycznym. Hook musi powstac PRZED rejestracja
+   * tras, wiec nie da sie go zalozyc z zewnatrz po zbudowaniu serwera.
+   */
+  onRoute?: (trasa: { method: string | string[]; url: string }) => void;
+}
+
+export async function buildServer(
+  cfg: ServerConfig,
+  opcje: BuildOptions = {},
+): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
     // Typeahead generuje duzo krotkich zapytan - wylaczamy kosztowne logowanie ciala
     disableRequestLogging: process.env.LOG_REQUESTS !== '1',
     trustProxy: cfg.trustProxy,
   });
+
+  if (opcje.onRoute) {
+    app.addHook('onRoute', (r) => opcje.onRoute!({ method: r.method, url: r.url }));
+  }
 
   await app.register(cors, { origin: cfg.corsOrigin });
 
