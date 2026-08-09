@@ -137,8 +137,11 @@ Kolejność ma znaczenie: **TERYT musi być pierwszy**, punkty adresowe mają
 klucz obcy do słowników.
 
 ```bash
-psql "$DATABASE_URL" -f db/migrations/001_init.sql
-psql "$DATABASE_URL" -f db/migrations/002_staging.sql
+# ON_ERROR_STOP=1 jest istotne: bez niego psql kończy się kodem 0 mimo błędów
+# w środku pliku, więc „migracja przeszła" nic nie znaczy.
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/001_init.sql
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/002_staging.sql
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/003_licencje.sql
 
 # 1. TERYT — konto testowe GUS wystarczy do próby, produkcja wymaga rejestracji
 npm run etl -- teryt test
@@ -473,6 +476,9 @@ więc przechodzą w świeżo sklonowanym repozytorium — bez uruchamiania ETL,
 bez katalogu `data/` i bez bazy.
 
 ```bash
+# schemat licencji — wymaga bazy z migracją 003, nie wymaga danych krajowych
+npm run test:baza
+
 # regresja JAKOŚCI wyszukiwania — wymaga pełnych danych w indeksie i w bazie
 npm run jakosc
 ```

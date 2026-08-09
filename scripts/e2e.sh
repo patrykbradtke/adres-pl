@@ -25,8 +25,11 @@ FIX=packages/etl/test/fixtures
 krok() { printf '\n\033[1m### %s\033[0m\n' "$*"; }
 
 krok "0. Migracje i czyszczenie"
-psql "$DATABASE_URL" -q -f db/migrations/001_init.sql
-psql "$DATABASE_URL" -q -f db/migrations/002_staging.sql
+# ON_ERROR_STOP=1: bez tego psql konczy sie kodem 0 mimo bledow w srodku pliku,
+# a `set -e` na gorze skryptu nie ma czego zlapac.
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/001_init.sql
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/002_staging.sql
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/003_licencje.sql
 # TRUNCATE, nie DELETE - przy wiekszej bazie DELETE 8,5 mln wierszy
 # potrafi trwac minuty i generuje ogromna ilosc martwych krotek.
 psql "$DATABASE_URL" -q -c "
