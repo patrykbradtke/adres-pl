@@ -1,30 +1,117 @@
-# Routing alertow.
+# ---------------------------------------------------------------------
+#  Routing i eskalacja alertow. Zadanie 7.8.
+# ---------------------------------------------------------------------
 #
-# Zasada z planu (etap 7.8): alert bez adresata jest bezuzyteczny. Lokalnie
-# odbiorca jest pozorny - chodzi o to, zeby lancuch byl kompletny i dal sie
-# przecwiczyc. Przed produkcja podmienic receivers na realny kanal i uzupelnic
-# zasady eskalacji: co budzi w nocy, a co czeka do rana.
+#  ZASADA: alert bez adresata jest bezuzyteczny, a alert budzacy czlowieka
+#  bez potrzeby jest gorszy niz jego brak - po kilku takich nocach nikt juz
+#  nie reaguje na zaden.
+#
+#  Podzial "co budzi, co czeka do rana" nie jest tu tylko opisany w komentarzu,
+#  lecz WYEGZEKWOWANY: ostrzezenia sa wyciszone poza godzinami pracy i trafiaja
+#  do odbiorcy rano. Krytyczne ida zawsze.
+#
+#  UZASADNIENIE PODZIALU, alert po alercie:
+#
+#  BUDZI (severity: critical) - stan nie naprawi sie sam i uzytkownik to czuje:
+#    BazaNiedostepna      podpowiedzi dzialaja dalej z pamieci procesu, ale
+#                         numery budynkow, walidacja i geokodowanie odwrotne
+#                         przestaja. To czesciowa awaria uslugi.
+#    IndeksNieZaladowany  instancja nie obsluzy podpowiedzi w ogole.
+#    BrakMetrykZSerwisu   monitoring jest slepy. Dopoki to trwa, cisza NIE
+#                         oznacza, ze jest dobrze - milkna tez wszystkie
+#                         pozostale reguly.
+#
+#  CZEKA DO RANA (severity: warning) - usluga dziala, degradacja jest znosna:
+#    PublikacjaWstrzymana      zabezpieczenie ZADZIALALO, poprzedni zrzut
+#                              pozostaje aktywny. Wymaga decyzji czlowieka,
+#                              ale nie o trzeciej w nocy.
+#    DaneAdresoweZamrozone     dane starsze niz 30 dni. Osiem godzin zwloki
+#                              niczego nie zmienia; alert i tak ma `for: 6h`.
+#    IndeksNiespojnyZDanymi    podpowiedzi rozjezdzaja sie z walidacja.
+#    WysokaLatencjaPodpowiedzi wolno, ale dziala.
+#
+#  PRZED PRODUKCJA: uzupelnic adresy w sekcji `receivers`. Dzis wskazuja na
+#  webhook, ktory trzeba podmienic na realny kanal. Konfiguracja jest gotowa -
+#  brakuje wylacznie danych kontaktowych, ktorych nie ma kto podac przed
+#  wskazaniem osoby odpowiedzialnej (decyzja "Model utrzymania" z rozdz. 11).
+# ---------------------------------------------------------------------
+
 route:
-  receiver: domyslny
+  receiver: zespol
   group_by: [alertname, serwis]
   group_wait: 30s
   group_interval: 5m
-  # Powtorzenie raz na dobe. Alerty tego systemu opisuja stany trwale
-  # (zamrozone dane, wstrzymana publikacja), a nie chwilowe skoki.
+  # Alerty tego systemu opisuja stany trwale (zamrozone dane, wstrzymana
+  # publikacja), a nie chwilowe skoki - powtarzanie co godzine nic nie wnosi.
   repeat_interval: 24h
+
   routes:
+    # --- budzi ---------------------------------------------------------
     - matchers: [severity="critical"]
-      receiver: krytyczne
-      group_wait: 10s
-      repeat_interval: 4h
+      receiver: dyzur
+      group_wait: 10s          # bez zwlekania
+      group_interval: 2m
+      repeat_interval: 4h      # dopoki trwa, przypominaj
+
+    # --- czeka do rana -------------------------------------------------
+    - matchers: [severity="warning"]
+      receiver: zespol
+      # Wyciszenie poza godzinami pracy. Alert nie znika - zostanie dostarczony
+      # przy najblizszej probie po otwarciu okna, czyli rano.
+      mute_time_intervals: [poza-godzinami-pracy]
+      group_interval: 10m
+      # Krocej niz doba, zeby ostrzezenie wyciszone w nocy nie czekalo
+      # z dostarczeniem do nastepnego dnia.
+      repeat_interval: 6h
+
+time_intervals:
+  - name: poza-godzinami-pracy
+    time_intervals:
+      # Noce w dni robocze
+      - weekdays: [monday:friday]
+        times:
+          - start_time: '18:00'
+            end_time: '24:00'
+          - start_time: '00:00'
+            end_time: '08:00'
+        location: Europe/Warsaw
+      # Weekendy w calosci
+      - weekdays: [saturday, sunday]
+        location: Europe/Warsaw
 
 receivers:
-  - name: domyslny
-  - name: krytyczne
+  # Dyzur - kanal, ktory realnie budzi. Podmienic na telefon/pager.
+  - name: dyzur
+    webhook_configs:
+      - url: http://przyklad.invalid/alerty/dyzur
+        send_resolved: true
 
-# Wstrzymanie publikacji przez kontrole jakosci nie jest awaria uslugi, ale
-# gdy baza lezy, to i tak wazniejsze - nie zasypywac dwoma alertami naraz.
+  # Zespol - kanal czytany w godzinach pracy. Podmienic na pocztę albo czat.
+  - name: zespol
+    webhook_configs:
+      - url: http://przyklad.invalid/alerty/zespol
+        send_resolved: true
+
+  # Wzor konfiguracji pocztowej - odkomentowac po ustaleniu adresow i SMTP.
+  # - name: zespol
+  #   email_configs:
+  #     - to: zespol@przyklad.pl
+  #       from: alerty@przyklad.pl
+  #       smarthost: smtp.przyklad.pl:587
+  #       auth_username: alerty@przyklad.pl
+  #       auth_password_file: /etc/alertmanager/smtp-haslo
+  #       send_resolved: true
+
 inhibit_rules:
+  # Gdy baza lezy, wstrzymana publikacja jest jej skutkiem, nie osobnym
+  # zdarzeniem - nie zasypywac dwoma alertami naraz.
   - source_matchers: [alertname="BazaNiedostepna"]
     target_matchers: [alertname="PublikacjaWstrzymana"]
+    equal: [serwis]
+
+  # Gdy Prometheus nie zbiera metryk z serwisu, pozostale reguly opieraja sie
+  # na nieaktualnych danych albo milkna. Nie mnozyc alertow o tej samej
+  # przyczynie - najpierw przywrocic zbieranie.
+  - source_matchers: [alertname="BrakMetrykZSerwisu"]
+    target_matchers: [severity="warning"]
     equal: [serwis]
