@@ -5,3 +5,4 @@ export * from './number.ts';
 export * from './postal.ts';
 export * from './parse.ts';
 export * from './validate.ts';
+export * from './api-key.ts';
