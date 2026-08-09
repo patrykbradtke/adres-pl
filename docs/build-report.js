@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const WERSJA = '1.5';
+const WERSJA = '1.6';
 const DATA = '9 sierpnia 2026';
 
 const W = 9026;                 // szerokosc kolumny tekstu A4 przy marginesach 1"
@@ -184,18 +184,20 @@ children.push(table(
     ['1.3', '8.08.2026', 'Uzgodnienie raportu ze stanem repozytorium. Ujawnione braki blokujące produkcję, przepisany plan prac na 11–15 tygodni, usunięte deklaracje o elementach, których nie zbudowano'],
     ['1.4', '9.08.2026', 'Uruchomienie na całym kraju: 8 605 682 punkty ze wszystkich 16 województw. Trzy kolejne usterki wykryte dopiero przy pełnej skali, w tym kontrola jakości, która nigdy nie działała. Nowe pomiary czasów odpowiedzi i przetwarzania'],
     ['1.5', '9.08.2026', 'Uruchomiony odbiorca metryk i pulpit operacyjny. Podpięcie monitoringu ujawniło w pierwszej godzinie dwa kolejne defekty i wykazało, że próg jednego z alertów odpaliłby się natychmiast po wdrożeniu'],
+    ['1.6', '9.08.2026', 'Formalny kontrakt interfejsu, zbiór wzorcowy jakości wyszukiwania i cztery naprawy, które z niego wynikły — w tym wyszukiwanie ulic w Warszawie i skrytka pocztowa uznawana za adres zweryfikowany'],
   ],
-  { rowFill: (r) => r[0] === '1.5' ? C.ok : undefined },
+  { rowFill: (r) => r[0] === '1.6' ? C.ok : undefined },
 ));
 
 children.push(SPACER());
 children.push(...box(
-  'Co zmieniło się w wydaniach 1.4 i 1.5',
+  'Co zmieniło się w wydaniach 1.4–1.6',
   [
     'Rozwiązanie działa na komplecie danych: 8 605 682 punkty adresowe ze wszystkich 16 województw, wobec 1 990 483 z czterech w wydaniu 1.3. Pozycja „uruchomienie na pełnym zbiorze” jest zamknięta.',
     'Uruchomiono odbiorcę metryk i pulpit operacyjny. Awarie przestały być wykrywane wyłącznie przez człowieka — to był jeden z trzech braków blokujących produkcję.',
-    'Przejście na pełną skalę ujawniło pięć kolejnych usterek — rozdział 8.4. Jedna z nich to kontrola jakości, która nie zadziałałaby w produkcji ani razu; dwie kolejne wyszły w pierwszej godzinie po podpięciu monitoringu.',
-    'Czasy odpowiedzi przemierzono na danych rzeczywistych dwiema metodami. Wyniki są znacznie lepsze od podanych w wydaniach 1.2–1.3, a rozbieżność ma źródło metodyczne — rozdział 8.6.',
+    'Powstał formalny kontrakt interfejsu oraz zbiór wzorcowy jakości wyszukiwania — dwa mechanizmy, których brak pozwalał wadom pozostawać niewidocznymi.',
+    'Łącznie ujawniono i naprawiono czternaście usterek, z których żadnej nie wykryłyby testy na próbkach. Klasyfikację według warunku wykrycia zawiera rozdział 8.4; jest ona głównym wnioskiem dla harmonogramu wdrożenia.',
+    'Czasy odpowiedzi zmierzono na danych rzeczywistych dwiema metodami. Wyniki są znacznie lepsze od podanych w wydaniach 1.2–1.3, a rozbieżność ma źródło metodyczne — rozdział 8.6.',
   ],
   C.head,
 ));
@@ -511,11 +513,16 @@ children.push(LEAD('Rozwiązania świadomie odrzucone: ',
 
 children.push(H2('5.4. Interfejs udostępniany aplikacjom'));
 children.push(P(
-  'Mikroserwis udostępnia interfejs REST. Poniższa tabela opisuje zakres funkcjonalny. ' +
-  'Formalny kontrakt — specyfikacja OpenAPI z metodami, ścieżkami, parametrami i kodami ' +
-  'odpowiedzi — jest przedmiotem osobnego zadania (rozdz. 10, 1,5 dnia). Do czasu jego ' +
-  'wykonania zespoły integrujące powinny uzgadniać szczegóły z zespołem wdrożeniowym, ' +
-  'a nie wyprowadzać ich z tej tabeli.'));
+  'Mikroserwis udostępnia interfejs REST. Poniższa tabela opisuje zakres funkcjonalny ' +
+  'w ujęciu produktowym. Wiążącym kontraktem dla zespołów integrujących jest od ' +
+  '9 sierpnia 2026 formalna specyfikacja OpenAPI, dostarczana wraz z serwisem: podaje ' +
+  'metody, ścieżki, parametry, kody odpowiedzi i przykłady dla wszystkich piętnastu tras.'));
+
+children.push(P(
+  'Kształty odpowiedzi w specyfikacji zdjęto z odpytania działającej usługi na pełnych ' +
+  'danych krajowych, a nie z lektury kodu. Zgodności pilnuje test porównujący ją z trasami ' +
+  'faktycznie zarejestrowanymi w serwisie — w obie strony, więc ani nowy punkt końcowy ' +
+  'nie przejdzie nieudokumentowany, ani specyfikacja nie opisze czegoś, czego nie ma.'));
 
 children.push(table(
   { head: ['Funkcja', 'Przeznaczenie', 'Źródło danych'], widths: [2700, 4100, 2226] },
@@ -895,11 +902,10 @@ children.push(...box(
 
 children.push(H2('8.4. Usterki wykryte na danych rzeczywistych'));
 children.push(P(
-  'Dziesięć usterek ujawniło się dopiero na danych rzeczywistych: pięć przy pierwszym ' +
-  'uruchomieniu na czterech województwach, trzy przy przejściu na pełny kraj i dwie ' +
-  'w pierwszej godzinie po uruchomieniu monitoringu. Wszystkie naprawiono. Podział jest ' +
-  'istotny dla planowania, bo każda grupa wymagała innego warunku, żeby w ogóle stać się ' +
-  'widoczna.'));
+  'Czternaście usterek ujawniło się dopiero na danych rzeczywistych i na działającej ' +
+  'usłudze. Wszystkie naprawiono. Podział poniżej jest istotny dla planowania, ponieważ ' +
+  'każda grupa wymagała innego warunku, żeby w ogóle stać się widoczna — i każda daje ' +
+  'inny wniosek dla harmonogramu wdrożenia.'));
 
 children.push(H3('Wykryte przy pierwszym uruchomieniu (4 województwa)'));
 
@@ -947,6 +953,18 @@ children.push(table(
 ));
 
 children.push(SPACER());
+children.push(H3('Wykryte przez zbiór wzorcowy jakości wyszukiwania'));
+children.push(table(
+  { head: ['Usterka', 'Skutek przed naprawą'], widths: [4200, 4826] },
+  [
+    ['Typ ulicy wtopiony w jej nazwę — dotyczy 20 586 ulic, w tym 97% ulic Warszawy', 'Zapytanie o samą nazwę nie zwracało Warszawy nawet wśród dwudziestu pięciu pierwszych podpowiedzi. Wyszukiwanie adresów w największym mieście kraju było niesprawne dla naturalnego sposobu wpisywania'],
+    ['Skrytka pocztowa rozpoznawana jako zwykły adres', 'Numer skrytki trafiał w pole numeru budynku i adres otrzymywał najwyższy poziom pewności — „zweryfikowany wobec rejestru” dla miejsca, którego w rejestrze nie ma. Przesyłka szła do wysyłki bez przeglądu'],
+    ['Przecinek jako jedyny separator pól adresu', 'Zapis bez przecinków — częsty przy danych wklejanych z faktur i przy adresach z rejestru REGON — trafiał w całości do jednego pola i nie dawał się dopasować'],
+    ['Pięciocyfrowy numer budynku odczytywany jako kod pocztowy', 'Numer znikał, a w jego miejsce pojawiał się kod będący znanym oznaczeniem braku danych. Dane były po cichu przeinaczane zamiast odrzucone'],
+  ],
+));
+
+children.push(SPACER());
 children.push(...box(
   'Monitorowanie zwróciło się, zanim skończyło się jego wdrażanie',
   [
@@ -959,11 +977,13 @@ children.push(...box(
 ));
 
 children.push(...box(
-  'Wniosek metodyczny',
+  'Wniosek metodyczny — najważniejszy w tym opracowaniu',
   [
-    'Żadnej z dziesięciu usterek nie dało się wykryć na danych testowych. Wykrywalność zależy od warunku: pięć pierwszych ujawnia sama skala, trzy wymagały pełnego zakresu danych albo drugiej publikacji na niepustej bazie, a dwie — obserwacji działającej usługi.',
-    'Dla harmonogramu najważniejsza jest grupa druga. Pierwsze uruchomienie zawsze odbywa się na pustej bazie, więc cała klasa błędów porównania „stan poprzedni wobec nowego” pozostaje wtedy niewidoczna. Plan wdrożenia musi przewidywać co najmniej dwie pełne publikacje pod obserwacją, nie jedną.',
-    'Dla kolejności prac — grupa trzecia. Monitorowanie nie jest czynnością porządkową wykonywaną na koniec; jest narzędziem wykrywania usterek i im wcześniej działa, tym więcej znajduje.',
+    'Żadnej z czternastu usterek nie wykryłyby testy na danych próbnych. Każda grupa wymagała innego warunku, żeby w ogóle stać się widoczna, i to właśnie ta klasyfikacja, a nie sama liczba, ma znaczenie dla planowania.',
+    'Skala — pięć usterek. Ujawnia je dopiero objętość danych. Wniosek: przebieg na komplecie danych przed produkcją.',
+    'Druga publikacja — trzy usterki. Pierwsze uruchomienie zawsze odbywa się na pustej bazie, więc cała klasa błędów porównania „stan poprzedni wobec nowego” jest wtedy niewidoczna. Tak przeszła kontrola jakości, która nie zadziałałaby w produkcji ani razu. Wniosek: co najmniej dwie pełne publikacje pod obserwacją.',
+    'Obserwacja działającej usługi — dwie usterki, obie w pierwszej godzinie po uruchomieniu monitorowania. Wniosek: monitorowanie nie jest czynnością porządkową wykonywaną na koniec, lecz narzędziem wykrywania usterek.',
+    'Porównanie z oczekiwaniem — cztery usterki. Usługa odpowiadała poprawnie i szybko, tyle że nie to, co trzeba. Bez zapisanego zbioru poprawnych odpowiedzi nic tego nie wykryje. Wniosek: zbiór wzorcowy jest warunkiem, a nie ozdobą — i musi opisywać odpowiedź poprawną, nie bieżącą, bo inaczej utrwala błędy.',
   ],
   C.head,
 ));
@@ -1134,6 +1154,9 @@ children.push(table(
     ['Import słowników TERYT', 'WYKONANE 6.08.2026 — pliki pełne, bez konta w GUS. Zależność od rejestracji w GUS nieaktualna'],
     ['Uruchomienie na pełnym zbiorze krajowym', 'WYKONANE 9.08.2026 — 16 województw, 8 605 682 punkty, artefakt 109,3 MB'],
     ['Zamknięcie luki w limitowaniu zapytań', 'WYKONANE 8.08.2026 — limitowanie po adresie klienta, test regresji'],
+    ['Odbiorca metryk i pulpit operacyjny', 'WYKONANE 9.08.2026 — zbieranie metryk, 7 reguł alertów, jeden ekran stanu usługi'],
+    ['Formalny kontrakt interfejsu (OpenAPI)', 'WYKONANE 9.08.2026 — 15 tras, test zgodności ze stanem kodu'],
+    ['Zbiór wzorcowy jakości wyszukiwania', 'WYKONANE 9.08.2026 — 24 przypadki; ujawnił sześć wad, wszystkie naprawione'],
   ],
   { rowFill: () => C.ok },
 ));
@@ -1148,7 +1171,7 @@ children.push(table(
     ['3. Podział na dwa serwisy', 'Rozdzielenie ról w bazie, osobne potoki budowania, kontrakt między serwisami, test skalowania poziomego', '3–5 dni'],
     ['4. Wersjonowanie wydań', 'Rejestr wydań, wersja danych w każdej odpowiedzi, procedura wycofania, wydanie kanarkowe, przypięcie klienta do wersji', '4–5 dni'],
     ['5. Audyt zmian i kontrola nadpisywania', 'Dziennik zmian rekordów, raport różnic między wydaniami, jawne reguły precedencji źródeł, ochrona zmian ręcznych przed nadpisaniem przez automat', '5–7 dni'],
-    ['6. Braki blokujące wdrożenie', 'Specyfikacja OpenAPI, retencja i anonimizacja logów zapytań, rejestr czynności przetwarzania, zbiór wzorcowy i testy regresji jakości wyszukiwania, cele dostępności, procedura przy awarii źródła', '8–10 dni'],
+    ['6. Braki blokujące wdrożenie', 'Specyfikacja OpenAPI oraz zbiór wzorcowy jakości — WYKONANE 9.08.2026. Pozostaje retencja i anonimizacja logów zapytań, rejestr czynności przetwarzania, cele dostępności, procedura przy awarii źródła', '4–5 dni'],
     ['7. Monitorowanie i obserwowalność', 'Odbiorca metryk i pulpit operacyjny — WYKONANE 9.08.2026. Pozostaje kanał powiadomień, sonda syntetyczna, centralne logi, cele poziomu usługi i zasady eskalacji', '3–5 dni'],
     ['8. Komercjalizacja', 'Klucze API z licencjami i limitami per klient, model wielodostępności, kopie zapasowe na osobną maszynę z cotygodniowym testem odtworzenia', '18–24 dni'],
     ['Narzędzie do migracji bazy (poza etapami)', 'Wersjonowanie schematu z rejestrem zastosowanych migracji', '1,5 dnia'],

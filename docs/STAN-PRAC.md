@@ -50,7 +50,18 @@ przebiegach warto ograniczyć liczbę równoczesnych kontenerów.
 
 ## 3. Naprawione w tej sesji
 
-Pięć usterek — **żadnej nie dało się wykryć na danych testowych**.
+**Czternaście usterek — żadnej nie wykryłyby testy na danych próbnych.**
+Każda grupa wymagała innego warunku, żeby stać się widoczna, i to ta
+klasyfikacja, a nie liczba, ma znaczenie dla planowania:
+
+| warunek wykrycia | ile | wniosek |
+|---|---|---|
+| skala danych | 5 | przebieg na komplecie danych przed produkcją |
+| **druga publikacja** na niepustej bazie | 3 | **dwie pełne publikacje pod obserwacją, nie jedna** |
+| obserwacja działającej usługi | 2 | monitorowanie wcześnie, nie na koniec |
+| porównanie z oczekiwaniem | 4 | zbiór wzorcowy jest warunkiem, nie ozdobą |
+
+### Pierwsze pięć — przy uruchomieniu na czterech województwach
 
 | # | usterka | gdzie | skutek przed naprawą |
 |---|---|---|---|
@@ -91,13 +102,23 @@ cache'owanie jej maskowałoby awarię, a to sygnał dla alertu z progiem 2 minut
 
 Testy regresji: `npm test` — cztery zestawy w `packages/api/test/`.
 
-**Zbiór wzorcowy jakości (9.08, zadanie 6.8) ujawnił sześć wad.** Najpoważniejsza:
-**„marszalkowska" nie zwraca Warszawy nawet w pierwszej 25** — 10 992 z 11 338 ulic
-Warszawy ma słowo rodzajowe wtopione w nazwę („ulica Marszałkowska") przy pustej
-kolumnie `cecha`, więc przegrywają ze wsiami, gdzie nazwa jest czysta. W kraju
-32 418 takich ulic. Druga co do wagi: **skrytka pocztowa dostaje
-`zweryfikowany_rejestr`**, choć rozdz. 6.4 raportu przewiduje tryb nietypowy.
-Komplet z nakładami: `plan-produkcyjny.md`, pozycje 6.16–6.21.
+**Cztery kolejne z zbioru wzorcowego (9.08)** — usługa odpowiadała poprawnie
+i szybko, tyle że nie to, co trzeba:
+
+| # | usterka | gdzie | skutek przed naprawą |
+|---|---|---|---|
+| 11 | Typ ulicy wtopiony w nazwę — 20 586 ulic, **97% ulic Warszawy** | `search/engine.ts` | **„marszalkowska" nie zwracało Warszawy nawet w pierwszej 25.** Po naprawie: poz. 2 |
+| 12 | Marker skrytki pocztowej nierozpoznawany | `core/parse.ts` | numer skrytki wpadał w numer budynku i adres dostawał **`zweryfikowany_rejestr`** — wysyłka bez przeglądu |
+| 13 | Przecinek jako jedyny separator pól | `core/parse.ts` | „Marszałkowska 1 00-624 Warszawa" w całości jako nazwa miejscowości |
+| 14 | Pięciocyfrowy numer czytany jako kod pocztowy | `core/postal.ts` | „99999" → kod „99-999" i pusty numer budynku |
+
+Usterka 11 naprawiona **tylko w punktacji** — słowo rodzajowe jest dla niej
+przezroczyste. Etykiet nie skracamy, bo „Aleje Jerozolimskie" to nazwa
+zwyczajowa. W warstwie danych problem zostaje: pozycje 6.22 i 6.23 planu,
+z pułapką migracyjną wokół `publikuj_zrzut`.
+
+Zbiór wzorcowy: 24 przypadki, **zero odstępstw**. Opisuje odpowiedź *poprawną*,
+nie bieżącą, a po naprawie sam upomina się o zdjęcie znacznika odstępstwa.
 
 Poza tym: naprawiony niekompletny `package-lock.json`, dodany `.dockerignore`,
 `build-index` tworzy teraz stabilną nazwę `current.bin`, loader API czyta
@@ -226,12 +247,13 @@ Narzędzia pomocnicze w `scripts/`:
 |---|---|
 | `docs/plan-produkcyjny.md` | **plan zadań** — od tego zacząć |
 | `docs/STAN-PRAC.md` | ten dokument |
-| `docs/raport/raport-baza-mikroserwis-v1.4.docx` | raport dla analityków i klienta |
+| `docs/raport/raport-baza-mikroserwis-v1.6.docx` | raport dla analityków i klienta |
 | `docs/build-report.js` | **generator raportu** — źródło prawdy, `npm run raport` |
 | `README.md` | dokumentacja techniczna, zaktualizowane czasy przebiegów |
 
-Raport dla analityków jest w wersji **1.4** (9.08.2026): pełny kraj, trzy nowe
-usterki, przemierzone czasy odpowiedzi i przetwarzania. Wydanie 1.3 uzgodniło
+Raport dla analityków jest w wersji **1.6** (9.08.2026): pełny kraj, czternaście
+naprawionych usterek z klasyfikacją według warunku wykrycia, formalny kontrakt
+interfejsu, zmierzone czasy odpowiedzi i przetwarzania. Wydanie 1.3 uzgodniło
 treść ze stanem repozytorium — skorygowało zakres mikroserwisu, oznaczyło Redis
 i magazyn obiektowy jako niewdrożone, ujawniło braki blokujące produkcję
 i przepisało plan prac na 11–15 tygodni. Wszystkie wydania leżą w `docs/raport/`.
