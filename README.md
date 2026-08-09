@@ -462,6 +462,27 @@ jeśli w PRG jest punkt `12/14` przy tej ulicy, to jest to numer budynku.
 ## Testy
 
 ```bash
+# zestawy regresji — hermetyczne, bez bazy i bez danych krajowych
+npm test
+```
+
+`npm test` obejmuje trzy zestawy sprawdzające **mechanikę**: obejście limitu
+zapytań, podmianę artefaktu indeksu i zgodność `openapi.yaml` z trasami Fastify.
+Budują sobie własną atrapę artefaktu (`packages/api/test/atrapa-indeksu.ts`),
+więc przechodzą w świeżo sklonowanym repozytorium — bez uruchamiania ETL,
+bez katalogu `data/` i bez bazy.
+
+```bash
+# regresja JAKOŚCI wyszukiwania — wymaga pełnych danych w indeksie i w bazie
+npm run jakosc
+```
+
+Zbiór wzorcowy mierzy **pozycje w rankingu wśród 380 tys. ulic**, więc nie da
+się go uruchomić na atrapie: bez danych kończy się jedną linią o niespełnionym
+warunku wstępnym (kod wyjścia 2), a nie kilkunastoma błędami wyglądającymi na
+regresję. To osobna bramka, uruchamiana tam, gdzie dane są — nie część `npm test`.
+
+```bash
 # benchmark indeksu: 373 tys. etykiet o rozkładzie PRG
 node --experimental-strip-types packages/etl/test/bench-index.ts
 

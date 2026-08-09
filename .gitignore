@@ -1,5 +1,16 @@
 node_modules/
 
+# Sekrety lokalne. Tu mieszka pieprz HMAC kluczy API (API_KEY_PEPPER_*)
+# i token operatorski - patrz etap 8A. Wzorcem do skopiowania jest
+# .env.example, ktory sekretow NIE zawiera.
+#
+# Do 9.08.2026 .env nie byl ignorowany i lezal w drzewie roboczym jako plik
+# nowy - jeden `git add -A` wystarczylby, zeby poswiadczenia trafily do
+# historii repozytorium, skad sie ich nie usuwa jednym poleceniem.
+.env
+.env.*
+!.env.example
+
 # Archiwa zrodlowe, artefakty indeksu i zrzuty bazy - liczone w gigabajtach.
 # Odtwarzalne: archiwum z PRG/eTeryt, artefakt przez `etl build-index`.
 data/

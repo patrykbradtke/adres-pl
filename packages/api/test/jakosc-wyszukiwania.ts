@@ -48,7 +48,29 @@ const app = await buildServer(loadConfig({
 
 const wersja = (await app.inject({ method: 'GET', url: '/v1/suggest?q=warszawa&limit=1' })
   .then((r) => r.json())).wersjaDanych;
+
+/**
+ * Kontrola wstepna: zbior mierzy POZYCJE W RANKINGU wsrod 380 tys. ulic.
+ *
+ * Uruchomiony na innych danych - w szczegolnosci na atrapie artefaktu, ktorej
+ * uzywaja pozostale zestawy - wypisuje kilkanascie bledow, ktore NIE SA
+ * regresja jakosci, tylko brakiem danych. Wczesniej byla tu tylko uwaga
+ * i przebieg leciał dalej: 19 czerwonych linii, z ktorych zadna nie mowila,
+ * co naprawde jest nie tak. Tak wyglada sygnal, ktory uczy ludzi go ignorowac.
+ *
+ * Przy swiadomym uruchomieniu na nowszym zrzucie (np. po aktualizacji danych,
+ * zeby zobaczyc, co sie zmienilo) ZBIOR_WYMUS=1 przywraca dawne zachowanie.
+ */
 if (wersja !== zbior.wersjaDanych) {
+  if (process.env.ZBIOR_WYMUS !== '1') {
+    console.log(`WARUNEK WSTEPNY NIESPELNIONY: zbior zamrozono na danych ${zbior.wersjaDanych}, ` +
+      `a zaladowane sa "${wersja}".`);
+    console.log('  Ten zestaw wymaga pelnych danych krajowych w indeksie ORAZ w bazie.');
+    console.log('  Nie jest to regresja jakosci - to brak danych do pomiaru.');
+    console.log('  Uruchom go w srodowisku po przebiegu ETL albo wymus: ZBIOR_WYMUS=1 npm run jakosc');
+    await app.close();
+    process.exit(2);
+  }
   console.log(`UWAGA: zbior zamrozono na danych ${zbior.wersjaDanych}, a zaladowane sa ${wersja}.`);
   console.log('       Rozbieznosci moga wynikac ze zmiany danych, nie z regresji.\n');
 }

@@ -11,3 +11,11 @@ data
 .git
 .gitignore
 *.log
+
+# Sekrety. Dockerfile robi `COPY . .` (linia 9), wiec bez tego wpisu pieprz
+# HMAC i token operatorski zostalyby WPIECZONE w warstwe obrazu i pojechaly
+# do rejestru razem z nim - a warstwy obrazu sa czytelne dla kazdego, kto
+# obraz pobierze. Sekrety wstrzykuje sie zmiennymi srodowiskowymi.
+.env
+.env.*
+!.env.example
