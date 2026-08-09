@@ -269,7 +269,7 @@ zbierania wygląda identycznie jak stan zdrowy.
 | 7.5 | Sonda syntetyczna: cykliczne zapytanie kontrolne z weryfikacją treści odpowiedzi | 0,5 d | wykrywa „usługa odpowiada, ale zwraca bzdury” |
 | 7.6 | Centralne logi z korelacją do metryk | 1 d | dziś logi żyją w kontenerze |
 | 7.7 | Cele poziomu usługi (SLO) i alerty oparte na budżecie błędu | 1 d | zamiast progów sztywnych, mniej fałszywych alarmów |
-| 7.8 | Zasady eskalacji: kto dostaje alert, co budzi w nocy, co czeka do rana | 0,5 d | alert bez adresata jest bezużyteczny |
+| 7.8 | ~~Zasady eskalacji: kto dostaje alert, co budzi w nocy, co czeka do rana~~ **WYKONANE 9.08.2026** — podział wyegzekwowany konfiguracją, nie opisem: `critical` do dyżuru natychmiast, `warning` wyciszone pon–pt 18:00–08:00 i przez weekend, dostarczane rano. Zostaje uzupełnienie adresów po wskazaniu osoby odpowiedzialnej | — |
 
 **Zasada dla alertów:** reagować na objawy odczuwalne dla użytkownika, a nie na
 przyczyny techniczne. Istniejące trzy reguły są dobrym wzorcem — każda mówi
