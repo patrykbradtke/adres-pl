@@ -17,10 +17,10 @@ Plan zadań: [plan-produkcyjny.md](plan-produkcyjny.md).
 | Punkty adresowe | **8 605 682** opublikowane, **16 z 16 województw** |
 | Powiązanie z ulicami | 5 532 383 punkty (64,3%) |
 | Kod pocztowy | 8 604 962 punkty (99,99%) |
-| Katalog ulic | 689 328 |
-| Artefakt wyszukiwania | 791 211 pozycji, 109,3 MB, budowa 55 s |
+| Katalog ulic | **325 496** — po scaleniu duplikatów, było 689 328 |
+| Artefakt wyszukiwania | 378 300 pozycji, **54,5 MB**, format **2** |
 | API | `localhost:3000`, 11 endpointów `/v1/*` + 4 operacyjne (`/health`, `/ready`, `/metrics`, `/status`), wersja danych `2026-08-06` |
-| Wyszukiwanie | HTTP p50 **1,71 ms**, p95 9,41 ms, p99 27,94 ms; RSS procesu 239 MB |
+| Wyszukiwanie | RSS procesu **55 MB**, było 239 MB. Czasy do przemierzenia — patrz niżej |
 | Archiwum PRG | 16 z 16 województw, 1,8 GB, `data/archive/prg/2026-08-06/` |
 | Archiwum TERYT | `data/archive/teryt/2026-08-06/` (TERC/SIMC/ULIC/WMRODZ w CSV) |
 
@@ -28,6 +28,19 @@ Rejestr zapowiada 8 560 617 punktów na 31.03.2026 — mamy 45 tys. więcej, co
 odpowiada przyrostowi za cztery miesiące. Zrzut jest kompletny.
 
 Pomiar wyszukiwania: `node --experimental-strip-types packages/etl/test/bench-realny.ts`.
+Testy: `npm test` — cztery zestawy, w tym zbiór wzorcowy jakości (28 przypadków).
+Monitoring: `docker compose --profile monitoring up -d` — Prometheus 9090,
+Grafana 3001 (pulpit bez logowania), Alertmanager 9093.
+
+**Czasy odpowiedzi wymagają ponownego pomiaru.** Wartości p50 1,71 ms pochodzą
+sprzed scalenia ulic i zmiany rankingu. Późniejsze próby robiono przy obciążeniu
+maszyny 50 przy ośmiu rdzeniach, więc są nieporównywalne. Czysty pomiar jest
+częścią nocnego przebiegu.
+
+**Uwaga o kontenerze API.** `docker compose restart api` NIE przebudowuje
+obrazu. Po zmianie w `packages/api` trzeba `docker compose build api`, inaczej
+`npm test` (źródła) i `curl localhost:3000` (kontener) pokazują różne rzeczy —
+kosztowało to sporo zamieszania 9.08.
 
 ---
 
@@ -267,26 +280,54 @@ aż do 8.08.2026; teraz jest z dokumentem zsynchronizowany.
 
 ## 8. Od czego zacząć w nowej sesji
 
-1. **Etapy 0, 1.1–1.3 oraz zadanie 8.1 — wykonane.** Cały kraj opublikowany,
-   artefakt zbudowany i zmierzony, luka w limitowaniu zamknięta.
-2. **Wgrać poprawkę 8** do działającej bazy (migracje idą tylko przy inicjalizacji
-   kontenera), a potem zmierzyć zysk kolejnym pełnym przebiegiem:
-   `psql "$DATABASE_URL" -f db/migrations/002_staging.sql`
-3. **Etap 1.4 i 1.6 — archiwum i kopie zapasowe poza maszynę.** To teraz
-   najpilniejsza pozycja: zrzut w strukturze sprzed 1.09.2026 istnieje w jednej
-   kopii na dysku roboczym, a po tej dacie jest nieodtwarzalny.
-4. **Etap 2.13** — dwie pełne aktualizacje 8,6 mln wierszy przy nałożonych
-   indeksach; 303 GB zapisów przy zbiorze 12 GB.
-5. Dalej wg `plan-produkcyjny.md`. Z etapu 7 warto wcześnie wziąć 7.1 i 7.2 —
-   w tej sesji dwukrotnie okazało się, że awarię wykrywa człowiek, bo metryk
-   nikt nie zbiera.
+### PIERWSZA RZECZ: odczytaj wynik nocnego przebiegu
 
-Odtworzenie bazy bez ponownego przetwarzania — z kopii w `data/backup/`:
+Uruchomiony 9.08 o 02:00, odłączony od sesji (`nohup`). Log:
 
 ```bash
-docker compose exec -T db pg_restore -U adres -d adres --clean --if-exists \
-  < data/backup/adres-2026-08-07.dump
+cat /private/tmp/claude-501/-Users-pro-adres-pl/20967b49-95e7-4b0a-8486-cd26258ce1ef/scratchpad/nocny.log
 ```
+
+Sprawdza dwie rzeczy, których nie dało się sprawdzić w dzień:
+
+- **czy publikacja odtwarza duplikaty katalogu ulic.** Fragment ścieżki
+  przetestowano 9.08 z wycofaniem — wyszło zero duplikatów — ale pełny cykl
+  nie przeszedł jeszcze ani razu po zmianie klucza z nazwy na `sym_ul`.
+  W logu szukać wierszy „DUPLIKATOW (ma być 0)" i „nazw z przedrostkiem".
+- **czysty pomiar wydajności.** Wszystkie pomiary z popołudnia 9.08 robiono
+  przy obciążeniu maszyny 50 przy ośmiu rdzeniach i są bezwartościowe.
+
+Cykl idzie na **progach domyślnych** — bez `SANITY_MAX_DELTA_FRAC`. To też jest
+przedmiotem sprawdzenia: po pełnym załadunku progi mają działać bez obchodzenia.
+
+Gdyby log był pusty albo urwany: maszyna mogła się uśpić (blokada `caffeinate`
+wygasa 10.08 o 06:00) albo Docker nie działał. Przebieg da się powtórzyć —
+skrypt jest w tym samym katalogu, `nocny.sh`.
+
+### Kolejność dalszych prac
+
+1. **Etap 1.4 i 1.6 — archiwum i kopie zapasowe poza maszynę.** Odkładane
+   świadomie przez całą sesję, ale termin jest twardy: zrzut w strukturze
+   sprzed **1.09.2026** istnieje w jednej kopii na dysku roboczym i po tej
+   dacie jest nieodtwarzalny z żadnego źródła. Zostały trzy tygodnie.
+2. **Etap 2.13 i 2.8** — dwie pełne aktualizacje 8,6 mln wierszy przy
+   nałożonych indeksach, 303 GB zapisów przy zbiorze 12 GB. Nocny przebieg
+   pokaże, ile dała poprawka `resolve_refs`.
+3. **Etap 8A — uwierzytelnianie.** Prowadzone w osobnej sesji na gałęzi
+   `etap-8a` w drzewie `/Users/pro/adres-pl-8a`, własna baza na porcie 5433.
+   Sprawdzić stan przed planowaniem czegokolwiek w `packages/api`.
+4. Dalej wg `plan-produkcyjny.md`.
+
+### Odtworzenie bazy
+
+```bash
+# stan sprzed scalenia ulic (9.08, przed migracją 003)
+docker compose exec -T db pg_restore -U adres -d adres --clean --if-exists \
+  < data/backup/adres-2026-08-09-przed-migracja.dump
+```
+
+Uwaga: migracja `003_scalenie_ulic.sql` wymaga wcześniejszego założenia indeksu
+`ix_pa_ulic_id` — sama to sprawdza i przerywa z komunikatem, jeśli go brak.
 
 Ustalenia dotyczące technologii (uzasadnienie w planie): serwis danych zostaje
 na Fastify bez ORM; NestJS i ewentualnie Drizzle rozważyć wyłącznie dla
