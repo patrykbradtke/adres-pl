@@ -24,10 +24,14 @@
  */
 
 export const MAGIC = 'APL1';
-export const FORMAT_VERSION = 1;
+/**
+ * 2 (9.08.2026): doszlo pole PUNKTOW_MIEJSCOWOSCI. Artefakty w wersji 1 nie
+ * daja sie wczytac - przy podniesieniu wersji przebudowac artefakt.
+ */
+export const FORMAT_VERSION = 2;
 
 /** Liczba pol int32 na jeden dokument w sekcji `docs`. */
-export const DOC_STRIDE = 10;
+export const DOC_STRIDE = 11;
 
 export const DOC = {
   TYPE: 0,          // 0 = miejscowosc, 1 = ulica
@@ -40,6 +44,18 @@ export const DOC = {
   FLAGS: 7,         // bit0 = ma_ulice
   LAT_E6: 8,        // lat * 1e6, zaokraglone
   LON_E6: 9,
+  /**
+   * Liczba punktow adresowych CALEJ MIEJSCOWOSCI, nie samej ulicy.
+   *
+   * Dla ulic PUNKTOW mowi, ile adresow ma ta konkretna ulica - a to slaby
+   * sygnal waznosci: ulica we wsi potrafi miec ich tyle samo, co fragment
+   * ulicy w miescie. Zapytanie "marszalkowska" dawalo Cmolas (67 punktow)
+   * i Warszawe (70) w praktycznym remisie, choc miejscowosci roznia sie
+   * o trzy rzedy wielkosci. To pole dostarcza brakujacy kontekst.
+   *
+   * Dla miejscowosci rowne PUNKTOW.
+   */
+  PUNKTOW_MIEJSCOWOSCI: 10,
 } as const;
 
 export const FLAG_MA_ULICE = 1;

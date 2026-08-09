@@ -197,7 +197,7 @@ występować, zestaw upomina się o zdjęcie znacznika.
 | 6.16 | ~~Słowo rodzajowe wtopione w nazwę ulicy~~ **NAPRAWIONE 9.08.2026** — punktacja pomija wiodące słowo rodzajowe. Marszałkowska poz. 2, Grójecka poz. 4, Puławska poz. 1 (było: poza pierwszą 25). Zostaje warstwa danych — patrz niżej | — | — |
 | 6.17 | ~~Skrytka pocztowa dostaje `zweryfikowany_rejestr`~~ **NAPRAWIONE 9.08.2026** — marker rozpoznawany przed resztą parsowania, numer skrytki nie trafia w numer budynku | — |
 | 6.18 | ~~Parser wymaga przecinka jako separatora pól~~ **NAPRAWIONE 9.08.2026** — przy braku przecinka podział w miejscu kodu pocztowego | — |
-| 6.19 | **Ranking prawie nie uwzględnia wielkości miejscowości** | Ulica we wsi z 67 punktami wygrywa z ulicą w mieście z 126 tys. Wymaga decyzji: czy i jak ważyć | 0,5 d + decyzja |
+| 6.19 | ~~Ranking prawie nie uwzględnia wielkości miejscowości~~ **NAPRAWIONE 9.08.2026** — do indeksu doszło pole z liczbą adresów całej miejscowości (format 1→2). „marszalkowska" i „grojecka" zwracają Warszawę na pierwszym miejscu, przy zachowanej znajdywalności wsi | — |
 | 6.20 | ~~Pięciocyfrowy numer budynku czytany jako kod pocztowy~~ **NAPRAWIONE 9.08.2026** — kod bez myślnika odrzucany, gdy wychodzi na zaślepkę | — |
 | 6.21 | ~~Miejscowości-widma z zerową liczbą punktów~~ **NAPRAWIONE 9.08.2026** — z indeksu wypadają miejscowości bez punktów I bez ulic (49 079, 48% słownika). Filtr funkcjonalny, nie słownikowy: 921 wpisów typu „część" ma własne adresy | — |
 

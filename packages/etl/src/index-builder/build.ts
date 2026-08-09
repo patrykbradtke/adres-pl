@@ -22,6 +22,8 @@ export interface IndexDoc {
   simc: string;
   ulicId?: number;
   liczbaPunktow: number;
+  /** Punkty CALEJ miejscowosci. Dla miejscowosci rowne liczbaPunktow. */
+  liczbaPunktowMiejscowosci?: number;
   gmina?: string;
   powiat?: string;
   wojewodztwo?: string;
@@ -104,6 +106,8 @@ export function buildIndex(docs: Iterable<IndexDoc>, dataVersion: string): Build
     docFields[base + DOC.FLAGS] = d.maUlice ? FLAG_MA_ULICE : 0;
     docFields[base + DOC.LAT_E6] = d.lat ? Math.round(d.lat * 1e6) : 0;
     docFields[base + DOC.LON_E6] = d.lon ? Math.round(d.lon * 1e6) : 0;
+    docFields[base + DOC.PUNKTOW_MIEJSCOWOSCI] =
+      Math.min((d.liczbaPunktowMiejscowosci ?? d.liczbaPunktow) | 0, 2_000_000_000);
 
     const seen = new Set<string>();
     for (const k of rotationalKeys(d.label)) {
@@ -189,6 +193,7 @@ export const SQL_INDEX_DOCS = `
     m.simc,
     NULL::bigint       AS ulic_id,
     m.liczba_punktow,
+    m.liczba_punktow   AS liczba_punktow_miejscowosci,
     g.nazwa            AS gmina,
     pw.nazwa           AS powiat,
     w.nazwa            AS wojewodztwo,
@@ -227,6 +232,7 @@ export const SQL_INDEX_DOCS = `
     m.simc,
     u.ulic_id,
     u.liczba_punktow,
+    m.liczba_punktow,
     g.nazwa, pw.nazwa, w.nazwa,
     m.ma_ulice,
     NULL, NULL,

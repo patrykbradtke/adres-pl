@@ -1,7 +1,7 @@
 # Zbior wzorcowy jakosci wyszukiwania i walidacji.
 #
 # PO CO: aktualizacja danych albo zmiana w silniku moze po cichu pogorszyc
-# wyniki. Nic tego dzis nie wykrywa - uslugа nadal odpowiada, kody sa 200,
+# wyniki. Nic tego dzis nie wykrywa - usluga nadal odpowiada, kody sa 200,
 # metryki zielone, a "Kosciuszki" przestaje zwracac wlasciwa ulice.
 #
 # ZASADA: zapisujemy odpowiedz POPRAWNA, nie biezaca. Zbior wzorcowy, ktory
@@ -85,15 +85,36 @@ podpowiedzi:
   # --- duze miasta wobec wsi o tej samej nazwie ulicy ---
   - q: marszalkowska
     oczekiwaneMiejscowosc: Warszawa
-    wTop: 10
+    wTop: 1
+    dlaczego: >
+      Zapytanie o sama nazwe ulicy bez miejscowosci: uzytkownik prawie zawsze
+      ma na mysli te w duzym miescie. Do 9.08.2026 Warszawy nie bylo nawet
+      w pierwszej 25 - wygrywaly wsie, bo ranking nie znal wielkosci
+      miejscowosci, a tylko liczbe adresow przy samej ulicy.
 
   - q: grojecka
     oczekiwaneMiejscowosc: Warszawa
-    wTop: 10
+    wTop: 1
+    dlaczego: >
+      Przypadek mocniejszy niz Marszalkowska: Konin ma przy tej ulicy 168
+      adresow, Warszawa 114. O kolejnosci ma decydowac wielkosc miejscowosci.
 
   - q: pulawska
     oczekiwaneMiejscowosc: Warszawa
-    wTop: 10
+    wTop: 3
+
+  # --- ale male miejscowosci musza zostac znajdywalne ---
+  - q: Cmolas
+    oczekiwane: { label: 'Cmolas', type: locality }
+    wTop: 1
+    dlaczego: >
+      Straznik w druga strone. Premia za wielkosc miejscowosci nie moze
+      przykryc dopasowania nazwy - wies wpisana wprost ma byc pierwsza.
+
+  - q: polna cmolas
+    oczekiwaneZawiera: Cmolas
+    wTop: 1
+    dlaczego: Zawezenie miejscowoscia w zapytaniu ma przewazyc nad popularnoscia.
 
 walidacja:
   # --- adres wzorcowy ---
