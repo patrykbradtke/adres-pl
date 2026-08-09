@@ -30,6 +30,38 @@ import {
 import { normalizeText, tokenize, levenshtein } from '@adres-pl/core';
 import type { Suggestion } from '@adres-pl/core';
 
+/**
+ * Slowa rodzajowe, ktore w rejestrze bywaja wtopione w nazwe ulicy.
+ *
+ * PRG nie wypelnia kolumny cechy w ogole, a dla 20 586 ulic wstawia typ do
+ * samej nazwy: "ulica Marszalkowska" zamiast cechy "ul." i nazwy
+ * "Marszalkowska". W Warszawie dotyczy to 10 992 z 11 338 ulic, czyli 97%.
+ *
+ * Dla dopasowania prefiksowego takie slowo nie niesie informacji - nikt nie
+ * szuka ulicy, wpisujac najpierw "ulica". Lista jest domknieta i celowo krotka:
+ * pomijamy wyrazy, ktore bywaja czescia nazwy wlasnej (np. "Aleje" w "Aleje
+ * Jerozolimskie" albo "Rynek"), bo tam obcięcie zmienialoby sens.
+ */
+const SLOWA_RODZAJOWE = new Set([
+  'ulica', 'ul', 'aleja', 'al', 'plac', 'pl', 'osiedle', 'os',
+  'skwer', 'rondo', 'bulwar', 'bulw', 'droga', 'szosa', 'wybrzeze',
+]);
+
+/**
+ * Przesuniecie, od ktorego zaczyna sie wlasciwa nazwa - 0, gdy etykieta nie ma
+ * wiodacego slowa rodzajowego.
+ *
+ * Zwracamy pozycje, a nie podciag, bo `score` wola to dla KAZDEGO kandydata.
+ * Wersja alokujaca podciag kosztowala ok. 11% mediany czasu odpowiedzi;
+ * `startsWith(q, offset)` nie alokuje nic.
+ */
+function poSlowieRodzajowym(norm: string): number {
+  const spacja = norm.indexOf(' ');
+  if (spacja <= 0 || spacja + 1 >= norm.length) return 0;
+  const koniec = norm.charCodeAt(spacja - 1) === 46 /* '.' */ ? spacja - 1 : spacja;
+  return SLOWA_RODZAJOWE.has(norm.slice(0, koniec)) ? spacja + 1 : 0;
+}
+
 export interface SearchOptions {
   limit?: number;
   /** Zawezenie do jednej miejscowosci - uzywane przez pole "ulica". */
@@ -232,8 +264,31 @@ export class SearchIndex {
 
     let s = 0;
 
-    if (norm.startsWith(q)) s += 1000;
-    else if (norm.includes(q)) s += 500;
+    // Wiodace slowo rodzajowe jest dla punktacji PRZEZROCZYSTE.
+    //
+    // PRG nie wypelnia kolumny cechy i dla 20 586 ulic wstawia typ do samej
+    // nazwy ("ulica Marszalkowska"); w Warszawie dotyczy to 97% ulic. Takie
+    // etykiety traca 500 punktow na dopasowaniu prefiksowym i dodatkowo sa
+    // karane za dlugosc, ktora ten przedrostek sztucznie zawyza. Skutek byl
+    // taki, ze zapytanie "marszalkowska" nie zwracalo Warszawy nawet
+    // w pierwszej 25, a "pulawska" stawialo ja na 26 miejscu mimo 373 punktow
+    // adresowych wobec 157 w wygrywajacej Warce.
+    //
+    // Nie obcinamy przedrostka z etykiety - "Aleje Jerozolimskie" czy "Rynek"
+    // to nazwy zwyczajowe i skrocenie zmienialoby sens. Pomijamy go wylacznie
+    // przy liczeniu punktow.
+    // Kolejnosc testow jest istotna dla kosztu: wiekszosc kandydatow trafia tu
+    // wlasnie dlatego, ze etykieta zaczyna sie od zapytania, wiec ta sciezka
+    // nie moze placic za obsluge przedrostka. Przesuniecie liczymy dopiero,
+    // gdy tani test zawiedzie.
+    let odNazwy = 0;
+    if (norm.startsWith(q)) {
+      s += 1000;
+    } else {
+      odNazwy = poSlowieRodzajowym(norm);
+      if (odNazwy > 0 && norm.startsWith(q, odNazwy)) s += 1000;
+      else if (norm.includes(q)) s += 500;
+    }
 
     const lTokens = norm.split(' ');
     let matched = 0;
@@ -256,7 +311,10 @@ export class SearchIndex {
     const punktow = this.field(docId, DOC.PUNKTOW);
     s += Math.log10(punktow + 1) * 30;
 
-    s -= Math.min(norm.length, 60) * 1.5;
+    // Kara za dlugosc liczona bez slowa rodzajowego - inaczej etykieta
+    // "ulica Pulawska, Warszawa" placi za szesc znakow, ktorych uzytkownik
+    // nie wpisal i ktore nie odrozniaja jej od niczego.
+    s -= Math.min(norm.length - odNazwy, 60) * 1.5;
 
     return s;
   }

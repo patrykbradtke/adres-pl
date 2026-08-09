@@ -72,21 +72,14 @@ podpowiedzi:
   - q: marszalkowska
     oczekiwaneMiejscowosc: Warszawa
     wTop: 10
-    znaneOdstepstwo: >
-      Warszawa nie mieści się nawet w pierwszej 25. Przyczyna: 10 992 z 11 338
-      ulic Warszawy ma slowo rodzajowe wtopione w nazwe ("ulica Marszalkowska")
-      przy pustej kolumnie cechy, wiec zapytanie o sama nazwe dopasowuje sie
-      gorzej niz do wsi, gdzie nazwa jest czysta. Dotyczy 32 418 ulic w kraju.
 
   - q: grojecka
     oczekiwaneMiejscowosc: Warszawa
     wTop: 10
-    znaneOdstepstwo: To samo zrodlo co przy Marszalkowskiej.
 
   - q: pulawska
     oczekiwaneMiejscowosc: Warszawa
     wTop: 10
-    znaneOdstepstwo: To samo zrodlo co przy Marszalkowskiej.
 
 walidacja:
   # --- adres wzorcowy ---
