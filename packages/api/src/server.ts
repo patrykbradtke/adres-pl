@@ -17,6 +17,7 @@ import { registerSearchRoutes } from './routes/search.ts';
 import { registerLookupRoutes } from './routes/lookup.ts';
 import { registerValidateRoutes } from './routes/validate.ts';
 import { registerMetricsRoutes, Metrics } from './routes/metrics.ts';
+import { registerAdminRoutes, sprawdzTokenOperatora } from './routes/admin.ts';
 import { registerAuth } from './keys/auth.ts';
 import { KeyRegistry } from './keys/registry.ts';
 import { Peppers } from './keys/pepper.ts';
@@ -223,6 +224,21 @@ export async function buildServer(
   registerSearchRoutes(app, holder);
   registerLookupRoutes(app, pool);
   registerValidateRoutes(app, pool, holder);
+
+  /**
+   * Trasy administracyjne istnieja WYLACZNIE przy ustawionym tokenie.
+   *
+   * Wymagaja tez pieprza, bo wystawienie klucza polega na policzeniu skrotu -
+   * bez niego endpoint bylby atrapa konczaca sie bledem przy pierwszym uzyciu.
+   */
+  if (cfg.adminToken) {
+    sprawdzTokenOperatora(cfg.adminToken);
+    if (!pieprze) {
+      throw new Error('ADMIN_TOKEN ustawiony, ale brak pieprza - wystawienie klucza ' +
+        'wymaga policzenia skrotu. Ustaw API_KEY_PEPPER_1.');
+    }
+    registerAdminRoutes(app, { pool, pieprze, token: cfg.adminToken });
+  }
 
   /**
    * Metadane zbioru. Wazniejsze, niz wyglada: pozwala wykryc, ze dane

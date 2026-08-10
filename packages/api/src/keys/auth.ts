@@ -234,6 +234,12 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     // Sondy i metryki poza uwierzytelnianiem - patrz komentarz przy BEZ_KLUCZA.
     if (trasa !== undefined && BEZ_KLUCZA.has(trasa)) return;
 
+    // Trasy administracyjne maja WLASNY mechanizm (token operatora) i celowo
+    // nie przechodza przez uwierzytelnianie klientow: klucz adr_live_* nie
+    // moze otwierac zadnej z nich, bo bylaby to eskalacja uprawnien z klienta
+    // na operatora.
+    if (trasa !== undefined && trasa.startsWith('/admin/')) return;
+
     // Kontekst 404 ma routeOptions.url === undefined i CELOWO przechodzi przez
     // uwierzytelnianie: dzieki temu sondowanie nieistniejacych sciezek przestaje
     // byc darmowe. Nie "naprawiac" tego przepuszczaniem nieznanych tras.

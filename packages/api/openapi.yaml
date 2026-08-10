@@ -59,7 +59,12 @@ tags:
   - name: walidacja
     description: Rozbiór i weryfikacja adresu wobec rejestru.
   - name: operacyjne
-    description: Sondy i metryki. Poza przestrzenią /v1, nie dla aplikacji klienckich.
+    description: Sondy i metryki. Bez uwierzytelniania, odcinane na warstwie sieciowej.
+  - name: administracyjne
+    description: >
+      Zarządzanie klientami i kluczami. Nie dla aplikacji klienckich; token
+      operatora jest odrębny od kluczy API. Trasy istnieją wyłącznie przy
+      ustawionym ADMIN_TOKEN.
 
 paths:
   /v1/suggest:
@@ -418,6 +423,121 @@ paths:
         '403': { $ref: '#/components/responses/BrakUprawnien' }
         '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
 
+  # --- administracyjne ---------------------------------------------------
+  #
+  # Poza przestrzenia /v1 celowo: inny cykl zycia, inni odbiorcy, inny mechanizm
+  # uwierzytelniania. Istnieja w routerze WYLACZNIE przy ustawionym ADMIN_TOKEN.
+
+  /admin/clients:
+    post:
+      tags: [administracyjne]
+      summary: Zakłada klienta
+      security: [{ TokenOperatora: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nazwa]
+              properties:
+                nazwa: { type: string }
+                nip: { type: string, pattern: '^[0-9]{10}$' }
+                email: { type: string }
+                pakiet: { type: string, default: test }
+                limitNaMinute: { type: integer, default: 600 }
+                kwotaMiesieczna: { type: integer, description: W jednostkach rozliczeniowych. }
+      responses:
+        '200': { description: Klient założony. }
+        '201': { description: Klient założony. }
+        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
+    get:
+      tags: [administracyjne]
+      summary: Lista klientów
+      security: [{ TokenOperatora: [] }]
+      responses:
+        '200': { description: Klienci wraz z limitami i kwotami. }
+        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
+
+  /admin/keys:
+    post:
+      tags: [administracyjne]
+      summary: Wystawia klucz — jedyne miejsce zwracające klucz jawny
+      description: |
+        Klucz jawny jest zwracany **raz** i nie da się go odtworzyć — w bazie
+        leży wyłącznie skrót. Odpowiedź ma `Cache-Control: no-store`, bo jej
+        treść jest poświadczeniem.
+      security: [{ TokenOperatora: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [klientId]
+              properties:
+                klientId: { type: integer }
+                srodowisko: { type: string, enum: [live, test], default: live }
+                nazwa: { type: string }
+                zastepujeId: { type: integer }
+      responses:
+        '200': { description: Klucz wystawiony. }
+        '201': { description: Klucz wystawiony. Pole `klucz` widoczne jedyny raz. }
+        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
+    get:
+      tags: [administracyjne]
+      summary: Lista kluczy — nigdy nie zwraca klucza ani skrótu
+      security: [{ TokenOperatora: [] }]
+      responses:
+        '200': { description: Klucze wraz ze stanem i zużyciem w bieżącym okresie. }
+        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
+
+  /admin/keys/rotate:
+    post:
+      tags: [administracyjne]
+      summary: Rotacja bezprzerwowa — następca obok, poprzednik z terminem
+      description: |
+        Poprzednik dostaje **termin**, nie natychmiastowe unieważnienie: przez
+        okres przejściowy działają oba klucze. Powiadomienie klienta jest
+        warunkiem przejścia dalej — patrz `docs/runbook-klucze.md`.
+      security: [{ TokenOperatora: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kluczId]
+              properties:
+                kluczId: { type: integer }
+                okresDni: { type: integer, default: 7 }
+      responses:
+        '200': { description: Następca wystawiony. }
+        '201': { description: Następca wystawiony. Pole `klucz` widoczne jedyny raz. }
+        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
+        '404': { $ref: '#/components/responses/BladZadania' }
+
+  /admin/keys/revoke:
+    post:
+      tags: [administracyjne]
+      summary: Unieważnia klucz natychmiast
+      description: Zbieżność we wszystkich instancjach typowo poniżej 100 ms.
+      security: [{ TokenOperatora: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kluczId]
+              properties:
+                kluczId: { type: integer }
+                powod: { type: string }
+      responses:
+        '200': { description: Klucz unieważniony. }
+        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
+        '404': { $ref: '#/components/responses/BladZadania' }
+
   /health:
     get:
       security: []
@@ -466,6 +586,13 @@ paths:
 
 components:
   securitySchemes:
+    TokenOperatora:
+      type: http
+      scheme: bearer
+      description: |
+        Token operatora do zarządzania klientami i kluczami. **Odrębny od kluczy
+        klienckich**: klucz `adr_live_*` nie otwiera żadnej trasy `/admin` —
+        inaczej dowolny klient wystawiłby sobie klucz bez limitów.
     KluczApi:
       type: apiKey
       in: header
@@ -476,6 +603,16 @@ components:
         do nagłówka `Referer` i do historii przeglądarki.
 
   responses:
+    BrakTokenuOperatora:
+      description: 'Brak nagłówka `Authorization: Bearer` albo token niezgodny.'
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, code]
+            properties:
+              error: { type: string, example: 'Wymagany token operatora.' }
+              code: { type: string, enum: [BRAK_TOKENU] }
     BrakUwierzytelnienia:
       description: |
         Brak klucza albo klucz nieprawidłowy.

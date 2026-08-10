@@ -48,7 +48,19 @@ const zglos = (ok: boolean, opis: string) => {
  */
 const wKodzie = new Set<string>();
 const app = await buildServer(
-  loadConfig({ ...process.env, LOG_LEVEL: 'error' }),
+  loadConfig({
+    ...process.env,
+    LOG_LEVEL: 'error',
+    // Trasy /admin istnieja w routerze WYLACZNIE przy ustawionym tokenie.
+    // Bez tego szesc sciezek ze specyfikacji wygladaloby na nieistniejace,
+    // a test bylby zielony u autora (ktory ma token w otoczeniu) i czerwony
+    // w CI - najgorszy mozliwy rodzaj testu.
+    ADMIN_TOKEN: 'token-wylacznie-do-testu-zgodnosci-kontraktu',
+    // Token bez pieprza konczy start bledem: wystawienie klucza polega na
+    // policzeniu skrotu, wiec endpoint bylby atrapa padajaca przy pierwszym
+    // uzyciu. Tu chodzi wylacznie o to, zeby trasy trafily do routera.
+    API_KEY_PEPPER_1: 'pieprz-wylacznie-do-testu-zgodnosci',
+  }),
   {
     onRoute: ({ method, url }) => {
       for (const m of Array.isArray(method) ? method : [method]) {
@@ -101,6 +113,14 @@ zglos(nadmiarowe.length === 0,
 // Liczba endpointow /v1 krazy po dokumentacji i raporcie - niech test ja pilnuje.
 const v1 = [...wKodzie].filter((t) => t.includes(' /v1/')).length;
 zglos(v1 === 11, `endpointow /v1: ${v1} (dokumentacja i raport podaja 11)`);
+
+// Powierzchnia administracyjna liczona OSOBNO od klienckiej.
+//
+// Licznik zlicza PARY metoda+sciezka, a nie sciezki: dzisiejsza rownosc
+// "11 tras = 11 par" dla /v1 jest przypadkowa i rozjedzie sie przy pierwszej
+// sciezce z dwiema metodami. /admin ma ich cztery i szesc operacji.
+const admin = [...wKodzie].filter((t) => t.includes(' /admin/')).length;
+zglos(admin === 6, `operacji /admin: ${admin} (cztery sciezki, szesc par metoda+sciezka)`);
 
 // Kazda operacja musi opisywac odpowiedz 200 - inaczej kontrakt jest pusty.
 for (const [sciezka, operacje] of Object.entries(spec.paths)) {

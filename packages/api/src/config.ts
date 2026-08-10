@@ -40,6 +40,11 @@ export interface ServerConfig {
   kluczeMaxWiekS: number;
   /** Co ile zrzucac agregat zuzycia do bazy. */
   zuzycieFlushMs: number;
+  /**
+   * Token operatora. Pusty = trasy /admin NIE ISTNIEJA w routerze, wiec nie
+   * da sie ich znalezc sondowaniem.
+   */
+  adminToken: string;
   /** Pieprze jako zwykle dane - konfiguracja pozostaje serializowalna. */
   pieprze: Array<[number, string]>;
   pieprzAktywny: number | null;
@@ -82,6 +87,7 @@ export function loadConfig(env = process.env): ServerConfig {
     kluczeOdswiezanieMs: Number(env.KLUCZE_ODSWIEZANIE_MS ?? 10_000),
     kluczeMaxWiekS: Number(env.KLUCZE_MAX_WIEK_S ?? 900),
     zuzycieFlushMs: Number(env.ZUZYCIE_FLUSH_MS ?? 60_000),
+    adminToken: env.ADMIN_TOKEN ?? '',
     ...(() => { const { sekrety, aktywna } = pepperEntriesFromEnv(env); return { pieprze: sekrety, pieprzAktywny: aktywna }; })(),
   };
 }
