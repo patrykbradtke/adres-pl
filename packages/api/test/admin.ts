@@ -76,7 +76,7 @@ const app = await buildServer(loadConfig(environment()));
 
 // --- 2. Brak naglowka -> 401 -----------------------------------------
 const withoutHeader = await app.inject({ url: '/admin/clients' });
-report(withoutHeader.statusCode === 401 && withoutHeader.json().code === 'BRAK_TOKENU',
+report(withoutHeader.statusCode === 401 && withoutHeader.json().code === 'MISSING_TOKEN',
   `bez naglowka => ${withoutHeader.statusCode} ${withoutHeader.json().code}`);
 
 // --- 3. Token o INNEJ dlugosci -> 401, nie 500 -----------------------

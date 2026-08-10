@@ -1,0 +1,116 @@
+# Ciagla weryfikacja.
+#
+# PO CO: az do 10.08.2026 kontrole uruchamialo sie recznie. Skutek byl taki,
+# ze `npm run bench` nie wystartowal ani razu od refactoru nazewnictwa - lezal
+# w nim blad skladni, bo dwie rozne rzeczy przemianowano na ten sam
+# identyfikator. Zestaw, ktory nie chodzi, nie jest zestawem.
+#
+# ZASADA: w tym przebiegu NIE MA kroku, ktory ma prawo byc czerwony "normalnie".
+# Sygnal, ktory czesto klamie, uczy ludzi go ignorowac - a wtedy przestaje
+# chronic dokladnie wtedy, gdy jest potrzebny.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Bez bazy: typy i zestawy hermetyczne. Musi startowac w swiezym klonie.
+  # ---------------------------------------------------------------------
+  statyczne:
+    name: Typy i zestawy hermetyczne
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # Typy sprawdzamy PRZED testami: to najtansza kontrola, a lapie klase
+      # bledow, ktorej testy nie zlapia. Node uruchamia kod przez
+      # --experimental-strip-types, czyli zdejmuje typy BEZ sprawdzania.
+      - name: Sprawdzenie typow
+        run: npm run typecheck
+
+      - name: Zestawy hermetyczne
+        run: npm test
+
+  # ---------------------------------------------------------------------
+  # Z baza: schemat licencji, cykl zycia kluczy, kwoty, trasy administracyjne.
+  # ---------------------------------------------------------------------
+  baza:
+    name: Zestawy na zywej bazie
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: adres
+          POSTGRES_PASSWORD: adres
+          POSTGRES_DB: adres
+        ports: ['5432:5432']
+        # shm-size jak w docker-compose.yml. Na fixture'ach domyslne 64 MB by
+        # wystarczylo, ale trzymamy zgodnosc ze srodowiskiem lokalnym, zeby
+        # przebieg nie rozjezdzal sie z tym, co widzi programista.
+        options: >-
+          --shm-size=1g
+          --health-cmd "pg_isready -U adres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://adres:adres@localhost:5432/adres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # Nie zakladamy, ze biegacz ma psql - obrazy GitHuba zmieniaja zawartosc
+      # miedzy wydaniami, a cichy brak narzedzia wyszedlby dopiero nizej.
+      - name: Klient psql
+        run: |
+          command -v psql >/dev/null || {
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          }
+          psql --version
+
+      # Ta sama droga co lokalnie i przy wdrozeniu: rejestr zastosowanych
+      # migracji zamiast recznie utrzymywanej sekwencji psql.
+      - name: Migracje
+        run: npm run migrate
+
+      - name: Zestawy na bazie
+        run: npm run test:db
+
+      # Jedyna kontrola calej sciezki: TERYT -> GML -> staging -> kontrole
+      # jakosci -> publikacja -> zrodlo zapasowe -> artefakt -> tresc bazy.
+      # Zaklada sobie wlasna baze (adres_e2e) i pisze do ./data/e2e, wiec nie
+      # dotyka niczego, co powstalo w krokach wyzej.
+      - name: Przebieg end-to-end na fixture'ach
+        run: ./scripts/e2e.sh
+
+      # Proba dymna przyrzadu, NIE pomiar wydajnosci.
+      #
+      # Progu z bench nie da sie egzekwowac na wspoldzielonym biegaczu - podloga
+      # szumu jest tam inna niz na maszynie roboczej i wynik bylby losowy.
+      # Tu sprawdzamy wylacznie to, czego zabraklo najbardziej: ze przyrzad
+      # W OGOLE SIE URUCHAMIA. Maly naklad, bo mierzone liczby i tak odrzucamy.
+      - name: Proba dymna przyrzadu pomiarowego
+        run: npm run bench -- --zadan 3000 --rozgrzewka 500
+
+# ---------------------------------------------------------------------------
+# CZEGO TU CELOWO NIE MA
+#
+# `npm run quality` - zbior wzorcowy jest zamrozony na danych krajowych
+# (dataVersion 2026-08-06, 8 605 682 punkty) i bez nich konczy sie kodem 2
+# z komunikatem "warunek wstepny niespelniony". W CI nie ma tych danych,
+# wiec krok bylby czerwony zawsze i z powodu, ktory nie jest regresja.
+# Uruchamiac na srodowisku po przebiegu ETL - patrz STAN-PRAC.md rozdz. 11.
+#
+# ---------------------------------------------------------------------------

@@ -105,8 +105,8 @@ async function validateOne(
       postalCode: p.postalCode,
       raw: body.raw,
       // Skrytka pocztowa nie ma odpowiednika w rejestrze - deriveConfidence
-      // przepuszcza `nietypowy` bez proby dopasowania. Rozdzial 6.4 raportu.
-      ...(p.irregular ? { confidence: 'nietypowy' as const } : {}),
+      // przepuszcza `irregular` bez proby dopasowania. Rozdzial 6.4 raportu.
+      ...(p.irregular ? { confidence: 'irregular' as const } : {}),
     };
   } else {
     addr = { ...body.address, country: 'PL' };

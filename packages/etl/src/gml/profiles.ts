@@ -182,26 +182,38 @@ for (const p of PROFILES) {
   KNOWN_FEATURE_NAMES.set(p.street.localName, { profile: p, kind: 'street' });
 }
 
-/** Slownik AD_RodzajMiejscowosci -> kod WMRODZ (przyblizenie, do weryfikacji). */
+/**
+ * Slownik AD_RodzajMiejscowosci -> kod WMRODZ (przyblizenie, do weryfikacji).
+ *
+ * KLUCZE SA DANA ZRODLOWA, NIE NASZYM IDENTYFIKATOREM. Porownuja sie wprost
+ * z wartoscia z pliku GUGiK (mapper.ts, LOCALITY_KINDS[kindRaw]), wiec zostaja
+ * po polsku - tak jak nagrywa je zrodlo. Refactor nazewnictwa przetlumaczyl
+ * dziewiec z nich (razem z obu slownikow) i przestaly sie dopasowywac;
+ * `ulica` i `czescMiejscowosci` to pozycje najczestsze w calym zbiorze.
+ * Typ tego nie wykryje, bo mapa jest Record<string, number> - z dziewieciu
+ * zepsutych pozycji typecheck zglosil jedna, i to tylko dlatego, ze dwie
+ * przetlumaczyly sie na ten sam klucz. Pilnuje tego test na prawdziwych
+ * wartosciach zrodlowych.
+ */
 export const LOCALITY_KINDS: Record<string, number> = {
-  localityPart: 0,
-  localityPart: 0, // literowka wystepuje w zrodlach GUGiK
+  czescMiejscowosci: 0,
+  czescMiejcowosci: 0, // literowka wystepuje w zrodlach GUGiK
   wies: 1,
   kolonia: 2,
-  hamlet: 3,
+  przysiolek: 3,
   osada: 4,
   osadaLesna: 5,
   osiedle: 6,
-  touristHostel: 7,
-  warsawDistrict: 95,
+  schroniskoTurystyczne: 7,
+  dzielnicaWarszawy: 95,
   miasto: 96,
   delegatura: 98,
-  cityPart: 99,
+  czescMiasta: 99,
 };
 
-/** Slownik AD_RodzajObiektu -> cecha ULIC. */
+/** Slownik AD_RodzajObiektu -> cecha ULIC. Klucze zrodlowe, patrz wyzej. */
 export const OBJECT_KIND_TO_STREET_TYPE: Record<string, string> = {
-  street: 'ul.',
+  ulica: 'ul.',
   aleja: 'al.',
   plac: 'pl.',
   skwer: 'skwer',
@@ -216,6 +228,6 @@ export const OBJECT_KIND_TO_STREET_TYPE: Record<string, string> = {
   wyspa: 'wyspa',
   wybrzeze: 'wyb.',
   wawoz: 'wawoz',
-  otherLinear: '',
-  otherAreal: '',
+  innyLiniowy: '',
+  innyPowierzchniowy: '',
 };

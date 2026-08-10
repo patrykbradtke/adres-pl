@@ -10,7 +10,7 @@
  * Referencja wydajnosciowa: produkcyjny parser gugik2osm (SAX, Python)
  * miesci sie w 50-100 MB RAM na plikach 20 GB.
  */
-import { SaxesParser, type SaxesTagPlain } from 'saxes';
+import { SaxesParser, type SaxesTagNS } from 'saxes';
 import type { Readable } from 'node:stream';
 import proj4 from 'proj4';
 import {
@@ -97,9 +97,12 @@ export interface TransformResult {
  * niepotrzebnych konstrukcji - w profilu CPU `Projection` bylo widoczna
  * pozycja mimo ze liczy sie tylko raz na uklad.
  */
-const konwertery = new Map<string, ReturnType<typeof proj4>>();
+// proj4.Converter, a NIE ReturnType<typeof proj4>: proj4 jest przeciazone,
+// a ReturnType bierze ostatnie przeciazenie - to zwracajace wspolrzedne,
+// nie konwerter. Stad "Property 'forward' does not exist".
+const konwertery = new Map<string, proj4.Converter>();
 
-function konwerter(epsg: string): ReturnType<typeof proj4> {
+function konwerter(epsg: string): proj4.Converter {
   let c = konwertery.get(epsg);
   if (!c) {
     c = proj4(epsg, 'EPSG:4326');
@@ -215,7 +218,7 @@ export async function parseGmlStream(
   let detected = false;
   const pending: Array<RawFeature> = [];
 
-  parser.on('opentag', (tag: SaxesTagPlain) => {
+  parser.on('opentag', (tag: SaxesTagNS) => {
     depth++;
     const local = (tag as any).local ?? tag.name.replace(/^.*:/, '');
     const uri: string = (tag as any).uri ?? '';
@@ -269,7 +272,7 @@ export async function parseGmlStream(
     if (current !== null) text += t;
   });
 
-  parser.on('closetag', (tag: SaxesTagPlain) => {
+  parser.on('closetag', (tag: SaxesTagNS) => {
     const local = (tag as any).local ?? tag.name.replace(/^.*:/, '');
 
     if (current !== null) {
@@ -355,7 +358,7 @@ function pushMulti(map: Map<string, string[]>, key: string, value: string): void
 // `for..in` zamiast `Object.keys` - to goraca sciezka wolana dla kazdego
 // elementu dokumentu (a tych sa dziesiatki milionow), a Object.keys alokuje
 // przy kazdym wywolaniu tablice, ktora natychmiast idzie do GC.
-function attr(tag: SaxesTagPlain, name: string): string | undefined {
+function attr(tag: SaxesTagNS, name: string): string | undefined {
   const attrs = tag.attributes as Record<string, any>;
   for (const k in attrs) {
     const a = attrs[k];
@@ -375,7 +378,7 @@ function attr(tag: SaxesTagPlain, name: string): string | undefined {
  * preferencji zostaje ta sama: najpierw trafienie po nazwie lokalnej
  * (xlink:href z rozwiazanym namespace), potem po surowym kluczu.
  */
-function attrHref(tag: SaxesTagPlain): string | undefined {
+function attrHref(tag: SaxesTagNS): string | undefined {
   const attrs = tag.attributes as Record<string, any>;
   let fallback: string | undefined;
   for (const k in attrs) {
@@ -390,7 +393,7 @@ function attrHref(tag: SaxesTagPlain): string | undefined {
   return fallback;
 }
 
-function attrNs(tag: SaxesTagPlain, name: string): string | undefined {
+function attrNs(tag: SaxesTagNS, name: string): string | undefined {
   const attrs = tag.attributes as Record<string, any>;
   for (const k in attrs) {
     const a = attrs[k];

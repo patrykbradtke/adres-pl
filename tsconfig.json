@@ -1,0 +1,33 @@
+{
+  // Sprawdzanie typow, NIE kompilacja. Kod uruchamia Node z
+  // --experimental-strip-types, ktory typy zdejmuje bez sprawdzania - wiec az
+  // do 10.08.2026 unie typow nie chronily przed niczym. Trzy ciche bledy
+  // z refactoru nazewnictwa (m.in. 'nietypowy' wobec 'irregular') przechodzily
+  // dokladnie tedy. Patrz STAN-PRAC.md sekcja 11.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023"],
+
+    // nodenext, bo tak ten kod naprawde jest uruchamiany: ESM po stronie Node.
+    // Rozwiazuje tez pakiety warsztatowe przez pole "exports" w ich
+    // package.json, wiec nie trzeba dublowac tego mapowaniem "paths".
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    // Importy w kodzie maja jawne rozszerzenie .ts, bo tego wymaga
+    // --experimental-strip-types. TypeScript dopuszcza to wylacznie przy noEmit.
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/test/**/*.ts",
+    "db/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

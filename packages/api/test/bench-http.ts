@@ -103,7 +103,7 @@ const SAVE = process.argv.includes('--zapisz');
  * Zapytania z rozdzialu 8.6 raportu, te same co w bench-real.ts - zeby dalo
  * sie zestawiac wyniki miedzy przyrzadami i miedzy wydaniami.
  */
-const REQUESTS = [
+const QUERIES = [
   'grojecka', 'pulawska', 'polna', '3 maja',
   'krakowska', 'kosciuszki', 'mickievicza', 'nowa wies',
 ];
@@ -205,7 +205,7 @@ for (const s of SERIES) {
   for (let i = 0; i < WARMUP; i++) {
     await app.inject({
       method: 'GET',
-      url: `/v1/suggest?q=${encodeURIComponent(REQUESTS[i % REQUESTS.length])}&limit=10`,
+      url: `/v1/suggest?q=${encodeURIComponent(QUERIES[i % QUERIES.length])}&limit=10`,
       headers: s.headers,
     });
   }
@@ -214,7 +214,7 @@ for (const s of SERIES) {
 // Przeplot: w kazdej iteracji po jednym zadaniu na kazda serie.
 const perRun = Math.floor(REQUESTS / SERIES.length);
 for (let i = 0; i < perRun; i++) {
-  const q = REQUESTS[i % REQUESTS.length];
+  const q = QUERIES[i % QUERIES.length];
   for (const s of SERIES) {
     const app = serwery.get(s.id)!;
     const t0 = process.hrtime.bigint();

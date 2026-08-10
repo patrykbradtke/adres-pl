@@ -90,7 +90,7 @@ paths:
                 required: [query, results, czasMs, dataVersion]
                 properties:
                   query: { type: string }
-                  results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
+                  results: { type: array, items: { $ref: '#/components/schemas/Suggestion' } }
                   czasMs: { type: number, description: Czas samego wyszukiwania, bez obsługi żądania. }
                   dataVersion: { type: string, example: '2026-08-06' }
         '400': { $ref: '#/components/responses/ValidationError' }
@@ -114,7 +114,7 @@ paths:
                 type: object
                 required: [results]
                 properties:
-                  results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
+                  results: { type: array, items: { $ref: '#/components/schemas/Suggestion' } }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -144,7 +144,7 @@ paths:
                 required: [simc, results]
                 properties:
                   simc: { type: string }
-                  results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
+                  results: { type: array, items: { $ref: '#/components/schemas/Suggestion' } }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -176,7 +176,7 @@ paths:
                 required: [count, results]
                 properties:
                   count: { type: integer }
-                  results: { type: array, items: { $ref: '#/components/schemas/NumerBudynku' } }
+                  results: { type: array, items: { $ref: '#/components/schemas/BuildingNumber' } }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -193,7 +193,7 @@ paths:
         zapisu adresu.
 
         Gdy numeru nie ma w rejestrze, zwracany jest kod dominujący na ulicy
-        wraz z polem `uwaga`. Wymagany dokładnie jeden z `ulicId` lub `simc`.
+        wraz z polem `note`. Wymagany dokładnie jeden z `ulicId` lub `simc`.
       parameters:
         - { name: nr, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 20 } }
         - { name: ulicId, in: query, schema: { type: integer } }
@@ -210,10 +210,10 @@ paths:
                   postalCode: { type: [string, 'null'], example: '00-624' }
                   source:
                     type: string
-                    enum: [rejestr_prg, dominujacy_na_ulicy, brak]
-                  uwaga:
+                    enum: [prg_registry, dominant_on_street, none]
+                  note:
                     type: string
-                    description: Obecne wyłącznie gdy `zrodlo` nie jest `rejestr_prg`.
+                    description: Obecne wyłącznie gdy `source` nie jest `prg_registry`.
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -242,10 +242,10 @@ paths:
                     maxItems: 5
                     items:
                       allOf:
-                        - $ref: '#/components/schemas/AdresPelny'
+                        - $ref: '#/components/schemas/FullAddress'
                         - type: object
                           properties:
-                            odleglosc_m: { type: number }
+                            distance_m: { type: number }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -256,7 +256,7 @@ paths:
       tags: [search]
       summary: Szczegóły miejscowości
       description: |
-        Pole `ma_ulice` steruje formularzem: gdy `false`, pole ulicy należy
+        Pole `has_streets` steruje formularzem: gdy `false`, pole ulicy należy
         **ukryć**, a nie zablokować — numer odnosi się wtedy bezpośrednio
         do miejscowości.
       parameters:
@@ -266,7 +266,7 @@ paths:
           description: Miejscowość wraz z hierarchią administracyjną.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Miejscowosc' }
+              schema: { $ref: '#/components/schemas/Locality' }
         '404': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -292,7 +292,7 @@ paths:
           description: Pola wydzielone z ciągu tekstowego.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AdresRozebrany' }
+              schema: { $ref: '#/components/schemas/ParsedAddress' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -319,7 +319,7 @@ paths:
           description: Adres wraz z poziomem pewności i listą uwag.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/WynikWalidacji' }
+              schema: { $ref: '#/components/schemas/ValidationResult' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -363,7 +363,7 @@ paths:
                     type: object
                     additionalProperties: { type: integer }
                     description: Liczność każdego poziomu pewności.
-                  results: { type: array, items: { $ref: '#/components/schemas/WynikWalidacji' } }
+                  results: { type: array, items: { $ref: '#/components/schemas/ValidationResult' } }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -482,8 +482,17 @@ paths:
                 replacesId: { type: integer }
       responses:
         '200': { description: Klucz wystawiony. }
-        '201': { description: Klucz wystawiony. Pole `klucz` widoczne jedyny raz. }
+        '201': { description: Klucz wystawiony. Pole `key` widoczne jedyny raz. }
         '401': { $ref: '#/components/responses/MissingOperatorToken' }
+        '404':
+          description: Nie ma klienta o podanym `clientId`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  code: { type: string, enum: [CLIENT_NOT_FOUND] }
     get:
       tags: [administrative]
       summary: Lista kluczy — nigdy nie zwraca klucza ani skrótu
@@ -513,7 +522,7 @@ paths:
                 graceDays: { type: integer, default: 7 }
       responses:
         '200': { description: Następca wystawiony. }
-        '201': { description: Następca wystawiony. Pole `klucz` widoczne jedyny raz. }
+        '201': { description: Następca wystawiony. Pole `key` widoczne jedyny raz. }
         '401': { $ref: '#/components/responses/MissingOperatorToken' }
         '404': { $ref: '#/components/responses/BadRequest' }
 
@@ -608,11 +617,9 @@ components:
       content:
         application/json:
           schema:
-            type: object
-            required: [error, code]
-            properties:
-              error: { type: string, example: 'Wymagany token operatora.' }
-              code: { type: string, enum: [BRAK_TOKENU] }
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties: { code: { enum: [MISSING_TOKEN] } }
     Unauthenticated:
       description: |
         Brak klucza albo klucz nieprawidłowy.
@@ -622,11 +629,9 @@ components:
       content:
         application/json:
           schema:
-            type: object
-            required: [error, code]
-            properties:
-              error: { type: string, example: 'Klucz API nieprawidlowy.' }
-              code: { type: string, enum: [BRAK_KLUCZA, NIEPRAWIDLOWY] }
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties: { code: { enum: [MISSING_KEY, INVALID] } }
     Forbidden:
       description: |
         Klucz rozpoznany, ale nieczynny. Kod mówi wprost, co się stało —
@@ -635,38 +640,68 @@ components:
       content:
         application/json:
           schema:
-            type: object
-            required: [error, code]
-            properties:
-              error: { type: string, example: 'Klucz API wygasl.' }
-              code: { type: string, enum: [NIEWAZNY_JESZCZE, WYGASLY, UNIEWAZNIONY, ZAWIESZONY] }
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties:
+                  code: { enum: [NOT_YET_VALID, EXPIRED, REVOKED, SUSPENDED, FORBIDDEN] }
     ValidationError:
       description: Parametry nie przeszły walidacji schematu.
       content:
         application/json:
           schema:
-            type: object
-            properties:
-              statusCode: { type: integer, example: 400 }
-              code: { type: string, example: FST_ERR_VALIDATION }
-              error: { type: string, example: Bad Request }
-              message: { type: string, example: 'querystring/simc must match pattern "^[0-9]{7}$"' }
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties: { code: { enum: [VALIDATION_FAILED] } }
     BadRequest:
       description: Żądanie poprawne składniowo, ale niewykonalne.
       content:
         application/json:
           schema:
-            type: object
-            required: [error]
-            properties:
-              error: { type: string, example: 'Podaj ulicId albo simc.' }
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties:
+                  code: { enum: [INVALID_PARAMETER, NOT_FOUND, LOCALITY_NOT_FOUND] }
     RateLimitExceeded:
       description: |
         Przekroczony limit zapytań. Limit liczony jest po adresie sieciowym
         klienta, domyślnie 600 żądań na minutę.
 
   schemas:
-    Podpowiedz:
+    # Ksztalt KAZDEJ odpowiedzi bledu - takze 500 i nieznanej trasy.
+    # Zrodlem prawdy jest katalog w packages/core/src/errors.ts;
+    # zgodnosci pilnuje openapi-conformance.ts, wiec lista nizej nie moze
+    # sie po cichu rozjechac z kodem.
+    Error:
+      type: object
+      required: [code, error]
+      properties:
+        code:  { $ref: '#/components/schemas/ErrorCode' }
+        error:
+          type: string
+          description: 'Tresc domyslna z katalogu. Panel moze ja podmienic po `code`.'
+          example: 'Nie ma klienta o podanym identyfikatorze.'
+        info:
+          type: object
+          additionalProperties: true
+          description: 'Szczegol nadajacy sie do pokazania: ktore pole, ktory identyfikator.'
+          example: { clientId: 42 }
+        correlationId:
+          type: string
+          description: |
+            Ten sam identyfikator wraca w nagłówku `x-correlation-id`
+            **każdej** odpowiedzi i trafia do dziennika audytu.
+            Podać przy zgłoszeniu problemu.
+    ErrorCode:
+      type: string
+      description: |
+        Pełna lista kodów błędów. Kod jest **stabilny** i nigdy nie zmienia
+        znaczenia; treść `error` wolno poprawiać.
+
+        To nie to samo co `Issue.code` — tamte opisują zastrzeżenia
+        **wewnątrz poprawnej odpowiedzi 200**, te znaczą, że żądania
+        nie wykonano.
+      enum: [VALIDATION_FAILED, INVALID_PARAMETER, MISSING_KEY, INVALID, MISSING_TOKEN, SESSION_INVALID, NOT_YET_VALID, EXPIRED, REVOKED, SUSPENDED, FORBIDDEN, NOT_FOUND, CLIENT_NOT_FOUND, KEY_NOT_FOUND, LOCALITY_NOT_FOUND, ACCOUNT_NOT_FOUND, ROLE_NOT_FOUND, ALREADY_EXISTS, ROLE_IN_USE, ROLE_CYCLE, LAST_ADMIN, CONFLICT, UNPROCESSABLE, RATE_LIMITED, QUOTA_EXHAUSTED, INTERNAL, NOT_READY]
+    Suggestion:
       type: object
       required: [type, label, score, simc, locality, hasStreets, addressPointCount]
       properties:
@@ -683,7 +718,7 @@ components:
         hasStreets: { type: boolean }
         addressPointCount: { type: integer, description: Liczba punktów adresowych. Steruje kolejnością — większe miejscowości wyżej. }
 
-    NumerBudynku:
+    BuildingNumber:
       type: object
       properties:
         id: { type: integer }
@@ -694,13 +729,13 @@ components:
         lat: { type: number }
         lon: { type: number }
 
-    Miejscowosc:
+    Locality:
       type: object
       properties:
         simc: { type: string }
         name: { type: string }
         kind: { type: integer }
-        rodzaj_nazwa: { type: [string, 'null'], example: miasto }
+        kind_name: { type: [string, 'null'], example: miasto }
         ma_ulice: { type: boolean }
         liczba_punktow: { type: integer }
         terc_gminy: { type: string }
@@ -710,7 +745,7 @@ components:
         lat: { type: [number, 'null'] }
         lon: { type: [number, 'null'] }
 
-    AdresRozebrany:
+    ParsedAddress:
       type: object
       properties:
         raw: { type: string }
@@ -722,14 +757,14 @@ components:
         postalCode: { type: string }
         unparsed: { type: array, items: { type: string }, description: Fragmenty, których nie udało się przypisać. }
 
-    AdresPelny:
+    FullAddress:
       type: object
       additionalProperties: true
       description: Adres z widoku `full_address` — miejscowość, ulica, numer, kod, współrzędne i hierarchia administracyjna.
 
     Confidence:
       type: string
-      enum: [verified_registry, verified_partial, outside_registry, irregular, niezweryfikowany]
+      enum: [verified_registry, verified_partial, outside_registry, irregular, unverified]
       description: |
         Poziom pewności dopasowania.
 
@@ -739,16 +774,24 @@ components:
         spoza niego, otrzymuje `verified_partial`. Reguła biznesowa
         oczekująca `outside_registry` z tego interfejsu nigdy się nie uruchomi.
 
-    Uwaga:
+    Issue:
       type: object
       required: [code, severity, message]
       properties:
-        code: { type: string, example: MULTIPLE_CANDIDATES }
+        code:
+          type: string
+          description: 'Zastrzezenie WEWNATRZ poprawnej odpowiedzi - nie blad HTTP.'
+          enum: [MISSING_LOCALITY, MISSING_BUILDING_NUMBER, INVALID_POSTAL_CODE_FORMAT,
+                 INVALID_BUILDING_NUMBER_FORMAT, STREET_IN_LOCALITY_WITHOUT_STREETS,
+                 MISSING_STREET_IN_LOCALITY_WITH_STREETS, LOCALITY_OUTSIDE_REGISTRY,
+                 STREET_OUTSIDE_REGISTRY, BUILDING_NUMBER_OUTSIDE_REGISTRY,
+                 POSTAL_CODE_CONFLICTS_WITH_REGISTRY, BUILDING_NUMBER_PROJECTED,
+                 MULTIPLE_CANDIDATES]
         severity: { type: string, enum: [info, warning, error] }
         field: { type: string }
         message: { type: string }
 
-    WynikWalidacji:
+    ValidationResult:
       type: object
       required: [address, issues, confidence]
       properties:
@@ -770,6 +813,6 @@ components:
             prgLocalId: { type: string }
             confidence: { $ref: '#/components/schemas/Confidence' }
             raw: { type: string }
-        issues: { type: array, items: { $ref: '#/components/schemas/Uwaga' } }
+        issues: { type: array, items: { $ref: '#/components/schemas/Issue' } }
         confidence: { $ref: '#/components/schemas/Confidence' }
         dataVersion: { type: string }

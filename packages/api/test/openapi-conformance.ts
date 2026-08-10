@@ -15,10 +15,13 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { parse } from 'yaml';
 import { buildServer, loadConfig } from '../src/server.ts';
+import { CONFIDENCE_VALUES, ISSUE_CODES, ERRORS } from '@adres-pl/core';
+import { UNAUTHENTICATED_RESULTS, DENIAL_STATES } from '../src/keys/auth.ts';
 
 const tu = dirname(fileURLToPath(import.meta.url));
 const spec = parse(readFileSync(join(tu, '..', 'openapi.yaml'), 'utf8')) as {
   paths: Record<string, Record<string, unknown>>;
+  components?: { schemas?: Record<string, unknown>; responses?: Record<string, unknown> };
 };
 
 let errors = 0;
@@ -171,6 +174,94 @@ report(without401.length === 0,
   without401.length === 0
     ? 'kazda chroniona operacja opisuje odpowiedz 401'
     : `chronione operacje bez opisu 401: ${without401.join(', ')}`);
+
+// --- enumy: kod jest zrodlem, specyfikacja ma nadazac ------------------------
+//
+// Do 10.08.2026 ten test porownywal WYLACZNIE sciezki. Skutek: `Confidence`
+// w specyfikacji wymienial `niezweryfikowany`, kiedy kod zwracal juz
+// `unverified`, a kody odmowy byly po polsku - i przez caly ten czas test
+// swiecil na zielono. Sciezki sie zgadzaly, wiec "specyfikacja zgodna z kodem".
+//
+// Zrodlem sa tablice `as const` w kodzie, bo tylko one istnieja w czasie
+// wykonania. Unia typu nic tu nie da - znika przy uruchomieniu.
+
+/** Wyluskuje `enum: [...]` spod sciezki w zagniezdzonym obiekcie specyfikacji. */
+function enumAt(root: unknown, path: string[]): string[] | undefined {
+  let node: unknown = root;
+  for (const key of path) {
+    if (typeof node !== 'object' || node === null) return undefined;
+    node = (node as Record<string, unknown>)[key];
+  }
+  if (typeof node !== 'object' || node === null) return undefined;
+  const wartosci = (node as { enum?: unknown }).enum;
+  return Array.isArray(wartosci) ? wartosci.map(String) : undefined;
+}
+
+function compareEnum(name: string, expected: readonly string[], actual: string[] | undefined): void {
+  if (!actual) {
+    report(false, `${name}: nie znalazlem enum w specyfikacji`);
+    return;
+  }
+  const brak = expected.filter((v) => !actual.includes(v));
+  const nadmiar = actual.filter((v) => !expected.includes(v as never));
+  report(brak.length === 0 && nadmiar.length === 0,
+    brak.length === 0 && nadmiar.length === 0
+      ? `${name}: ${actual.length} wartosci zgodnych z kodem`
+      : `${name}: brak w specyfikacji [${brak.join(', ')}], nadmiar [${nadmiar.join(', ')}]`);
+}
+
+const schemas = spec.components?.schemas ?? {};
+const responses = spec.components?.responses ?? {};
+/**
+ * Enum pola w ciele odpowiedzi. Ksztalt jest zlozony przez `allOf`
+ * (wspolny schemat Error + zawezenie listy kodow), wiec zagladamy do obu
+ * czlonow, a nie tylko pod `properties` wprost.
+ */
+function bodyEnum(odpowiedz: string, pole: string): string[] | undefined {
+  const wprost = enumAt(responses, [odpowiedz, 'content', 'application/json', 'schema', 'properties', pole]);
+  if (wprost) return wprost;
+  const schema = (responses[odpowiedz] as {
+    content?: Record<string, { schema?: { allOf?: unknown[] } }>;
+  })?.content?.['application/json']?.schema;
+  for (const czlon of schema?.allOf ?? []) {
+    const e = (czlon as { properties?: Record<string, { enum?: unknown }> })
+      .properties?.[pole]?.enum;
+    if (Array.isArray(e)) return e.map(String);
+  }
+  return undefined;
+}
+
+compareEnum('Confidence', CONFIDENCE_VALUES, enumAt(schemas, ['Confidence']));
+compareEnum('ErrorCode', ERRORS.map((e) => e.code), enumAt(schemas, ['ErrorCode']));
+compareEnum('Issue.code', ISSUE_CODES, enumAt(schemas, ['Issue', 'properties', 'code']));
+
+/**
+ * Kazda odpowiedz bledu zawezajaca liste kodow moze wymieniac WYLACZNIE kody
+ * z katalogu. Inaczej specyfikacja obiecywalaby kod, ktorego serwis nie zna -
+ * a to gorsze niz brak opisu, bo integrator napisze pod niego obsluge.
+ */
+const zKatalogu = new Set(ERRORS.map((e) => e.code));
+const spozaKatalogu: string[] = [];
+for (const [nazwa, odp] of Object.entries(responses)) {
+  const warianty = (odp as { content?: Record<string, { schema?: { allOf?: unknown[] } }> })
+    .content?.['application/json']?.schema?.allOf ?? [];
+  for (const w of warianty) {
+    const kody = (w as { properties?: { code?: { enum?: string[] } } }).properties?.code?.enum;
+    for (const k of kody ?? []) if (!zKatalogu.has(k)) spozaKatalogu.push(`${nazwa}: ${k}`);
+  }
+}
+report(spozaKatalogu.length === 0,
+  spozaKatalogu.length === 0
+    ? `kody w odpowiedziach sa z katalogu (${Object.keys(responses).length} odpowiedzi)`
+    : `kody spoza katalogu: ${spozaKatalogu.join(', ')}`);
+compareEnum('kody 401 (klucz)',
+  UNAUTHENTICATED_RESULTS.map((v) => v.toUpperCase()),
+  bodyEnum('Unauthenticated', 'code'));
+// 403 ma DWA zrodla: stan klucza (etap 8A) i odmowe silnika polityki.
+// Lista w specyfikacji musi obejmowac oba - stad FORBIDDEN dolozony wprost.
+compareEnum('kody 403 (stan klucza i odmowa polityki)',
+  [...DENIAL_STATES.map((v) => v.toUpperCase()), 'FORBIDDEN'],
+  bodyEnum('Forbidden', 'code'));
 
 await app.close();
 console.log(errors === 0 ? '\nSpecyfikacja zgodna z kodem.' : `\n${errors} niezgodnosci.`);

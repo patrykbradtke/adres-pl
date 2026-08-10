@@ -38,7 +38,7 @@ export function validateFormat(
     issues.push({
       code: 'MISSING_LOCALITY',
       severity: 'error',
-      field: 'miejscowosc',
+      field: 'locality',
       message: 'Podaj miejscowosc.',
     });
   }
@@ -49,7 +49,7 @@ export function validateFormat(
       issues.push({
         code: 'MISSING_BUILDING_NUMBER',
         severity: 'error',
-        field: 'nrBudynku',
+        field: 'buildingNumber',
         message: 'Podaj numer budynku.',
       });
     }
@@ -57,7 +57,7 @@ export function validateFormat(
     issues.push({
       code: 'INVALID_BUILDING_NUMBER_FORMAT',
       severity: 'warning',
-      field: 'nrBudynku',
+      field: 'buildingNumber',
       message: `Nietypowy zapis numeru: "${nr}". Sprawdz, czy jest poprawny.`,
     });
   }
@@ -69,7 +69,7 @@ export function validateFormat(
       issues.push({
         code: 'INVALID_POSTAL_CODE_FORMAT',
         severity: suggested ? 'warning' : 'error',
-        field: 'kodPocztowy',
+        field: 'postalCode',
         message: suggested
           ? `Kod pocztowy powinien miec format NN-NNN.`
           : `"${code}" nie jest poprawnym kodem pocztowym.`,
@@ -79,7 +79,7 @@ export function validateFormat(
       issues.push({
         code: 'INVALID_POSTAL_CODE_FORMAT',
         severity: 'warning',
-        field: 'kodPocztowy',
+        field: 'postalCode',
         message: `"${code}" wyglada na wartosc zastepcza, nie na realny kod.`,
       });
     }
@@ -87,7 +87,7 @@ export function validateFormat(
     issues.push({
       code: 'INVALID_POSTAL_CODE_FORMAT',
       severity: 'error',
-      field: 'kodPocztowy',
+      field: 'postalCode',
       message: 'Podaj kod pocztowy.',
     });
   }
@@ -133,7 +133,7 @@ export function validateAgainstRegistry(
     issues.push({
       code: 'LOCALITY_OUTSIDE_REGISTRY',
       severity: 'warning',
-      field: 'miejscowosc',
+      field: 'locality',
       message: 'Nie znalazlem tej miejscowosci w rejestrze TERYT.',
     });
   }
@@ -142,7 +142,7 @@ export function validateAgainstRegistry(
     issues.push({
       code: 'MULTIPLE_CANDIDATES',
       severity: 'info',
-      field: 'miejscowosc',
+      field: 'locality',
       message: `Znalazlem ${ctx.candidateCount} miejscowosci o tej nazwie. Wskaz gmine lub powiat.`,
     });
   }
@@ -153,7 +153,7 @@ export function validateAgainstRegistry(
     issues.push({
       code: 'STREET_IN_LOCALITY_WITHOUT_STREETS',
       severity: 'warning',
-      field: 'ulica',
+      field: 'street',
       message: 'W tej miejscowosci nie ma ulic - numer odnosi sie bezposrednio do miejscowosci.',
     });
   }
@@ -162,7 +162,7 @@ export function validateAgainstRegistry(
     issues.push({
       code: 'MISSING_STREET_IN_LOCALITY_WITH_STREETS',
       severity: 'warning',
-      field: 'ulica',
+      field: 'street',
       message: 'W tej miejscowosci sa ulice - podanie ulicy zwykle jest konieczne.',
     });
   }
@@ -171,7 +171,7 @@ export function validateAgainstRegistry(
     issues.push({
       code: 'STREET_OUTSIDE_REGISTRY',
       severity: 'warning',
-      field: 'ulica',
+      field: 'street',
       message: 'Nie znalazlem tej ulicy w podanej miejscowosci.',
     });
   }
@@ -180,7 +180,7 @@ export function validateAgainstRegistry(
     issues.push({
       code: 'BUILDING_NUMBER_OUTSIDE_REGISTRY',
       severity: 'warning',
-      field: 'nrBudynku',
+      field: 'buildingNumber',
       message: 'Tego numeru nie ma w rejestrze. Jesli to nowy budynek, mozesz go zapisac mimo to.',
     });
   }
@@ -189,7 +189,7 @@ export function validateAgainstRegistry(
     issues.push({
       code: 'BUILDING_NUMBER_PROJECTED',
       severity: 'info',
-      field: 'nrBudynku',
+      field: 'buildingNumber',
       message: `Adres istnieje w rejestrze, ale budynek ma status "${ctx.pointStatus}".`,
     });
   }
@@ -199,7 +199,7 @@ export function validateAgainstRegistry(
     issues.push({
       code: 'POSTAL_CODE_CONFLICTS_WITH_REGISTRY',
       severity: 'warning',
-      field: 'kodPocztowy',
+      field: 'postalCode',
       message: `Rejestr podaje dla tego adresu ${ctx.registryPostalCode}. Zostawiam Twoj wpis.`,
       suggested: ctx.registryPostalCode,
     });

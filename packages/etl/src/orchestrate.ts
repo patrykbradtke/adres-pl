@@ -353,7 +353,12 @@ async function loadInSubprocess(
       (err) => {
         // Kod 2 to "zaladowano zero punktow" - sygnal, ktory obsluguje
         // wyzej ostrzezeniem, a nie wywroceniem calego cyklu.
-        if (err && (err as NodeJS.ErrnoException).code !== 2) {
+        //
+        // BEZ rzutowania na NodeJS.ErrnoException: tam `code` jest typu string,
+        // wiec porownanie z liczba 2 bylo zawsze prawdziwe wedlug typow.
+        // Blad z execFile niesie kod wyjscia jako LICZBE i tak tez jest
+        // zadeklarowany w ExecFileException.
+        if (err && err.code !== 2) {
           reject(new Error(`load ${code}: ${err.message.split('\n')[0]}`));
         } else resolve();
       },
@@ -513,7 +518,12 @@ async function pruneArtifacts(indexRoot: string, keep: number, log: (m: string) 
 export async function notify(r: CycleResult, webhook = process.env.NOTIFY_WEBHOOK): Promise<void> {
   if (!webhook) return;
 
-  const ikona = { publishedAt: 'OK', 'brak-zmian': '--', halted: 'STOP', error: 'BLAD' }[r.outcome];
+  // Klucze MUSZA odpowiadac CycleOutcome. Po refactorze nazewnictwa byly tu
+  // nazwy angielskie przy polskiej unii, wiec kazde wyszukanie dawalo undefined
+  // i powiadomienie szlo z naglowkiem "[undefined]". Unia i kolumna
+  // etl_run.status ida na angielski osobno - to wymaga UPDATE na zapisanych
+  // wierszach, wiec nalezy do etapu z narzedziem do migracji.
+  const ikona = { opublikowano: 'OK', 'brak-zmian': '--', wstrzymano: 'STOP', blad: 'BLAD' }[r.outcome];
   const header = `[${ikona}] Aktualizacja bazy adresowej: ${r.outcome}`;
   const lines = [
     `wersja: ${r.version}`,

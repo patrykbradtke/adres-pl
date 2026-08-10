@@ -60,12 +60,29 @@ SELECT (SELECT count(*) FROM adres.ulica WHERE wycofany_od IS NULL)          AS 
 --
 -- Indeks `ix_pa_ulic_id` zaklada sie osobno, poleceniem CREATE INDEX
 -- CONCURRENTLY (nie da sie go wykonac w transakcji). Bez niego nie uruchamiac.
+--
+-- Na PUSTEJ tabeli zakladamy go tu, wprost. Powod: swieza baza (nowy klon,
+-- CI, odtworzenie z archiwum) nie ma jak spelnic tego warunku przed
+-- uruchomieniem migracji, wiec sam warunek blokowal postawienie projektu
+-- od zera. Na pustej tabeli CREATE INDEX jest natychmiastowy i nie ma czego
+-- blokowac, wiec CONCURRENTLY nic by tu nie wnioslo.
+--
+-- Na tabeli Z DANYMI zostaje jak bylo: przerwanie z instrukcja. Tam indeks
+-- naprawde trzeba zalozyc CONCURRENTLY i poza ta transakcja.
 DO $$
+DECLARE wierszy bigint;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_indexes
                   WHERE schemaname='adres' AND indexname='ix_pa_ulic_id') THEN
-    RAISE EXCEPTION 'Brak indeksu adres.ix_pa_ulic_id. Zaloz go najpierw: '
-      'CREATE INDEX CONCURRENTLY ix_pa_ulic_id ON adres.punkt_adresowy(ulic_id);';
+    SELECT count(*) INTO wierszy FROM (SELECT 1 FROM adres.punkt_adresowy LIMIT 1) q;
+    IF wierszy = 0 THEN
+      CREATE INDEX ix_pa_ulic_id ON adres.punkt_adresowy(ulic_id);
+      RAISE NOTICE 'Zalozono ix_pa_ulic_id na pustej tabeli.';
+    ELSE
+      RAISE EXCEPTION 'Brak indeksu adres.ix_pa_ulic_id, a tabela nie jest pusta. '
+        'Zaloz go najpierw, poza transakcja: '
+        'CREATE INDEX CONCURRENTLY ix_pa_ulic_id ON adres.punkt_adresowy(ulic_id);';
+    END IF;
   END IF;
 END $$;
 
@@ -246,3 +263,8 @@ UNION ALL SELECT 'grupy o niezgodnym sym_ul (zostawione)',
                     GROUP BY simc, nazwa_norm HAVING count(DISTINCT sym_ul) > 1) q)
 UNION ALL SELECT 'wiersze bez sym_ul (zostawione)',
                  (SELECT count(*)::text FROM adres.ulica WHERE wycofany_od IS NULL AND sym_ul IS NULL);
+
+-- Bez tego psql konczy plik z OTWARTA transakcja i wycofuje ja przy EOF,
+-- zwracajac przy tym kod 0 - migracja "przechodzi", nie zmieniwszy niczego.
+-- To ten sam rodzaj cichej zgody co brak ON_ERROR_STOP w scripts/e2e.sh.
+COMMIT;

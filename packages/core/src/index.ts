@@ -6,3 +6,6 @@ export * from './postal.ts';
 export * from './parse.ts';
 export * from './validate.ts';
 export * from './api-key.ts';
+export * from './policy/permissions.ts';
+export * from './policy/can.ts';
+export * from './errors.ts';

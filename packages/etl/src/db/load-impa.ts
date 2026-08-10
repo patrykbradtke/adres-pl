@@ -142,15 +142,15 @@ export async function loadTabularSource(
     };
 
     stats.tabular = await readTabular(await openStream(), opts.profile, async (row) => {
-      const nrRaw = row.get('nrBudynku');
+      const nrRaw = row.get('buildingNumber');
       if (!nrRaw) { reject('brak numeru'); return; }
 
-      const localityRaw = row.get('miejscowosc');
+      const localityRaw = row.get('locality');
       const simc = row.get('simc')?.replace(/\D/g, '').padStart(7, '0');
       if (!localityRaw && !simc) { reject('brak miejscowosci i SIMC'); return; }
 
       const locality = localityRaw ? titleCasePl(cleanText(localityRaw)) : '';
-      const streetRaw = row.get('ulica');
+      const streetRaw = row.get('street');
       const street = streetRaw ? titleCasePl(cleanText(streetRaw)) : undefined;
       const nr = normalizeBuildingNumber(cleanText(nrRaw));
 
@@ -170,7 +170,7 @@ export async function loadTabularSource(
       }
       if (lat === undefined || lon === undefined) stats.geometryMissing++;
 
-      const code = row.get('kodPocztowy')?.replace(/\s/g, '');
+      const code = row.get('postalCode')?.replace(/\s/g, '');
       const kSimc = simc && /^\d{7}$/.test(simc) ? matchKeySimc(simc, street, nr) : null;
       const nameKey = matchKeyName(locality, street, nr);
 
@@ -185,7 +185,7 @@ export async function loadTabularSource(
           simc && /^\d{7}$/.test(simc) ? simc : null,
           locality || null, locality ? normalizeText(locality) : null,
           street ?? null, street ? normalizeText(street) : null,
-          row.get('cecha') ?? null,
+          row.get('streetType') ?? null,
           nr, buildingNumberKey(nr),
           code && /^\d{2}-\d{3}$/.test(code) ? code : null,
           lat !== undefined && lon !== undefined ? `SRID=4326;POINT(${lon} ${lat})` : null,
@@ -261,7 +261,7 @@ export async function diffAgainstPrg(
         WHERE z.source = $1 AND z.source_version = $2)::text AS in_source,
       (SELECT count(*) FROM (${PRG_KEYS}) q)::text          AS w_prg,
       (SELECT count(*) FROM porownanie.punkt_zewnetrzny z
-        WHERE z.source = $1 AND z.source_version = $2 AND ${MATCH})::text AS wspolne
+        WHERE z.source = $1 AND z.source_version = $2 AND ${MATCH})::text AS shared
   `, [source, version]);
 
   const inSource = Number(c.in_source);
@@ -275,7 +275,7 @@ export async function diffAgainstPrg(
     SELECT z.locality, z.street, z.building_number, z.postal_code
       FROM porownanie.punkt_zewnetrzny z
      WHERE z.source = $1 AND z.source_version = $2 AND NOT ${MATCH}
-     ORDER BY z.miejscowosc, z.ulica, z.nr_budynku
+     ORDER BY z.locality, z.street, z.building_number
      LIMIT 25
   `, [source, version]);
 

@@ -67,7 +67,7 @@ const version = (await app.inject({ method: 'GET', url: '/v1/suggest?q=warszawa&
  * co naprawde jest nie tak. Tak wyglada sygnal, ktory uczy ludzi go ignorowac.
  *
  * Przy swiadomym uruchomieniu na nowszym zrzucie (np. po aktualizacji danych,
- * zeby zobaczyc, co sie zmienilo) ZBIOR_WYMUS=1 przywraca dawne zachowanie.
+ * zeby zobaczyc, co sie zmienilo) DATASET_FORCE=1 przywraca dawne zachowanie.
  */
 if (version !== dataset.dataVersion) {
   if (process.env.DATASET_FORCE !== '1') {
@@ -75,7 +75,7 @@ if (version !== dataset.dataVersion) {
       `a zaladowane sa "${version}".`);
     console.log('  Ten zestaw wymaga pelnych danych krajowych w indeksie ORAZ w bazie.');
     console.log('  Nie jest to regresja jakosci - to brak danych do pomiaru.');
-    console.log('  Uruchom go w srodowisku po przebiegu ETL albo wymus: ZBIOR_WYMUS=1 npm run jakosc');
+    console.log('  Uruchom go w srodowisku po przebiegu ETL albo wymus: DATASET_FORCE=1 npm run quality');
     await app.close();
     process.exit(2);
   }

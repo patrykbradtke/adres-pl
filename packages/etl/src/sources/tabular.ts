@@ -17,12 +17,12 @@ import { parseCsvLine, detectSeparator } from './teryt/format.ts';
 
 /** Pola, ktore potrafimy wykorzystac. Wszystkie opcjonalne poza numerem. */
 export type AddressField =
-  | 'id' | 'simc' | 'miejscowosc' | 'czescMiejscowosci'
-  | 'symUl' | 'cecha' | 'ulica'
-  | 'nrBudynku' | 'nrLokalu' | 'kodPocztowy'
-  | 'terc' | 'gmina' | 'powiat' | 'wojewodztwo'
+  | 'id' | 'simc' | 'locality' | 'localityPart'
+  | 'symUl' | 'streetType' | 'street'
+  | 'buildingNumber' | 'unitNumber' | 'postalCode'
+  | 'terc' | 'gmina' | 'powiat' | 'voivodeship'
   | 'x' | 'y' | 'lat' | 'lon' | 'srid'
-  | 'status' | 'dataAktualizacji';
+  | 'status' | 'updatedAt';
 
 export interface TabularProfile {
   name: string;

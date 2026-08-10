@@ -18,7 +18,16 @@ services:
     ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+      # Migracje NIE ida przez docker-entrypoint-initdb.d.
+      #
+      # Dwie drogi wgrywania schematu to dwie prawdy o tym, co baza ma.
+      # initdb nie zapisuje niczego w rejestrze migracji, wiec po nim
+      # `npm run migrate` widzialby wszystko jako brakujace i probowal
+      # wgrac drugi raz. Do tego initdb uruchamia pliki alfabetycznie
+      # i bez mozliwosci reakcji na blad - 003 przerywala tam caly start
+      # kontenera, przez co swiezy wolumen w ogole nie wstawal.
+      #
+      # Po `docker compose up -d db` uruchom: npm run migrate
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U adres"]
       interval: 5s

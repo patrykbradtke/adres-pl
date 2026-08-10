@@ -16,7 +16,7 @@
  * GUGiK - jesli struktura sie zmieni, discover pokaze to od razu.
  */
 import type { Readable } from 'node:stream';
-import { SaxesParser, type SaxesTagPlain } from 'saxes';
+import { SaxesParser, type SaxesTagNS } from 'saxes';
 
 export interface DiscoveredElement {
   /** Sciezka local name'ow od korzenia dokumentu. */
@@ -66,19 +66,17 @@ export async function discoverGml(
   let text = '';
   let stop = false;
 
-  parser.on('opennamespace', (ns: { prefix: string; uri: string }) => {
-    report.namespaces.set(ns.prefix || '(default)', ns.uri);
-  });
-
-  parser.on('opentag', (tag: SaxesTagPlain) => {
+  parser.on('opentag', (tag: SaxesTagNS) => {
     if (stop) return;
-    const local = (tag as any).local ?? tag.name.replace(/^.*:/, '');
-    // Zapasowe zrodlo namespace'ow: prefiks i URI z samego tagu.
-    // Zdarza sie, ze zdarzenie 'opennamespace' nie zlapie deklaracji
-    // (np. gdy plik jest ciety albo prefiks jest redeklarowany nizej),
-    // a URI schematu to NAJWAZNIEJSZA informacja z calego raportu.
-    const uri: string = (tag as any).uri ?? '';
-    const prefix: string = (tag as any).prefix ?? '';
+    const local = tag.local || tag.name.replace(/^.*:/, '');
+    // Namespace'y zbieramy z SAMEGO TAGU, bo saxes 6 nie ma zdarzenia
+    // 'opennamespace' - stal tu na nie handler, ktory nigdy sie nie wykonal
+    // (usuniety 10.08.2026 przy wlaczaniu sprawdzania typow). Odczyt z tagu
+    // jest zreszta odporniejszy: lapie tez prefiks redeklarowany nizej
+    // i plik ciety w polowie, a URI schematu to NAJWAZNIEJSZA informacja
+    // z calego raportu.
+    const uri: string = tag.uri ?? '';
+    const prefix: string = tag.prefix ?? '';
     if (uri && !report.namespaces.has(prefix || '(default)')) {
       report.namespaces.set(prefix || '(default)', uri);
     }

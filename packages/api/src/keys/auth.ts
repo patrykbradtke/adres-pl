@@ -92,11 +92,23 @@ export interface AuthDeps {
  * kardynalnosc szeregow czasowych rosla by bez ograniczenia.
  */
 type Result =
-  | 'ok' | 'missing_key' | 'invalid' | 'not_yet_valid' | 'expired'
-  | 'revoked' | 'suspended' | 'rate_limited' | 'quota';
+  | 'ok' | 'rate_limited' | 'quota'
+  | (typeof UNAUTHENTICATED_RESULTS)[number]
+  | DenialState;
 
-/** Stany klucza, ktore konczy sie odmowa po trafieniu w wiersz rejestru. */
-type DenialState = 'not_yet_valid' | 'expired' | 'revoked' | 'suspended';
+/**
+ * Powody odmowy 401. Wartosc idzie na drut wersalikami (`.toUpperCase()`
+ * w `denials`), wiec jest czescia kontraktu - stad tablica, a nie sama unia.
+ */
+export const UNAUTHENTICATED_RESULTS = ['missing_key', 'invalid'] as const;
+
+/**
+ * Stany klucza, ktore koncza sie odmowa po trafieniu w wiersz rejestru.
+ * Tak samo jak wyzej: wersaliki tych wartosci sa kodami 403 w odpowiedzi.
+ */
+export const DENIAL_STATES = ['not_yet_valid', 'expired', 'revoked', 'suspended'] as const;
+
+type DenialState = (typeof DENIAL_STATES)[number];
 
 /**
  * Kod i komunikat w JEDNYM miejscu, zamiast rozproszonych po wywolaniach.
@@ -197,12 +209,18 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
    * najstarsze counters, czyli druga - niezalezna od zadania 8.1 - droga
    * obejscia limitu przez rozproszenie kluczy.
    */
+  // Rzutowanie, bo `CreateRateLimitOptions` w @fastify/rate-limit NIE deklaruje
+  // pola `cache` - jest dopiero na `RateLimitOptions`. W dzialaniu opcja JEST
+  // czytana: createLimiterArgs przekazuje scalone parametry do
+  // LocalStore.child(), a ten robi `new LocalStore(..., routeOptions.cache)`.
+  // Czyli luka siedzi w deklaracjach biblioteki, nie w tym kodzie - dlatego
+  // opcja zostaje, a nie znika pod typem.
   const limiterAdresu = app.createRateLimit({
     keyGenerator: (req: FastifyRequest) => `ip:${req.ip}`,
     max: cfg.unauthenticatedLimit,
     timeWindow: '1 minute',
     cache: 20_000,
-  });
+  } as Parameters<typeof app.createRateLimit>[0]);
 
   const log = new DlawionyLog();
 
@@ -212,7 +230,9 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
   ) => {
     // Limitujemy KAZDE odrzucenie, zanim je odeslemy.
     const state = await limiterAdresu(req);
-    if (state.isExceeded) {
+    // `isAllowed` rozroznia warianty wyniku: pola `isExceeded` i `ttl` istnieja
+    // wylacznie w galezi odmownej. Bez tego zawezenia siegalismy po nie na unii.
+    if (!state.isAllowed && state.isExceeded) {
       deps.onResult?.('rate_limited');
       return reply.code(429)
         .header('retry-after', Math.ceil(state.ttl / 1000))

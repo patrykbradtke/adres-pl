@@ -72,8 +72,8 @@ export async function loadTeryt(
       const rows = parseWmrodz(toCsv(input.wmrodz));
       for (const r of rows) {
         await client.query(
-          `INSERT INTO address.wmrodz (kod, name) VALUES ($1, $2)
-             ON CONFLICT (kod) DO UPDATE SET name = EXCLUDED.name`,
+          `INSERT INTO address.wmrodz (code, name) VALUES ($1, $2)
+             ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name`,
           [Number(r.rm), r.nameRemoved],
         );
       }
@@ -287,14 +287,26 @@ async function upsertUlic(
   let skipped = 0;
   // Klucz taki sam jak indeks docelowy - inaczej upsert dostalby ten sam
   // wiersz dwa razy w jednej instrukcji i przerwal cala transakcje.
+  //
+  // Od migracji 003 indeksem docelowym jest CZESCIOWY unikat (simc, sym_ul),
+  // a nie dawne (simc, nazwa_norm, cecha) - wiec klucz dedupu idzie za nim.
+  //
+  // Separator zapisany jako escape \0, a NIE surowym bajtem NUL. Surowy
+  // bajt sprawial, ze `file` widzial tu "data", a `grep` POMIJAL caly plik
+  // bez slowa - i dlatego refactor nazewnictwa przemianowal go w polowie.
   const seen = new Set<string>();
   for (const r of rows) {
     if (!known.has(r.sym)) { skipped++; continue; }
+    // Wiersz ULIC bez SYM_UL nie ma czym sie scalac: nie trafia w predykat
+    // indeksu docelowego, a dopasowanie po nazwie odtworzyloby duplikaty
+    // z usterki 6.23. Takie wiersze wnosi publikacja, ktora ma na nie
+    // osobna galaz ze straznikiem NOT EXISTS.
+    if (!r.symUl) { skipped++; continue; }
     const name = titleCasePl(cleanText(r.fullName));
     if (!name) continue;
     const nameNorm = normalizeText(name);
     const streetType = r.streetType || null;
-    const key = `${r.sym} ${nameNorm} ${streetType ?? ''}`;
+    const key = `${r.sym}\0${r.symUl}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const shortName = shortStreetName(name);
@@ -317,10 +329,22 @@ async function upsertUlic(
     SELECT simc, sym_ul, street_type, name, name_norm, short_name, short_name_norm,
            name_1, name_2, 'teryt', source_version, now()
       FROM tmp_ulic
-    ON CONFLICT (simc, name_norm, street_type) DO UPDATE SET
-      -- SYM_UL z TERYT jest wartoscia dodana: PRG czesto go nie ma.
-      sym_ul = COALESCE(EXCLUDED.sym_ul, address.street.sym_ul),
+    -- Scalanie po SYM_UL, nie po nazwie - tak samo jak publikuj_zrzut.
+    -- Migracja 003 zdjela pelny unikat (simc, nazwa_norm, cecha) i wstawila
+    -- dwa CZESCIOWE. Dawny klucz laczyl obiekty po nazwie, a TERYT ustawia
+    -- cecha 'ul.' tam, gdzie PRG zostawia NULL - wiec ta sama ulica wchodzila
+    -- DWA RAZY (usterka 6.23, 53% katalogu).
+    ON CONFLICT (simc, sym_ul) WHERE sym_ul IS NOT NULL AND withdrawn_at IS NULL
+    DO UPDATE SET
+      -- name_norm i street_type DOPISANE do listy. Przy dawnym kluczu byly
+      -- jego czescia, wiec z definicji nie mogly sie zmienic. Teraz kluczem
+      -- jest sym_ul, wiec TERYT moze poprawic nazwe ulicy - a bez aktualizacji
+      -- name_norm zostalby przy starej i rozjechalby sie z name. To po
+      -- name_norm idzie wyszukiwanie, wiec skutek byloby widac dopiero
+      -- w wynikach, nie w danych.
       name = EXCLUDED.name,
+      name_norm = EXCLUDED.name_norm,
+      street_type = EXCLUDED.street_type,
       short_name = EXCLUDED.short_name,
       short_name_norm = EXCLUDED.short_name_norm,
       name_1 = EXCLUDED.name_1,

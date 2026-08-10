@@ -625,3 +625,447 @@ przechodziły, a skutek ujawniał się dopiero w konkretnym scenariuszu:
 | 3 | Przejrzeć prozę w README i tym dokumencie | opisy pól API miejscami wciąż mówią `miejscowosc`/`nrBudynku`; nazwy metryk i poleceń są już poprawione |
 | 4 | Zdjąć `redis` i `minio` z `docker-compose.yml` | zadanie sprzed refactoru, wciąż otwarte — ~9% CPU i 85 MB bez żadnego użycia |
 | 5 | Narzędzie do migracji (`node-pg-migrate`) | 005 to piąty plik wgrywany ręcznie; dług opisany w planie produkcyjnym |
+
+---
+
+## 11. Weryfikacja refactoru i plan fazowy (10.08.2026, sesja druga)
+
+Zadania 1 i 2 z rozdziału 10 wykonane. Przy okazji wyszły **cztery kolejne ciche
+błędy tej samej klasy** oraz dwie przyczyny systemowe, przez które mogły przejść.
+
+### Zadanie 1 — `scripts/e2e.sh`
+
+**Nie wolno go uruchamiać na bazie produkcyjnej.** Krok 0 robi
+`TRUNCATE address.* CASCADE`, a krok 7 przestawia `data/index/current.bin`.
+Przy komplecie krajowym oznacza to skasowanie 8 605 682 punktów i podmianę
+57 MB artefaktu na fixture'owy. Odtworzenie ~3 h 25 min, a **kopii stanu po
+migracji 005 nie ma** — najnowszy zrzut jest sprzed 003.
+
+Uruchamiać wyłącznie izolowanie:
+
+```bash
+export DATABASE_URL="postgres://adres:adres@localhost:5432/adres_e2e"
+export INDEX_ROOT=/tmp/e2e-index ARCHIVE_ROOT=/tmp/e2e-archive
+./scripts/e2e.sh
+```
+
+Kolejność z rozdziału 10 była odwrotna: `quality` wymaga `dataVersion`
+zgodnej ze zbiorem wzorcowym, więc zadanie 1 kasowało warunek wstępny zadania 2.
+
+### Zadanie 2 — wyniki
+
+| kontrola | wynik |
+|---|---|
+| `npm run quality` | 28/28, kod 0 |
+| `npm run bench` | koszt uwierzytelniania p50 **0,017 ms** (próg 0,3), kod 0 |
+| `npm test`, `npm run test:db` | kod 0 |
+
+`bench` używa **atrapy indeksu celowo** — mierzy koszt hooka, nie czasy na
+danych krajowych. Nie zestawiać z wierszem „pełna ścieżka HTTP".
+
+### Ciche błędy 4–7
+
+| # | gdzie | skutek |
+|---|---|---|
+| 4 | `routes/validate.ts:109` — `'nietypowy'` wobec `'irregular'` w `core` | skrytka pocztowa dostawała `unverified`; strażnik poprawki z 9.08 wyłączony |
+| 5 | `test/bench-http.ts` — `zadan` i `zapytania` przemianowane oba na `REQUESTS` | `SyntaxError`, `npm run bench` nie uruchomił się ani razu od refactoru |
+| 6 | `test/reference-set.yaml` — klucze zostały polskie | **9 przypadków przechodziło, nie sprawdzając niczego**, plus 6 fałszywych błędów |
+| 7 | `routes/lookup.ts:169` (`w.kod`), `db/load-teryt.ts:75` (`kod`) | 500 na `/v1/locality/:simc`; ładowanie TERYT niedziałające na świeżej bazie |
+
+Naprawione i zweryfikowane. Poza tym:
+
+- **`003_scalenie_ulic.sql` miała `BEGIN;` bez `COMMIT`.** `psql -f` wycofuje
+  otwartą transakcję przy EOF i **zwraca kod 0** — migracja „przechodziła",
+  nie zmieniając nic. Dopisany `COMMIT`.
+- **`e2e.sh` nigdy nie uruchamiał 003** (też sprzed refactoru). Dopisana wraz
+  z wymaganym `ix_pa_ulic_id`.
+
+### Dwie przyczyny systemowe
+
+1. **Nic nie sprawdza typów.** Brak `tsconfig.json`, brak `typescript`,
+   `npm run build` jest pusty. Unia `Confidence` nie chroniła przed niczym.
+2. **`load-teryt.ts` jest niewidoczny dla `grep`** — dwa surowe bajty NUL
+   w linii 297 (celowe separatory klucza) sprawiają, że `file` widzi „data".
+   NUL-e są sprzed refactoru; to dlatego akurat ten plik przemianowano w połowie.
+
+### Ósmy błąd — słowniki źródłowe GML
+
+Znaleziony pomiarem typów. W `gml/profiles.ts` **klucz jest wartością z pliku
+GUGiK**, a nie naszym identyfikatorem (`mapper.ts:160`). Refactor przetłumaczył
+siedem pozycji, które przez to przestały się dopasowywać:
+
+```
+ulica -> street            czescMiejscowosci -> localityPart
+przysiolek -> hamlet       czescMiejcowosci  -> localityPart  (duplikat, wariant przepadł)
+schroniskoTurystyczne -> touristHostel        czescMiasta -> cityPart
+dzielnicaWarszawy -> warsawDistrict
+```
+
+Konwencja mówi o tych wartościach wprost, że zostają po polsku. Rozróżnienie,
+które trzeba zapamiętać: w mapach ścieżek GML **lewa strona jest nasza**
+(idzie na angielski), **prawa jest źródłowa** (zostaje) — i tam refactor zrobił
+to dobrze. Zepsute są wyłącznie dwa słowniki, gdzie kluczem jest sama dana.
+
+**Typecheck złapał 1 z 7** — tylko duplikat klucza. `hamlet: 3` jest poprawne
+typowo i błędne znaczeniowo, bo mapa to `Record<string, number>`. Wniosek na
+przyszłość: **tam, gdzie klucz jest daną z zewnątrz, typ nie ma czego pilnować**
+i potrzebny jest test przepuszczający prawdziwe wartości źródłowe.
+
+`e2e.sh` tego nie łapie, bo krok 8 tylko drukuje tabelkę zamiast ją sprawdzać.
+
+### Kolejność dalszych prac — fazy
+
+Kryterium: **zasięg zmiany, gdyby zrobić to później.** Rzeczy o dużym zasięgu
+idą pierwsze, nawet gdy same nie dają nic widocznego.
+
+| faza | zakres | nakład |
+|---|---|---|
+| **0. Szczelność** | typy + CI, domknięcie e2e, konformancja kontraktu o schematy, audyt słowników z testem, krok 8 asercją, higiena sekretów | 5–6 d |
+| **1. Kręgosłup** | narzędzie migracji z rejestrem, **jedno** pojęcie wykonawcy, **jeden** dziennik audytu, `can()` jako szew, kolumna zakresu, **kolumny pochodzenia na poziomie pola i tabele nakładki** (patrz niżej) | 4–5 d |
+| **2. Dane** | etapy 4 i 5 — wersjonowanie wydań i audyt zmian, **projekt i wdrożenie izolowanego importu z promocją** (patrz niżej) | 9–12 d + 3–5 d |
+| **3. Role** | R1–R15 z `panel-role-i-uprawnienia.md` | 8–9 d |
+| **4. Front** | R19–R20 i ekrany | wg planu panelu |
+
+Tor równoległy, nieblokujący: monitoring (7.4–7.7), RODO (6.3, 6.4), kopie
+(1.6–1.7, 8.18–8.26), reszta ETL (6.22 — 11 162 ulic bez cechy, 6.23 — 170 par
+duplikatów), dokumentacja integratora (6.7).
+
+### Warunek wejścia w etapy 4 i 5
+
+Zanim zacznie się faza 2, ma być prawdą:
+
+1. `npm run typecheck` przechodzi i jest w CI
+2. `e2e.sh` przechodzi w całości i **asertuje treść**, nie drukuje
+3. Migracje mają rejestr zastosowanych
+4. Istnieje **jedno** pojęcie wykonawcy i **jeden** dziennik audytu
+5. `can()` istnieje jako szew, więc nowe trasy rodzą się za nim
+6. Kolumna zakresu jest w schemacie, choćby pusta
+7. Kontrakt zgadza się z kodem, a konformancja sprawdza schematy
+
+Punkty **3 i 4 są krytyczne**: reszta poprawia się plik po pliku, a brak
+rejestru migracji i brak jednego dziennika audytu to koszt rosnący wykładniczo.
+Dziennika nie da się dorobić wstecz — okres sprzed retrofitu przepada.
+
+### Otwarte decyzje
+
+| # | pytanie | blokuje |
+|---|---|---|
+| A1 | Cel konfliktu dla ULIC w `load-teryt.ts:320` wobec częściowych indeksów z 003 | domknięcie `e2e.sh` |
+| 1 | Oś terytorialna w uprawnieniach: od razu czy tylko miejsce na nią | fazę 1, punkt 6 |
+| 2 | Czy klienci dostają dostęp do panelu | model zakresu i połowę scenariuszy |
+
+### Wymaganie: aktualizacja nie może dotykać działającego API
+
+Zapisane 10.08.2026. Dwa warunki naraz, a ciągną w przeciwne strony:
+
+1. Import i synchronizacja **nie mogą wpłynąć na dostępność ani na płynność**
+   produkcyjnego API adresowego — ani na dostęp, ani na czasy odpowiedzi.
+2. Baza produkcyjna jest **równolegle zapisywana przez panel** (ręczne
+   poprawki), więc promocja nowego wydania nie może ich skasować.
+
+**Co jest dziś zmierzone.** `search.ts` wykonuje **zero** zapytań do bazy —
+`/v1/suggest` idzie w całości z artefaktu w pamięci i jest już odporne. Na bazie
+wiszą `lookup.ts` (5 zapytań) i `validate.ts` (2), czyli te same tabele, które
+`publikuj_zrzut` przepisuje przez 2 h 16 min. `metrics.ts` (7 zapytań) jest
+odpytywane co 15 s.
+
+**Precedens szkody, której zakazujemy, jest już w repozytorium:** nagłówek
+migracji 003 opisuje, jak `ALTER TABLE` z blokadą ACCESS EXCLUSIVE **zamroził
+`/metrics` na godzinę**, a usterka 8 — jak `resolve_refs()` wygenerowało 303 GB
+zapisów przy zbiorze 12 GB.
+
+**Status: zapisane jako wymaganie, projekt do wykonania.** Poniższe to kierunek
+wynikający z warunków, a nie rozstrzygnięcie — właściwy projekt powstanie
+w fazie 2, na tym samym poziomie szczegółowości co `panel-role-i-uprawnienia.md`.
+
+**Kierunek.** Warunek 1 wyklucza „scalanie w żywe tabele” jako mechanizm
+podstawowy: skoro nic nie może dotykać tego, z czego czyta API, to import nie
+może tam pisać. Z tego wynikałby kształt:
+
+- ręczne poprawki z panelu modelujemy jako **nakładkę na poziomie pola**
+  (osobną i nadrzędną), a nie jako zmiany wierszy pochodzących z importu
+- każde wydanie: zaciągnięcie źródła → **odtworzenie nakładki** → walidacja
+  i mapowanie → promocja
+- promocja ma być dla czytelnika **przestawieniem wskaźnika**, a nie migracją
+  danych
+
+**Wzorzec już działa w tym projekcie i trzeba go rozszerzyć na bazę:** artefakt
+indeksu buduje się do nowego pliku, sprawdza i dopiero wtedy przestawia
+`current.bin`. Baza nie ma odpowiednika.
+
+Warianty do oceny: dwa schematy z przełączaniem `search_path` albo widoku,
+osobna instancja z przełączeniem połączenia, albo przeniesienie `lookup`
+i `validate` na artefakt lub replikę odczytu — wtedy baza znika ze ścieżki
+żądania i wpływ importu przestaje mieć znaczenie. Odwrotne geokodowanie
+wymaga PostGIS, więc go tak nie da się zdjąć.
+
+**Konsekwencja dla kolejności:** kolumny pochodzenia na poziomie pola i tabele
+nakładki muszą wejść w **fali schematu z fazy 1**. Dołożenie ich później do
+`address_point` (8,6 mln wierszy) to długa migracja, a ścieżka publikacji musi
+je znać, żeby wiedzieć, czego nie ruszać. Dziś `address_point` ma ślad
+pochodzenia wyłącznie na poziomie rekordu (`source`, `source_version`,
+`fetched_at`), a `publikuj_zrzut` nadpisuje wszystkie pola bezwarunkowo —
+jedyny wyjątek to `status` ze strażnikiem `COALESCE(EXCLUDED.status, p.status)`.
+
+### Postęp fazy 0
+
+| # | zadanie | stan |
+|---|---|---|
+| 0.1 | Typy | **wykonane** — `tsconfig.json`, `npm run typecheck`, pełny `strict`, kod 0 |
+| 0.2 | CI | **wykonane** — `.github/workflows/ci.yml`, dwa zadania |
+| 0.3 | Decyzja ULIC i domknięcie `e2e.sh` | **wykonane** — A1 rozstrzygnięte, przebieg zielony, dopięty do CI |
+| 0.4 | `e2e.sh` na osobnej bazie z definicji | **wykonane** — domyślka `adres_e2e`, `./data/e2e`, strażnik progu |
+| 0.5 | Kontrakt i próba dymna tras | **wykonane** — enumy i nazwy schematów, `endpoint-smoke.ts`, konformancja porównuje enumy z kodem |
+| 0.6 | Test słowników źródłowych | **wykonane** — `gml-dictionaries.ts`, sprawdzony w obie strony |
+| 0.7 | Krok 8 `e2e.sh` asercją | **wykonane** — z zastrzeżeniem niżej |
+| 0.8 | NUL w `load-teryt.ts`, higiena sekretów | **wykonane** — plik jest znów tekstem; `.env` ignorowany na tej gałęzi |
+
+**0.1 — jak wypadł pomiar.** Bez typów pakietów `strict` kosztował 80 błędów.
+Po doinstalowaniu `@types/pg`, `@types/pg-copy-streams` i `@types/yauzl`
+spadł do **31**: wszystkie 27 braków deklaracji i 22 domyślne `any` siedziały
+na wywołaniach `pg` i `yauzl`. Dlatego fundament jest od razu ścisły.
+Otypowany `pg` jest tu zresztą tym mechanizmem, który wykrywa klasę „alias SQL
+wobec odczytu w TS" — czyli usterki 1 i 7.
+
+**0.2 — czego w CI świadomie NIE ma.** `npm run quality` wymaga danych
+krajowych i bez nich kończy się kodem 2, więc byłby czerwony zawsze i z powodu,
+który nie jest regresją. `scripts/e2e.sh` dochodzi w 0.3, razem z decyzją A1 —
+dopóki przebieg staje na ładowaniu ULIC, dodanie go oznaczałoby czerwony CI od
+pierwszego dnia. Zasada: **w tym przebiegu nie ma kroku, który ma prawo być
+czerwony „normalnie”**.
+
+**Usterka znaleziona przy 0.2:** `docker compose up -d db` na czystym wolumenie
+**nie wstaje**. Compose montuje `db/migrations` jako `docker-entrypoint-initdb.d`,
+migracje idą alfabetycznie, a 003 przerywa, bo wymaga `ix_pa_ulic_id`, którego
+001 ani 002 nie zakładają. Sprawdzone przebiegiem na czystej bazie: 001 OK,
+002 OK, **003 przerwana**, 004 OK, 005 OK. To sprzed refactoru. Blokuje
+postawienie projektu od zera, onboarding i ścieżkę odtworzenia. CI i `e2e.sh`
+obchodzą to jawnym krokiem `CREATE INDEX IF NOT EXISTS ix_pa_ulic_id` przed 003;
+właściwe zamknięcie to narzędzie do migracji z fazy 1.
+
+### Faza 0 — zamknięcie i to, czego uczy
+
+**A1 rozstrzygnięte: scalanie po `sym_ul`, nie po nazwie.** Ładowarka ULIC
+dostała ten sam cel konfliktu co `publikuj_zrzut`:
+`ON CONFLICT (simc, sym_ul) WHERE sym_ul IS NOT NULL AND withdrawn_at IS NULL`.
+Uzasadnienie było już w migracji 005 — dawny klucz łączył obiekty po nazwie,
+a TERYT ustawia cechę `ul.` tam, gdzie PRG zostawia NULL, więc ta sama ulica
+wchodziła dwa razy (usterka 6.23, 53% katalogu). Przy okazji klucz dedupu
+w pamięci poszedł za indeksem, bo plik sam to sobie narzucał komentarzem
+„klucz taki sam jak indeks docelowy", a po 003 już nim nie był.
+
+**Cztery kolejne martwe ścieżki, wykryte dopiero przez uruchomienie:**
+
+| gdzie | co było |
+|---|---|
+| `/v1/numbers` | `p.nr_key`, `p.nr_sort`, `p.wycofany_od` — trzy kolumny sprzed 005, **500 na każde żądanie** |
+| `/v1/reverse` | `lat` i `lon` przekazywane jako `$1`/`$2`, których zapytanie **nie używa** — Postgres nie miał z czego wywieść typu, **500** |
+| `load-impa.ts` | alias `AS wspolne` przy odczycie `c.shared` → `NaN` w raporcie rozbieżności; `ORDER BY z.miejscowosc` |
+| `POST /admin/keys` | nieistniejący `clientId` dawał 500 z treścią błędu Postgresa zamiast 404 |
+
+**Najważniejsza lekcja fazy 0 dotyczy kontroli, nie kodu.** Napisałem asercję
+treści w kroku 8 `e2e.sh` jako strażnika słowników GML — i **sprawdziłem, czy
+umie nie przejść**. Nie umiała: po przetłumaczeniu klucza `ulica` przebieg
+nadal był zielony. Powód: fixture TERYT niesie `CECHA` w `ULIC.csv` i `RM`
+w `SIMC.csv`, a TERYT ma pierwszeństwo, więc te pola nie pochodzą wtedy ze
+słownika GML. Kontrola pilnowała czegoś innego, niż deklarowała.
+
+Właściwym strażnikiem jest `packages/etl/test/gml-dictionaries.ts` — porównuje
+zamrożony słownik źródłowy co do klucza i **jest sprawdzony w obie strony**:
+przechodzi na poprawnym kodzie i wywraca się po zepsuciu `ulica`.
+
+Stąd zasada na dalsze fazy: **zanim uznasz kontrolę za gotową, zepsuj to, co
+sprawdza, i zobacz czerwone.** Kontrola, której nikt nie widział czerwonej,
+jest hipotezą, nie zabezpieczeniem.
+
+### Stan kontroli po fazie 0
+
+| polecenie | co pilnuje | w CI |
+|---|---|---|
+| `npm run typecheck` | pełny `strict`, 0 błędów | tak |
+| `npm test` | 7 zestawów hermetycznych, w tym słowniki źródłowe | tak |
+| `npm run test:db` | 7 zestawów na bazie, w tym próba dymna 21 tras | tak |
+| `./scripts/e2e.sh` | cała ścieżka ETL → publikacja → artefakt → treść | tak |
+| `npm run bench` | próba dymna przyrządu | tak (mały nakład) |
+| `npm run quality` | 28 przypadków jakości | **nie** — wymaga danych krajowych |
+
+**Domknięcie 0.5 — usunięcie wystąpień to nie to samo co zamknięcie klasy.**
+Poprawione enumy w `openapi.yaml` nie chroniły przed niczym na przyszłość:
+`openapi-conformance.ts` porównywał wyłącznie ścieżki, więc rozjazd wartości
+przechodził niezauważony (i przechodził — `niezweryfikowany` w specyfikacji
+wobec `unverified` w kodzie). Źródłem prawdy są teraz tablice `as const`
+w kodzie: `CONFIDENCE_VALUES` w `core/types.ts` oraz `UNAUTHENTICATED_RESULTS`
+i `DENIAL_STATES` w `api/keys/auth.ts` — bo tylko one istnieją w czasie
+wykonania, a unia typu znika przy uruchomieniu. Konformancja porównuje je ze
+specyfikacją i **jest sprawdzona w obie strony**.
+
+---
+
+## 12. Faza 1 — kręgosłup
+
+### 1.1 Narzędzie migracji — WYKONANE
+
+`db/migrate.ts`, uruchamiane przez `npm run migrate`. Trzy polecenia:
+
+```bash
+npm run migrate            # wgraj brakujące
+npm run migrate status     # co jest wgrane, co czeka
+npm run migrate baseline   # oznacz jako wgrane, NIE uruchamiając
+```
+
+**Odstępstwo od planu, świadome.** Plan wskazywał `node-pg-migrate`. Nie
+pokrywa trzech rzeczy, których tu potrzeba, więc i tak trzeba by dopisać kod
+wokół niego: **oznaczenia wstecznego** (001–005 są już na produkcji i nie wolno
+ich uruchomić drugi raz), **sum kontrolnych** (bez nich zmiana wgranego pliku
+jest niewidoczna — a do 003 dopisano `COMMIT` już po wgraniu) oraz
+pozostawienia plików **surowym SQL-em** (node-pg-migrate oczekuje znaczników
+`-- Up Migration`, czyli przepisania historii). Cena: ~150 linii bez zależności.
+
+Własności: rejestr w `migration.applied`, suma kontrolna każdego pliku, blokada
+doradcza na czas przebiegu, osobna transakcja na migrację — z wykryciem plików,
+które **prowadzą transakcję same** (003 i 005 mają własne `BEGIN`/`COMMIT`,
+więc owinięcie ich w kolejną kończyłoby się zamknięciem cudzej).
+
+Rozbieżność sumy kontrolnej jest **ostrzeżeniem, nie błędem**: plik już
+przeszedł, ponowne wgranie niczego nie naprawi, a zatrzymanie wdrożenia byłoby
+gorsze niż sam problem. Ale operator ma wiedzieć, że historia i baza się
+rozjechały.
+
+### Trzy rzeczy, które to zamknęło przy okazji
+
+1. **Świeży `docker compose up -d db` znów wstaje.** Warunek wstępny w 003
+   zakłada teraz `ix_pa_ulic_id` **sam, gdy tabela jest pusta** — bo świeża baza
+   nie ma jak spełnić go wcześniej. Na tabeli z danymi zostaje jak było:
+   przerwanie z instrukcją, bo tam indeks naprawdę trzeba założyć
+   `CONCURRENTLY` i poza transakcją.
+2. **Zdjęte montowanie `db/migrations` jako `docker-entrypoint-initdb.d`.**
+   Dwie drogi wgrywania schematu to dwie prawdy o tym, co baza ma — a initdb
+   nie zapisuje niczego w rejestrze. Po `docker compose up -d db` uruchamia się
+   `npm run migrate`.
+3. **`e2e.sh` i CI przeszły na migrator.** Zniknęła ręcznie utrzymywana
+   sekwencja `psql` z osobnym krokiem na indeks, która rozjeżdżała się przy
+   każdej nowej migracji.
+
+**Zweryfikowane:** świeża baza postawiona wyłącznie migratorem ma schemat
+identyczny z produkcyjnym (te same trzy unikaty na `address.street`, w tym oba
+częściowe z 003), `test:db` na niej przechodzi, a ponowne `up` jest bezczynne.
+Produkcyjna baza oznaczona wstecznie — 8 605 682 punkty nietknięte.
+
+### 1.2–1.5 Kręgosłup — schemat i silnik polityki
+
+**Migracja 006**, pierwsza wgrywana nowym narzędziem. Osobny schemat `panel`,
+bez kluczy obcych w stronę `address` — z tego samego powodu co przy 004:
+`e2e.sh` robi `TRUNCATE address.* CASCADE`, a kaskada nie może wynosić kont
+i dziennika audytu.
+
+| tabela | po co |
+|---|---|
+| `panel.account` | konta ludzi; wyłączane, nie kasowane — dziennik musi mieć na co wskazywać |
+| `panel.role` | role jako **dane**, edytowalne z panelu |
+| `panel.role_permission` | uprawnienia roli, nazwy z katalogu w kodzie |
+| `panel.role_includes` | składanie ról, z wykrywaniem cykli |
+| `panel.role_assignment` | **tu mieszka zakres** — `scope_terc` i `scope_client_id` |
+| `panel.session` | sesje po wzorcu 8.4a, skrót zamiast wartości jawnej |
+| `panel.audit_log` | **jeden** dziennik dla wszystkich czterech rodzajów wykonawcy |
+
+**Silnik: `packages/core/src/policy/`** — funkcja czysta, bez bazy i bez sieci.
+Wszystko dostaje w `Actor`, więc testuje się bez stawiania czegokolwiek,
+a wywołanie w ścieżce żądania kosztuje tyle, co przejście po tablicy.
+Ładowanie nadań z bazy jest osobną sprawą i mieszka w `packages/api`.
+
+Trzy rzeczy, które wpisałem świadomie pod kątem utrzymania przez kogoś innego:
+
+1. **Decyzja niesie uzasadnienie**, nie `true`/`false`. Przy składaniu ról
+   pytanie „dlaczego ta osoba to może" pada natychmiast, a `via` odpowiada
+   na nie także po fakcie, bo trafia do dziennika.
+2. **Pomyłka wołającego rzuca, a nie odmawia.** Podanie zakresu terytorialnego
+   do uprawnienia globalnego to błąd programisty. Zwrócenie z tego powodu
+   „brak dostępu" ukryłoby go pod poprawnie wyglądającym 403.
+3. **Uprawnienie niesie oś zakresu.** `release.publish` jest globalne, bo
+   wydanie jest krajowe — panel nie pozwoli nadać ustawienia bez znaczenia.
+
+**Zweryfikowane doświadczalnie:** wykrywanie cykli odmawia przy próbie
+`redaktor` zawiera `koordynator` (który już zawiera `redaktor`); ograniczenie
+`CHECK` odrzuca `scope_terc = 'MAZOWSZE'` i przyjmuje `14`. Zestaw
+`packages/core/test/policy.ts` — 19 kontroli, w tym te sprawdzające, że
+zawężenia **nie da się obejść pominięciem parametru**.
+
+### 1.6 Kontrakt błędów i logowanie — DO ZROBIENIA
+
+Wymaganie: kody odpowiedzi mają odpowiadać temu, co się faktycznie stało,
+a nie sprowadzać się do 400 albo 500. Problem jest udokumentowany dzisiejszym
+znaleziskiem: `POST /admin/keys` z nieistniejącym `clientId` zwracało **500
+z treścią błędu Postgresa**, wraz z nazwą ograniczenia z bazy. Naprawione
+doraźnie na 404, ale mechanizmu nie ma — każda kolejna trasa powtórzyłaby błąd.
+
+Zakres w zadaniu #9: jedna warstwa kształtująca błąd, klasa bazowa
+z `{status, code}`, mapowanie SQLSTATE, spójny kształt ciała **wszystkich**
+odpowiedzi, identyfikator korelacji w nagłówku i w `panel.audit_log`, oraz
+rozszerzenie próby dymnej o celowe wywoływanie 404 i 409.
+
+### 1.2–1.4 Wykonawca, dziennik i szew — WYKONANE
+
+**Ładowanie nadań** (`api/src/policy/grants.ts`). Rozwinięcie składania ról robi
+**baza**, zapytaniem rekurencyjnym — rekurencja po stronie aplikacji oznaczałaby
+N+1 zapytań i własną obsługę cykli. Ścieżka pochodzenia budowana po drodze,
+więc `via` niesie `rola koordynator < redaktor`, czyli odpowiedź na pytanie
+„skąd ta osoba ma to uprawnienie". Uwzględniane są wyłącznie przypisania czynne:
+rola niewyłączona, przypisanie w okresie ważności — wykonawca zewnętrzny
+z datą końca traci dostęp sam z siebie.
+
+**Dziennik audytu** (`api/src/policy/audit.ts`). Błąd zapisu jest logowany, ale
+**nie przerywa obsługi** — odwrotna decyzja znaczyłaby, że awaria tabeli audytu
+kładzie całą powierzchnię administracyjną. Odmowa zapisywana na równi z nadaniem.
+
+**Szew jest prawdziwy, nie teoretyczny.** Token operatora też przechodzi przez
+silnik — z uprawnieniami roli `administrator` wczytanymi **z bazy**, nie
+zaszytymi w kodzie. Dzięki temu ścieżka autoryzacji jest sprawdzona, zanim
+powstaną konta, a odjęcie uprawnienia w panelu zadziała także na token.
+
+**Test wymuszający** (`test/policy-seam.ts`): trasy zbierane z **routera**,
+każda wołana, a potem sprawdzane, czy w dzienniku pojawił się wpis o tym samym
+identyfikatorze korelacji. Brak wpisu = trasa ominęła silnik. Zwyczaj zamieniony
+w regułę.
+
+### Wada znaleziona przez ten test — i to produkcyjna
+
+Zestaw najpierw świecił na **zielono z zepsutym kodem**. Powód: `req.id`
+Fastify to licznik per instancja, zaczynający od 1, więc zapytanie o wpisy
+po identyfikatorze korelacji trafiało w wiersze z **poprzednich uruchomień**.
+
+To nie jest wada testu, tylko projektu: przy dwóch podach oba mają żądanie
+`req-1`, więc w produkcji zestawienie odpowiedzi z wpisem w dzienniku trafiałoby
+w cudzy wiersz. Naprawione — `genReqId` daje `randomUUID()`, a nagłówek
+`x-correlation-id` jest honorowany po oczyszczeniu (trafia do logu i do bazy,
+więc nie może być dowolnym ciągiem od klienta). Koszt: ~7 µs na żądanie,
+zmierzone; próg kosztu uwierzytelniania trzyma z ośmiokrotnym zapasem.
+
+### 1.6 Kontrakt błędów — WYKONANE
+
+Katalog **27 kodów** w `core/src/errors.ts` z kodem stanu i treścią — to jest
+mapa tłumacząca: panel używa `error` wprost albo tłumaczy sobie po `code`,
+który jest **stabilny**. Rozdzielony od `ISSUE_CODES` (12), bo tamte opisują
+zastrzeżenia **wewnątrz poprawnej odpowiedzi 200**.
+
+Kształt każdej odpowiedzi błędu: `{ code, error, info?, correlationId }` —
+także dla 500 i nieznanej trasy. Wszystko nierozpoznane kończy jako `INTERNAL`;
+mapowane są tylko te SQLSTATE, które są **błędem wołającego**. `42703`
+(„nie ma takiej kolumny") idzie jako 500, bo to nasza wada — zamiana na 400
+ukryłaby usterkę pod kodem sugerującym, że zawinił klient.
+
+Konformancja porównuje ze specyfikacją **trzy** katalogi: `Confidence`,
+`ErrorCode` i `Issue.code`, plus sprawdza, że zawężone listy kodów przy
+odpowiedziach nie wymieniają nic spoza katalogu.
+
+### Stan kontroli po etapie 1
+
+| polecenie | zestawów | co doszło |
+|---|---|---|
+| `npm test` | 8 | silnik polityki, słowniki źródłowe |
+| `npm run test:db` | 9 | próba dymna tras, szew polityki |
+| `npm run migrate` | — | rejestr, sumy kontrolne, `baseline` |
+
+**Warunek wejścia w etap 2 jest spełniony** — wszystkie siedem punktów
+z rozdziału 11: typy w CI, e2e asertujące treść, rejestr migracji, jedno
+pojęcie wykonawcy i jeden dziennik audytu, `can()` jako szew, kolumna zakresu
+w schemacie, kontrakt zgodny z kodem i pilnowany konformancją.

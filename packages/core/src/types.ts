@@ -6,18 +6,29 @@
  * inaczej podpowiedzi i walidacja wsadowa zaczna sie rozjezdzac.
  */
 
-/** Poziom pewnosci dopasowania adresu do rejestru. */
-export type Confidence =
+/**
+ * Poziom pewnosci dopasowania adresu do rejestru.
+ *
+ * TABLICA, a nie sama unia typu, bo ta lista jest KONTRAKTEM i musi dac sie
+ * porownac ze specyfikacja w czasie wykonania. Typy znikaja przy uruchomieniu,
+ * wiec unia nie ma jak niczego pilnowac - openapi.yaml wymienial tu
+ * `niezweryfikowany` jeszcze dlugo po tym, jak kod zaczal zwracac `unverified`,
+ * i nic tego nie zglosilo. Zgodnosc sprawdza openapi-conformance.ts.
+ */
+export const CONFIDENCE_VALUES = [
   /** Pelne dopasowanie do PRG - mamy prgLocalId i wspolrzedne. */
-  | 'verified_registry'
+  'verified_registry',
   /** Miejscowosc i ulica z rejestru, numer nie. */
-  | 'verified_partial'
+  'verified_partial',
   /** Uzytkownik swiadomie potwierdzil adres spoza bazy (nowe budownictwo). */
-  | 'outside_registry'
+  'outside_registry',
   /** Tryb reczny: skrytka pocztowa, adres tymczasowy, nietypowy. */
-  | 'irregular'
+  'irregular',
   /** Import bez walidacji. */
-  | 'unverified';
+  'unverified',
+] as const;
+
+export type Confidence = (typeof CONFIDENCE_VALUES)[number];
 
 /** Kanoniczny adres polski. */
 export interface PlAddress {
@@ -92,26 +103,39 @@ export interface ParsedNumber {
   alternatives?: Array<{ buildingNumber: string; unitNumber?: string }>;
 }
 
-/** Kod problemu wykrytego przez walidacje. */
-export type IssueCode =
-  | 'MISSING_LOCALITY'
-  | 'MISSING_BUILDING_NUMBER'
-  | 'INVALID_POSTAL_CODE_FORMAT'
-  | 'INVALID_BUILDING_NUMBER_FORMAT'
-  | 'STREET_IN_LOCALITY_WITHOUT_STREETS'
-  | 'MISSING_STREET_IN_LOCALITY_WITH_STREETS'
-  | 'LOCALITY_OUTSIDE_REGISTRY'
-  | 'STREET_OUTSIDE_REGISTRY'
-  | 'BUILDING_NUMBER_OUTSIDE_REGISTRY'
-  | 'POSTAL_CODE_CONFLICTS_WITH_REGISTRY'
-  | 'BUILDING_NUMBER_PROJECTED'
-  | 'MULTIPLE_CANDIDATES';
+/**
+ * Kody zastrzezen wykrytych przez walidacje.
+ *
+ * TABLICA, nie sama unia - z tego samego powodu co CONFIDENCE_VALUES: to jest
+ * kontrakt, wiec musi dac sie porownac ze specyfikacja w czasie wykonania.
+ * Do 10.08.2026 openapi.yaml podawal tu wylacznie `example`, wiec konsument
+ * nie mial skad wziac pelnej listy, a rozjazd nie mial jak wyjsc.
+ *
+ * To NIE sa bledy HTTP - te sa w errors.ts. Zastrzezenie wystepuje WEWNATRZ
+ * poprawnej odpowiedzi 200: adres da sie zwalidowac, tylko ma uwagi.
+ */
+export const ISSUE_CODES = [
+  'MISSING_LOCALITY',
+  'MISSING_BUILDING_NUMBER',
+  'INVALID_POSTAL_CODE_FORMAT',
+  'INVALID_BUILDING_NUMBER_FORMAT',
+  'STREET_IN_LOCALITY_WITHOUT_STREETS',
+  'MISSING_STREET_IN_LOCALITY_WITH_STREETS',
+  'LOCALITY_OUTSIDE_REGISTRY',
+  'STREET_OUTSIDE_REGISTRY',
+  'BUILDING_NUMBER_OUTSIDE_REGISTRY',
+  'POSTAL_CODE_CONFLICTS_WITH_REGISTRY',
+  'BUILDING_NUMBER_PROJECTED',
+  'MULTIPLE_CANDIDATES',
+] as const;
+
+export type IssueCode = (typeof ISSUE_CODES)[number];
 
 export interface Issue {
   code: IssueCode;
   /** `error` blokuje tylko wtedy, gdy aplikacja konsumencka tak zdecyduje. */
   severity: 'error' | 'warning' | 'info';
-  field: keyof PlAddress | 'adres';
+  field: keyof PlAddress | 'address';
   message: string;
   /** Wartosc sugerowana przez rejestr, jesli istnieje. */
   suggested?: string;

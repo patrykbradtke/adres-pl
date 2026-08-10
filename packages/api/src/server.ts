@@ -8,6 +8,7 @@
  *
  * Pod jest bezstanowy: caly stan to artefakt indeksu pobrany przy starcie.
  */
+import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
@@ -19,6 +20,7 @@ import { registerValidateRoutes } from './routes/validate.ts';
 import { registerMetricsRoutes, Metrics } from './routes/metrics.ts';
 import { registerAdminRoutes, checkOperatorToken } from './routes/admin.ts';
 import { registerAuth } from './keys/auth.ts';
+import { registerErrorHandling } from './errors.ts';
 import { KeyRegistry } from './keys/registry.ts';
 import { Peppers } from './keys/pepper.ts';
 import { UsageMeter } from './keys/usage.ts';
@@ -43,6 +45,28 @@ export interface BuildOptions {
   onRoute?: (trasa: { method: string | string[]; url: string }) => void;
 }
 
+/**
+ * Identyfikator korelacji zadania.
+ *
+ * DOMYSLNY genReqId FASTIFY TU NIE WYSTARCZA: to licznik per INSTANCJA,
+ * zaczynajacy od 1. Przy dwoch podach oba maja zadanie `req-1`, wiec
+ * zestawienie odpowiedzi z wpisem w dzienniku audytu trafia w cudzy wiersz.
+ * Wyszlo to na jaw w zestawie `policy-seam.ts`, ktory swiecil na zielono,
+ * bo trafial w wpisy z POPRZEDNICH uruchomien.
+ *
+ * Naglowek przychodzacy jest honorowany, zeby slad dalo sie przeprowadzic
+ * przez kilka uslug - ale PO OCZYSZCZENIU: ta wartosc trafia do logu i do
+ * bazy, wiec nie moze byc dowolnym ciagiem od klienta.
+ */
+function correlationId(req: { headers: Record<string, unknown> }): string {
+  const podany = req.headers['x-correlation-id'];
+  if (typeof podany === 'string') {
+    const czysty = podany.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+    if (czysty.length >= 8) return czysty;
+  }
+  return randomUUID();
+}
+
 export async function buildServer(
   cfg: ServerConfig,
   opcje: BuildOptions = {},
@@ -52,6 +76,7 @@ export async function buildServer(
     // Typeahead generuje duzo krotkich zapytan - wylaczamy kosztowne logowanie ciala
     disableRequestLogging: process.env.LOG_REQUESTS !== '1',
     trustProxy: cfg.trustProxy,
+    genReqId: correlationId,
   });
 
   if (opcje.onRoute) {
@@ -242,6 +267,16 @@ export async function buildServer(
    * Wymagaja tez pieprza, bo wystawienie klucza polega na policzeniu skrotu -
    * bez niego endpoint bylby atrapa konczaca sie bledem przy pierwszym uzyciu.
    */
+  /**
+   * Kontrakt bledow zakladany PRZED trasami.
+   *
+   * setErrorHandler i setNotFoundHandler obowiazuja na instancji, wiec
+   * kolejnosc wzgledem rejestracji tras nie ma znaczenia dla dzialania -
+   * ale ma dla czytania: to jest warstwa, przez ktora przechodzi kazda
+   * nieudana odpowiedz, wiec stoi w widocznym miejscu.
+   */
+  registerErrorHandling(app);
+
   if (cfg.adminToken) {
     checkOperatorToken(cfg.adminToken);
     if (!peppers) {

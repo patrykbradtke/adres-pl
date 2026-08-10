@@ -37,12 +37,12 @@ suggestions:
 
   # --- literowki ---
   - q: mickievicza
-    oczekiwaneZawiera: Mickiewicza
+    expectedContains: Mickiewicza
     inTop: 3
     why: Podmiana litery to typowa literowka klawiaturowa.
 
   - q: marszalkowsak
-    oczekiwaneZawiera: Marszałkowska
+    expectedContains: Marszałkowska
     inTop: 5
     why: Przestawienie dwoch ostatnich liter.
 
@@ -59,7 +59,7 @@ suggestions:
 
   # --- suggestions nie moga prowadzic donikad ---
   - q: gdansk
-    bezSlepychZaulkow: true
+    withoutDeadEnds: true
     inTop: 10
     why: >
       Zadna podpowiedz nie moze miec zera punktow adresowych, jesli nie ma tez
@@ -68,7 +68,7 @@ suggestions:
       bez jednego adresu, powyzej Starogardu Gdanskiego z 6 829 adresami.
 
   - q: warszawa
-    bezSlepychZaulkow: true
+    withoutDeadEnds: true
     inTop: 10
 
   # --- duplikaty nazw: rozstrzyga uzytkownik, wiec musi dostac czym ---
@@ -76,7 +76,7 @@ suggestions:
     expected: { label: 'Nowa Wieś', type: locality }
     inTop: 1
   - q: nowa wies
-    roznychSimc: 5
+    differentSimcs: 5
     inTop: 10
     why: >
       Nazwa wystepuje setki razy. Lista musi pokazac kilka roznych miejscowosci,
@@ -84,7 +84,7 @@ suggestions:
 
   # --- duze miasta wobec wsi o tej samej nazwie ulicy ---
   - q: marszalkowska
-    oczekiwaneMiejscowosc: Warszawa
+    expectedLocality: Warszawa
     inTop: 1
     why: >
       Zapytanie o sama nazwe ulicy bez miejscowosci: uzytkownik prawie zawsze
@@ -93,14 +93,14 @@ suggestions:
       miejscowosci, a tylko liczbe adresow przy samej ulicy.
 
   - q: grojecka
-    oczekiwaneMiejscowosc: Warszawa
+    expectedLocality: Warszawa
     inTop: 1
     why: >
       Przypadek mocniejszy niz Marszalkowska: Konin ma przy tej ulicy 168
       adresow, Warszawa 114. O kolejnosci ma decydowac wielkosc miejscowosci.
 
   - q: pulawska
-    oczekiwaneMiejscowosc: Warszawa
+    expectedLocality: Warszawa
     inTop: 3
 
   # --- ale male miejscowosci musza zostac znajdywalne ---
@@ -112,7 +112,7 @@ suggestions:
       przykryc dopasowania nazwy - wies wpisana wprost ma byc pierwsza.
 
   - q: polna cmolas
-    oczekiwaneZawiera: Cmolas
+    expectedContains: Cmolas
     inTop: 1
     why: Zawezenie miejscowoscia w zapytaniu ma przewazyc nad popularnoscia.
 
@@ -136,21 +136,21 @@ validation:
   # --- numer spoza rejestru: ostrzezenie, nie blad ---
   - raw: 'ul. Marszałkowska 199, Warszawa'
     expected: { simc: '0918123', confidence: verified_partial }
-    zawieraUwage: BUILDING_NUMBER_OUTSIDE_REGISTRY
+    containsNote: BUILDING_NUMBER_OUTSIDE_REGISTRY
     why: >
       Zasada nadrzedna z rozdzialu 6.3: validation nie blokuje zapisu.
       Nowe budownictwo musi przejsc z obnizonym poziomem pewnosci.
 
   # --- zapis dwuznaczny 12/14 ---
   - raw: 'ul. Marszałkowska 12/14, Warszawa'
-    expected: { nrBudynku: '12', nrLokalu: '14' }
+    expected: { buildingNumber: '12', unitNumber: '14' }
     why: >
       Obecna implementacja przyjmuje odczyt budynek + lokal, gdy istnieja obie
       interpretacje. Docelowa regula daje pierwszenstwo numerowi "12/14";
       przypadek pilnuje, zeby zmiana byla swiadoma, a nie przypadkowa.
 
   - raw: 'ul. Marszałkowska 12 m. 5, Warszawa'
-    expected: { nrBudynku: '12', nrLokalu: '5' }
+    expected: { buildingNumber: '12', unitNumber: '5' }
     why: Jawny marker lokalu nie moze byc dwuznaczny.
 
   # --- miejscowosc bez ulic ---
@@ -162,22 +162,22 @@ validation:
 
   # --- kod pocztowy bez mysnika nadal ma dzialac ---
   - raw: 'ul. Marszałkowska 1, 00950 Warszawa'
-    expected: { kodPocztowy: '00-950', simc: '0918123' }
+    expected: { postalCode: '00-950', simc: '0918123' }
     why: >
       Straznik poprawki 6.20. Odrzucamy kody-zaslepki podane bez mysnika,
       ale zwykly kod bez mysnika musi przechodzic dalej.
 
   # --- skrytka pocztowa ---
   - raw: 'skr. poczt. 15, Warszawa'
-    expected: { confidence: nietypowy }
+    expected: { confidence: irregular }
 
   # --- nazwa ulicy podobna do markera skrytki ---
   - raw: 'ul. Skrytkowa 5, Warszawa'
-    expected: { ulica: 'Skrytkowa', confidence: verified_partial }
+    expected: { street: 'Skrytkowa', confidence: verified_partial }
     why: >
       Straznik poprawki 6.17. Marker skrytki dopasowuje sie do calego slowa,
       wiec "Skrytkowa" nie moze byc brana za skrytke pocztowa.
 
   # --- absurdalny numer ---
   - raw: 'ul. Marszałkowska 99999, Warszawa'
-    expected: { nrBudynku: '99999' }
+    expected: { buildingNumber: '99999' }

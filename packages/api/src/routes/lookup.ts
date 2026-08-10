@@ -8,7 +8,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type pg from 'pg';
-import { buildingNumberKey } from '@adres-pl/core';
+import { appError, buildingNumberKey } from '@adres-pl/core';
 
 export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void {
   /**
@@ -34,7 +34,8 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
     async (req, reply) => {
       const { ulicId, simc, prefix, limit = 500 } = req.query;
       if (!ulicId && !simc) {
-        return reply.code(400).send({ error: 'Podaj ulicId albo simc.' });
+        throw appError('INVALID_PARAMETER', { required: 'ulicId albo simc' },
+          'Podaj ulicId albo simc.');
       }
 
       const params: unknown[] = [];
@@ -48,7 +49,7 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
       }
       if (prefix) {
         params.push(buildingNumberKey(prefix) + '%');
-        where += ` AND p.nr_key LIKE $${params.length}`;
+        where += ` AND p.building_number_key LIKE $${params.length}`;
       }
       params.push(limit);
 
@@ -56,8 +57,8 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
         `SELECT p.id, p.prg_local_id, p.building_number, p.postal_code, p.status,
                 ST_Y(p.geom::geometry) AS lat, ST_X(p.geom::geometry) AS lon
            FROM address.address_point p
-          WHERE ${where} AND p.wycofany_od IS NULL
-          ORDER BY p.nr_sort
+          WHERE ${where} AND p.withdrawn_at IS NULL
+          ORDER BY p.building_number_sort
           LIMIT $${params.length}`,
         params,
       );
@@ -89,7 +90,10 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
     },
     async (req, reply) => {
       const { ulicId, simc, nr } = req.query;
-      if (!ulicId && !simc) return reply.code(400).send({ error: 'Podaj ulicId albo simc.' });
+      if (!ulicId && !simc) {
+        throw appError('INVALID_PARAMETER', { required: 'ulicId albo simc' },
+          'Podaj ulicId albo simc.');
+      }
 
       const key = buildingNumberKey(nr);
       const { rows } = await pool.query<{ postal_code: string | null }>(
@@ -115,11 +119,11 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
         );
         return {
           postalCode: fallback[0]?.postal_code ?? null,
-          source: fallback.length ? 'dominujacy_na_ulicy' : 'brak',
-          uwaga: 'Numeru nie ma w rejestrze. Kod jest przyblizeniem - zweryfikuj przed wysylka.',
+          source: fallback.length ? 'dominant_on_street' : 'none',
+          note: 'Numeru nie ma w rejestrze. Kod jest przyblizeniem - zweryfikuj przed wysylka.',
         };
       }
-      return { postalCode: rows[0].postal_code, source: 'rejestr_prg' };
+      return { postalCode: rows[0].postal_code, source: 'prg_registry' };
     },
   );
 
@@ -141,15 +145,19 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
     },
     async (req) => {
       const { lat, lon, maxM = 500 } = req.query;
+      // $1 to punkt, $2 promien. Wczesniej lista parametrow zaczynala sie od
+      // `lat` i `lon`, ktorych zapytanie nie uzywa w ogole - Postgres nie mial
+      // z czego wywiesc ich typu i cala trasa konczyla sie bledem 500
+      // ("could not determine data type of parameter $1").
       const { rows } = await pool.query(
-        `SELECT a.*, ST_Distance(p.geom, $3::geography) AS odleglosc_m
+        `SELECT a.*, ST_Distance(p.geom, $1::geography) AS distance_m
            FROM address.address_point p
            JOIN address.full_address a ON a.id = p.id
           WHERE p.withdrawn_at IS NULL
-            AND ST_DWithin(p.geom, $3::geography, $4)
-          ORDER BY p.geom <-> $3::geography
+            AND ST_DWithin(p.geom, $1::geography, $2)
+          ORDER BY p.geom <-> $1::geography
           LIMIT 5`,
-        [lat, lon, `SRID=4326;POINT(${lon} ${lat})`, maxM],
+        [`SRID=4326;POINT(${lon} ${lat})`, maxM],
       );
       return { results: rows };
     },
@@ -161,19 +169,19 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
     { schema: { params: { type: 'object', properties: { simc: { type: 'string', pattern: '^[0-9]{7}$' } } } } },
     async (req, reply) => {
       const { rows } = await pool.query(
-        `SELECT m.simc, m.name, m.kind, w.name AS rodzaj_nazwa, m.has_streets,
+        `SELECT m.simc, m.name, m.kind, w.name AS kind_name, m.has_streets,
                 m.point_count, m.gmina_terc,
                 g.name AS gmina, pw.name AS powiat, woj.name AS voivodeship,
                 ST_Y(m.centroid::geometry) AS lat, ST_X(m.centroid::geometry) AS lon
            FROM address.locality m
-           LEFT JOIN address.wmrodz w ON w.kod = m.kind
+           LEFT JOIN address.wmrodz w ON w.code = m.kind
            JOIN address.teryt_unit g ON g.terc = m.gmina_terc
            LEFT JOIN address.teryt_unit pw ON pw.terc = g.parent_terc
            LEFT JOIN address.teryt_unit woj ON woj.terc = pw.parent_terc
           WHERE m.simc = $1 AND m.withdrawn_at IS NULL`,
         [req.params.simc],
       );
-      if (rows.length === 0) return reply.code(404).send({ error: 'Nie znaleziono miejscowosci.' });
+      if (rows.length === 0) throw appError('LOCALITY_NOT_FOUND', { simc: req.params.simc });
       return rows[0];
     },
   );

@@ -11,18 +11,24 @@
   },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "typecheck": "tsc --noEmit",
     "etl": "node --experimental-strip-types packages/etl/src/cli.ts",
     "api": "node --experimental-strip-types packages/api/src/server.ts",
     "report": "node docs/build-report.js",
-    "test": "node --experimental-strip-types packages/core/test/api-key.ts && node --experimental-strip-types packages/api/test/pepper.ts && node --experimental-strip-types packages/api/test/auth-cost.ts && node --experimental-strip-types packages/api/test/rate-limit-bypass.ts && node --experimental-strip-types packages/api/test/loader-swap.ts && node --experimental-strip-types packages/api/test/openapi-conformance.ts",
-    "test:db": "node --experimental-strip-types packages/api/test/licensing-schema.ts && node --experimental-strip-types packages/api/test/key-replica.ts && node --experimental-strip-types packages/api/test/authentication.ts && node --experimental-strip-types packages/api/test/key-lifecycle.ts && node --experimental-strip-types packages/api/test/quotas.ts && node --experimental-strip-types packages/api/test/admin.ts",
+    "test": "node --experimental-strip-types packages/core/test/api-key.ts && node --experimental-strip-types packages/core/test/policy.ts && node --experimental-strip-types packages/etl/test/gml-dictionaries.ts && node --experimental-strip-types packages/api/test/pepper.ts && node --experimental-strip-types packages/api/test/auth-cost.ts && node --experimental-strip-types packages/api/test/rate-limit-bypass.ts && node --experimental-strip-types packages/api/test/loader-swap.ts && node --experimental-strip-types packages/api/test/openapi-conformance.ts",
+    "test:db": "node --experimental-strip-types packages/api/test/licensing-schema.ts && node --experimental-strip-types packages/api/test/key-replica.ts && node --experimental-strip-types packages/api/test/authentication.ts && node --experimental-strip-types packages/api/test/key-lifecycle.ts && node --experimental-strip-types packages/api/test/quotas.ts && node --experimental-strip-types packages/api/test/admin.ts && node --experimental-strip-types packages/api/test/endpoint-smoke.ts && node --experimental-strip-types packages/api/test/policy-seam.ts",
     "quality": "node --experimental-strip-types packages/api/test/search-quality.ts",
     "stub": "node --experimental-strip-types packages/api/test/index-stub.ts",
     "bench": "node --experimental-strip-types packages/api/test/bench-http.ts",
-    "keys": "node --experimental-strip-types packages/api/src/keys/cli.ts"
+    "keys": "node --experimental-strip-types packages/api/src/keys/cli.ts",
+    "migrate": "node --experimental-strip-types db/migrate.ts"
   },
   "devDependencies": {
+    "@types/pg": "^8.21.0",
+    "@types/pg-copy-streams": "^1.2.5",
+    "@types/yauzl": "^2.10.3",
     "docx": "^9.7.1",
+    "typescript": "^5.9.3",
     "yaml": "^2.9.0"
   }
 }
