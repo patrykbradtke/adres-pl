@@ -103,7 +103,7 @@ export async function buildServer(
    *
    * Inaczej tryb przejsciowy przestalby znaczyc "zerowa zmiana": kazdy
    * istniejacy zestaw testow i kazde uruchomienie serwisu zaczelyby wymagac
-   * zywej bazy z wgrana migracja 003.
+   * zywej bazy z wgrana migracja 004_licencje.sql.
    */
   if (cfg.apiKeyMode !== 'wylaczony') {
     await rejestr.start();

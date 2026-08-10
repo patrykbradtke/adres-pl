@@ -19,7 +19,8 @@ Plan zadań: [plan-produkcyjny.md](plan-produkcyjny.md).
 | Kod pocztowy | 8 604 962 punkty (99,99%) |
 | Katalog ulic | **325 496** — po scaleniu duplikatów, było 689 328 |
 | Artefakt wyszukiwania | 378 300 pozycji, **54,5 MB**, format **2** |
-| API | `localhost:3000`, 11 endpointów `/v1/*` + 4 operacyjne (`/health`, `/ready`, `/metrics`, `/status`), wersja danych `2026-08-06` |
+| API | `localhost:3000`, 11 endpointów `/v1/*` + 4 operacyjne + **6 administracyjnych** (`/admin/*`, tylko przy ustawionym `ADMIN_TOKEN`), wersja danych `2026-08-06` |
+| Uwierzytelnianie | **klucz API w nagłówku `X-API-Key`, wymagany domyślnie** od etapu 8A. Limit po zweryfikowanym kliencie |
 | Wyszukiwanie | RSS procesu **55 MB**, było 239 MB. Czasy do przemierzenia — patrz niżej |
 | Archiwum PRG | 16 z 16 województw, 1,8 GB, `data/archive/prg/2026-08-06/` |
 | Archiwum TERYT | `data/archive/teryt/2026-08-06/` (TERC/SIMC/ULIC/WMRODZ w CSV) |
@@ -28,7 +29,11 @@ Rejestr zapowiada 8 560 617 punktów na 31.03.2026 — mamy 45 tys. więcej, co
 odpowiada przyrostowi za cztery miesiące. Zrzut jest kompletny.
 
 Pomiar wyszukiwania: `node --experimental-strip-types packages/etl/test/bench-realny.ts`.
-Testy: `npm test` — cztery zestawy, w tym zbiór wzorcowy jakości (28 przypadków).
+Testy: `npm test` — sześć zestawów **hermetycznych** (bez bazy i bez danych,
+budują sobie atrapę artefaktu). `npm run test:baza` — sześć zestawów na żywej
+bazie z migracją `004_licencje.sql`. `npm run jakosc` — zbiór wzorcowy (28
+przypadków), wymaga pełnych danych krajowych; bez nich kończy się jedną linią
+o niespełnionym warunku wstępnym, a nie kilkunastoma rzekomymi regresjami.
 Monitoring: `docker compose --profile monitoring up -d` — Prometheus 9090,
 Grafana 3001 (pulpit bez logowania), Alertmanager 9093.
 
@@ -113,7 +118,7 @@ Przy usterce 10 uwaga projektowa: cache'owane są **tylko zliczenia**.
 Dostępność bazy idzie osobną, tanią sondą `SELECT 1` przy każdym zbieraniu —
 cache'owanie jej maskowałoby awarię, a to sygnał dla alertu z progiem 2 minut.
 
-Testy regresji: `npm test` — cztery zestawy w `packages/api/test/`.
+Testy regresji: `npm test` oraz `npm run test:baza` — po sześć zestawów.
 
 **Cztery kolejne z zbioru wzorcowego (9.08)** — usługa odpowiadała poprawnie
 i szybko, tyle że nie to, co trzeba:
