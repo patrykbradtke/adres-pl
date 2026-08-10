@@ -69,10 +69,67 @@ export interface AuthDeps {
   onWynik?: (wynik: string) => void;
 }
 
-/** Powody odmowy. Wartosci trafiaja do metryk, wiec maja stala kardynalnosc. */
+/**
+ * Powody odmowy. Wartosci trafiaja do metryk jako etykiety, wiec sa po polsku
+ * (tak jak reszta wyjscia /metrics) i maja DOMKNIETY zbior - inaczej
+ * kardynalnosc szeregow czasowych rosla by bez ograniczenia.
+ */
 type Wynik =
-  | 'ok' | 'brak_klucza' | 'nieprawidlowy' | 'wygasly'
+  | 'ok' | 'brak_klucza' | 'nieprawidlowy' | 'niewazny_jeszcze' | 'wygasly'
   | 'uniewazniony' | 'zawieszony' | 'limit_prob';
+
+/** Stany klucza, ktore konczy sie odmowa po trafieniu w wiersz rejestru. */
+type StanOdmowy = 'niewazny_jeszcze' | 'wygasly' | 'uniewazniony' | 'zawieszony';
+
+/**
+ * Kod i komunikat w JEDNYM miejscu, zamiast rozproszonych po wywolaniach.
+ *
+ * Chroniona wlasnoscia jest to, ze WSZYSTKIE odpowiedzi 401 maja identyczne
+ * cialo - rozne komunikaty zamienialyby odpowiedz w wyrocznie dla zgadujacego.
+ * Przy piaciu wywolaniach z literalami w miejscu wywolania sprawdzenie tego
+ * wymagalo porownywania ciagow rozsypanych po pliku.
+ *
+ * Kody 403 sa juz KONKRETNE, bo padaja po udowodnieniu posiadania calego
+ * sekretu. To nie jest wyciek - znajomosc klucza to juz posiadanie - a
+ * integrator dowiaduje sie, co zrobic, zamiast zgadywac.
+ */
+const ODMOWY: Record<StanOdmowy, { kod: 403; komunikat: string }> = {
+  niewazny_jeszcze: { kod: 403, komunikat: 'Klucz API nie jest jeszcze wazny.' },
+  wygasly: { kod: 403, komunikat: 'Klucz API wygasl.' },
+  uniewazniony: { kod: 403, komunikat: 'Klucz API zostal uniewazniony.' },
+  zawieszony: { kod: 403, komunikat: 'Konto klienta jest zawieszone.' },
+};
+
+/**
+ * Czysta ocena stanu klucza. Zwraca null, gdy klucz jest czynny.
+ *
+ * Kolejnosc ma znaczenie dla komunikatu, ktory zobaczy integrator:
+ * uniewaznienie jest decyzja operatora i wazniejsza informacja niz to,
+ * ze klucz przy okazji zdazyl wygasnac.
+ */
+function ocenStan(wpis: KeyEntry, teraz: number): StanOdmowy | null {
+  if (wpis.uniewaznionyOd && wpis.uniewaznionyOd.getTime() <= teraz) return 'uniewazniony';
+  if (wpis.zawieszonyOd && wpis.zawieszonyOd.getTime() <= teraz) return 'zawieszony';
+  if (wpis.waznyDo && wpis.waznyDo.getTime() <= teraz) return 'wygasly';
+  // Klucz wystawiony "od jutra" nie moze dzialac dzis. Kolumna wazny_od
+  // istnieje od migracji 003 i nie byla dotad sprawdzana.
+  if (wpis.waznyOd.getTime() > teraz) return 'niewazny_jeszcze';
+  return null;
+}
+
+/**
+ * Wyszukanie wpisu po skrocie liczonym KAZDA znana wersja pieprza - warunek
+ * rotacji pieprza bez przerwy w dzialaniu. Zero dotkniecia bazy, zawsze.
+ */
+function znajdzWpis(
+  pieprze: Peppers, rejestr: KeyRegistry, kluczJawny: string,
+): KeyEntry | undefined {
+  for (const { hex } of pieprze.hashAll(kluczJawny)) {
+    const wpis = rejestr.znajdz(hex);
+    if (wpis) return wpis;
+  }
+  return undefined;
+}
 
 /**
  * Dlawienie logu odrzucen.
@@ -181,30 +238,30 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       return odmow(req, reply, 401, 'nieprawidlowy', 'Klucz API nieprawidlowy.');
     }
 
-    // Skrot liczony KAZDA znana wersja pieprza - warunek rotacji bez przerwy.
-    // Zero dotkniecia bazy, zawsze.
-    let wpis: KeyEntry | undefined;
-    for (const { hex } of pieprze.hashAll(surowy)) {
-      wpis = rejestr.znajdz(hex);
-      if (wpis) break;
-    }
+    const wpis = znajdzWpis(pieprze, rejestr, surowy);
     if (!wpis) {
       return odmow(req, reply, 401, 'nieprawidlowy', 'Klucz API nieprawidlowy.');
     }
 
-    // Ponizsze kody sa KONKRETNE, bo padaja dopiero po trafieniu w wiersz
-    // rejestru, czyli po udowodnieniu posiadania calego sekretu. To nie jest
-    // wyciek - znajomosc klucza to juz posiadanie - a integrator dowiaduje sie,
-    // co ma zrobic zamiast zgadywac.
-    const teraz = Date.now();
-    if (wpis.uniewaznionyOd && wpis.uniewaznionyOd.getTime() <= teraz) {
-      return odmow(req, reply, 403, 'uniewazniony', 'Klucz API zostal uniewazniony.', wpis.prefiks);
+    /**
+     * Srodowisko z klucza JAWNEGO musi zgadzac sie z zapisanym w rejestrze.
+     *
+     * Bez tej kontroli prefiks adr_test_ i adr_live_ jest wylacznie ozdoba:
+     * skrot liczymy z calego ciagu, wiec klucz testowy uwierzytelnialby sie
+     * na instalacji produkcyjnej dokladnie tak samo jak produkcyjny, a caly
+     * podzial na srodowiska bylby pozorny.
+     *
+     * Odpowiedz jest NIEODROZNIALNA od "klucz nieznany" - to jest wciaz etap
+     * przed potwierdzeniem, ze klucz nalezy do tej instalacji.
+     */
+    if (rozebrany.environment !== wpis.srodowisko) {
+      return odmow(req, reply, 401, 'nieprawidlowy', 'Klucz API nieprawidlowy.');
     }
-    if (wpis.waznyDo && wpis.waznyDo.getTime() <= teraz) {
-      return odmow(req, reply, 403, 'wygasly', 'Klucz API wygasl.', wpis.prefiks);
-    }
-    if (wpis.zawieszonyOd && wpis.zawieszonyOd.getTime() <= teraz) {
-      return odmow(req, reply, 403, 'zawieszony', 'Konto klienta jest zawieszone.', wpis.prefiks);
+
+    const stan = ocenStan(wpis, Date.now());
+    if (stan) {
+      const { kod, komunikat } = ODMOWY[stan];
+      return odmow(req, reply, kod, stan, komunikat, wpis.prefiks);
     }
 
     deps.onWynik?.('ok');

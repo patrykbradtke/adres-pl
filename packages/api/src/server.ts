@@ -281,7 +281,20 @@ export async function buildServer(
   });
 
   app.get('/ready', async (_req, reply) => {
-    if (!holder.ready) return reply.code(503).send({ ready: false });
+    if (!holder.ready) return reply.code(503).send({ ready: false, powod: 'indeks niezaladowany' });
+
+    /**
+     * Instancja z niezaladowanym rejestrem odpowiada 401 na CALYM ruchu /v1,
+     * bo zaden klucz nie da sie odnalezc. Bez tego warunku pod zostawal
+     * w rotacji i cicho odrzucal wszystkich klientow, a sonda meldowala
+     * gotowosc - stan gorszy niz jawna niedostepnosc, bo niewidoczny.
+     *
+     * Dotyczy wylacznie trybu, w ktorym rejestr w ogole rusza.
+     */
+    if (cfg.apiKeyMode !== 'wylaczony' && !rejestr.zaladowana) {
+      return reply.code(503).send({ ready: false, powod: 'rejestr kluczy niezaladowany' });
+    }
+
     try {
       await pool.query('SELECT 1');
       return { ready: true };

@@ -91,7 +91,9 @@ export function registerMetricsRoutes(
   pool: pg.Pool,
   holder: IndexHolder,
   metrics: Metrics,
-  rejestr?: { rozmiar: number; wiekMs: number; zaladowana: boolean; liczbaPowiadomien: number },
+  rejestr?: {
+    rozmiar: number; wiekMs: number; zaladowana: boolean; liczbaPowiadomien: number;
+  },
 ): void {
   /**
    * Pomiar czasu dla zapytan /v1/*.
@@ -284,6 +286,12 @@ export function registerMetricsRoutes(
       lines.push('# HELP adres_klucze_powiadomienia_total Powiadomienia NOTIFY o zmianie klucza.');
       lines.push('# TYPE adres_klucze_powiadomienia_total counter');
       lines.push(`adres_klucze_powiadomienia_total ${rejestr.liczbaPowiadomien}`);
+      // Instancja z niezaladowanym rejestrem odrzuca CALY ruch /v1 kodem 401.
+      // Bez tej metryki jedynym sygnalem byloby /ready, czyli fakt wypadniecia
+      // poda z rotacji - widoczny, ale nie mowiacy dlaczego.
+      lines.push('# HELP adres_klucze_zaladowany Czy replika rejestru kluczy jest zaladowana.');
+      lines.push('# TYPE adres_klucze_zaladowany gauge');
+      lines.push(`adres_klucze_zaladowany ${rejestr.zaladowana ? 1 : 0}`);
     }
 
     lines.push(...metrics.render());

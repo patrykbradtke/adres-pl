@@ -63,16 +63,16 @@ interface WystawionyKlucz { jawny: string; id: number }
 // tekstowy i konczy sie bledem parsowania daty - parametr nie jest kodem.
 async function wystawKlucz(
   klientId: number,
-  opcje: { waznyDo?: Date; uniewaznionyOd?: Date; limitKlucza?: number } = {},
+  opcje: { waznyOd?: Date; waznyDo?: Date; uniewaznionyOd?: Date; limitKlucza?: number } = {},
 ): Promise<WystawionyKlucz> {
   const jawny = generateApiKey('live');
   const hash = Buffer.from(pieprze.hash(jawny).hex, 'hex');
   const { rows: [r] } = await db.query<{ id: string }>(
     `INSERT INTO licencje.klucz_api
-       (klient_id, srodowisko, prefiks, hash, wazny_do, uniewazniony_od, limit_zapytan_min)
-     VALUES ($1, 'live', 'adr_live_', $2, $3, $4, $5) RETURNING id`,
-    [klientId, hash, opcje.waznyDo ?? null, opcje.uniewaznionyOd ?? null,
-      opcje.limitKlucza ?? null]);
+       (klient_id, srodowisko, prefiks, hash, wazny_od, wazny_do, uniewazniony_od, limit_zapytan_min)
+     VALUES ($1, 'live', 'adr_live_', $2, coalesce($3, now()), $4, $5, $6) RETURNING id`,
+    [klientId, hash, opcje.waznyOd ?? null, opcje.waznyDo ?? null,
+      opcje.uniewaznionyOd ?? null, opcje.limitKlucza ?? null]);
   return { jawny, id: Number(r.id) };
 }
 
@@ -170,6 +170,38 @@ zglos(
   zawieszony.statusCode === 403 && zawieszony.json().code === 'ZAWIESZONY',
   `wygasly/uniewazniony/zawieszony => ${wygasly.json().code}, ` +
   `${uniewazniony.json().code}, ${zawieszony.json().code}`);
+
+// --- 7b. Klucz jeszcze niewazny i klucz z innego srodowiska ----------
+//
+// Obie kontrole powstaly po przegladzie kodu: kolumna wazny_od istniala od
+// migracji 003 i NIE byla sprawdzana (klucz wystawiony "od jutra" dzialal
+// od razu), a prefiks adr_test_ wobec adr_live_ byl wylacznie ozdoba -
+// skrot liczymy z calego ciagu, wiec klucz testowy uwierzytelnial sie na
+// instalacji produkcyjnej dokladnie tak samo jak produkcyjny.
+// Klucze zakladane PO starcie serwera musza najpierw dotrzec do repliki
+// (kanalem NOTIFY, typowo kilkadziesiat ms). Bez tego oczekiwania kontrola
+// mierzylaby nie stan klucza, tylko szybkosc propagacji.
+const doRepliki = () => new Promise((r) => setTimeout(r, 900));
+
+const kluczPrzyszly = await wystawKlucz(klientA, {
+  waznyOd: new Date(Date.now() + 86_400_000),
+});
+await doRepliki();
+const przyszly = await zKluczem(kluczPrzyszly.jawny);
+zglos(przyszly.statusCode === 403 && przyszly.json().code === 'NIEWAZNY_JESZCZE',
+  `klucz wazny od jutra => ${przyszly.statusCode} ${przyszly.json().code}`);
+
+// Klucz zapisany w rejestrze jako 'live', ale przedstawiony z prefiksem test:
+// skrot jest liczony z calego ciagu, wiec musi to byc INNY ciag - budujemy go,
+// podmieniajac srodowisko w rejestrze, nie w kluczu.
+const kluczTestowy = await wystawKlucz(klientA);
+await db.query(`UPDATE licencje.klucz_api SET srodowisko = 'test' WHERE id = $1`,
+  [kluczTestowy.id]);
+await doRepliki();
+const zleSrodowisko = await zKluczem(kluczTestowy.jawny);
+zglos(zleSrodowisko.statusCode === 401,
+  `klucz adr_live_ zapisany jako 'test' => ${zleSrodowisko.statusCode} ` +
+  '(nieodroznialne od klucza nieznanego)');
 
 // --- 8. Sondy i metryki zostaja otwarte ------------------------------
 //

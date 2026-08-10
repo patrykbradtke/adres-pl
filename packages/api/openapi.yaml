@@ -502,7 +502,7 @@ components:
             required: [error, code]
             properties:
               error: { type: string, example: 'Klucz API wygasl.' }
-              code: { type: string, enum: [WYGASLY, UNIEWAZNIONY, ZAWIESZONY] }
+              code: { type: string, enum: [NIEWAZNY_JESZCZE, WYGASLY, UNIEWAZNIONY, ZAWIESZONY] }
     BladWalidacji:
       description: Parametry nie przeszły walidacji schematu.
       content:
