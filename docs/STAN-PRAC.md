@@ -17,12 +17,13 @@ Plan zadań: [plan-produkcyjny.md](plan-produkcyjny.md).
 | Punkty adresowe | **8 605 682** opublikowane, **16 z 16 województw** |
 | Powiązanie z ulicami | 5 532 383 punkty (64,3%) |
 | Kod pocztowy | 8 604 962 punkty (99,99%) |
-| Katalog ulic | **325 496** — po scaleniu duplikatów, było 689 328 |
-| Artefakt wyszukiwania | 378 300 pozycji, **54,5 MB**, format **2** |
+| Katalog ulic | **325 595** — po scaleniu duplikatów, było 689 328 |
+| Artefakt wyszukiwania | **378 399** pozycji (325 595 ulic + 52 804 miejscowości), **54,5 MB**, format **2** |
 | API | `localhost:3000`, 11 endpointów `/v1/*` + 4 operacyjne (`/health`, `/ready`, `/metrics`, `/status`), wersja danych `2026-08-06` |
 | Wyszukiwanie | RSS procesu **55 MB**, było 239 MB. Czasy do przemierzenia — patrz niżej |
 | Archiwum PRG | 16 z 16 województw, 1,8 GB, `data/archive/prg/2026-08-06/` |
 | Archiwum TERYT | `data/archive/teryt/2026-08-06/` (TERC/SIMC/ULIC/WMRODZ w CSV) |
+| Kopia poza maszyną | **jest** od 9.08 wieczorem — `serwer2653901.hosting-home.pl:~/kopie/adres-pl/`, sumy sprawdzone po stronie serwera. Szczegóły w sekcji 8 |
 
 Rejestr zapowiada 8 560 617 punktów na 31.03.2026 — mamy 45 tys. więcej, co
 odpowiada przyrostowi za cztery miesiące. Zrzut jest kompletny.
@@ -32,10 +33,28 @@ Testy: `npm test` — cztery zestawy, w tym zbiór wzorcowy jakości (28 przypad
 Monitoring: `docker compose --profile monitoring up -d` — Prometheus 9090,
 Grafana 3001 (pulpit bez logowania), Alertmanager 9093.
 
-**Czasy odpowiedzi wymagają ponownego pomiaru.** Wartości p50 1,71 ms pochodzą
-sprzed scalenia ulic i zmiany rankingu. Późniejsze próby robiono przy obciążeniu
-maszyny 50 przy ośmiu rdzeniach, więc są nieporównywalne. Czysty pomiar jest
-częścią nocnego przebiegu.
+**Czysty pomiar czasów odpowiedzi jest na tej maszynie nieosiągalny — i to jest
+wynik, nie porażka.** Nocny przebieg z 10.08 miał go zdjąć. Nie zdjął, bo
+maszyna nigdy nie jest spokojna: `com.docker.backend` chodzi na **546% CPU**
+przy ośmiu kontenerach projektu. Zmierzone 10.08 o 06:55, przy bezczynnej
+sesji użytkownika:
+
+| kontener | CPU | używany przez kod |
+|---|---|---|
+| grafana | 31,4% | tak |
+| db | 22,6% | tak |
+| prometheus | 9,7% | tak |
+| **redis** | **9,1%** | **nie — zero odwołań** |
+| alertmanager | 0,7% | tak |
+| **minio** | 0,1%, 85 MB | **nie — jedyne wystąpienie to komentarz w `loader.ts`** |
+
+Rozrzut p99 między kolejnymi przebiegami tego samego pomiaru: **33, 41, 49,
+66, 99, 129 ms**. Przy takim rozrzucie każda pojedyncza liczba jest bez wartości.
+Wniosek do zadania 2.10: **próg regresji wydajności nie ma sensu bez
+kontrolowanego środowiska pomiaru** — inaczej będzie odpalał się losowo.
+Zadanie do dopisania: wyłączyć `redis` i `minio` z `docker-compose.yml` albo
+przenieść je do osobnego profilu, bo dziś kosztują ~9% CPU i 85 MB, nie dając
+niczego.
 
 **Uwaga o kontenerze API.** `docker compose restart api` NIE przebudowuje
 obrazu. Po zmianie w `packages/api` trzeba `docker compose build api`, inaczej
@@ -130,7 +149,8 @@ przezroczyste. Etykiet nie skracamy, bo „Aleje Jerozolimskie" to nazwa
 zwyczajowa. W warstwie danych problem zostaje: pozycje 6.22 i 6.23 planu,
 z pułapką migracyjną wokół `publikuj_zrzut`.
 
-Zbiór wzorcowy: 24 przypadki, **zero odstępstw**. Opisuje odpowiedź *poprawną*,
+Zbiór wzorcowy: 28 przypadków, **zero odstępstw** (sprawdzone 9.08 o 21:06).
+Opisuje odpowiedź *poprawną*,
 nie bieżącą, a po naprawie sam upomina się o zdjęcie znacznika odstępstwa.
 
 Poza tym: naprawiony niekompletny `package-lock.json`, dodany `.dockerignore`,
@@ -163,12 +183,21 @@ błędy wydajnościowe — uznać za nieaktualną.
 nałożonych indeksach (`resolve_refs` + wiązanie z ulicami wewnątrz publikacji).
 303 GB zapisów przy zbiorze 12 GB. To one, nie parsowanie, wyznaczają czas cyklu.
 
-**Wyszukiwanie na pełnym kraju** (`bench-realny.ts`, po rozgrzewce):
+**Wyszukiwanie na pełnym kraju** (po rozgrzewce):
 
-| metoda | p50 | p95 | p99 |
-|---|---|---|---|
-| silnik bezpośrednio | 0,81 ms | 4,63 ms | 9,38 ms |
-| pełna ścieżka HTTP | **1,71 ms** | 9,41 ms | 27,94 ms |
+| metoda | p50 | p95 | p99 | skąd |
+|---|---|---|---|---|
+| silnik bezpośrednio | 0,81 ms | 4,63 ms | 9,38 ms | `bench-realny.ts` |
+| pełna ścieżka HTTP | **1,71 ms** | 9,41 ms | 27,94 ms | **pomiar doraźny, nie do odtworzenia** |
+
+**Sprostowanie (etap 8A, 9.08).** Wiersz „pełna ścieżka HTTP" był tu i w
+`deploy/alerty.yaml` przypisany skryptowi `bench-realny.ts`. Ten skrypt
+**nie może** tych liczb dać: importuje `SearchIndex` i mierzy `idx.search()`
+bezpośrednio — bez routingu, bez hooków, bez serializacji (`grep fastify`
+nie daje w nim ani jednego trafienia). Liczby pochodzą z pomiaru doraźnego,
+którego w repozytorium nie ma, więc **traktować je jako orientacyjne**.
+Przyrząd mierzący faktyczną ścieżkę HTTP powstał w etapie 8A jako
+`packages/api/test/bench-http.ts` (`npm run bench`) — patrz niżej.
 
 Wyniki są **lepsze** niż wcześniejsze ~4 ms mimo dwukrotnie większego zbioru.
 Przyczyna jest metodyczna: pierwsze zapytanie po starcie procesu daje 82 ms,
@@ -280,43 +309,126 @@ aż do 8.08.2026; teraz jest z dokumentem zsynchronizowany.
 
 ## 8. Od czego zacząć w nowej sesji
 
-### PIERWSZA RZECZ: odczytaj wynik nocnego przebiegu
+### Nocny przebieg z 10.08.2026 — WYKONANY, wynik poniżej
 
-Uruchomiony 9.08 o 02:00, odłączony od sesji (`nohup`). Log:
+Cykl 02:00 → 05:57, **3 h 56 min 48 s**, status `ok` w `adres.etl_run` (id 3).
+Progi domyślne, bez `SANITY_MAX_DELTA_FRAC` — przeszły bez obchodzenia.
+Log: `nocny.log` w katalogu roboczym sesji z 9.08.
 
-```bash
-cat /private/tmp/claude-501/-Users-pro-adres-pl/20967b49-95e7-4b0a-8486-cd26258ce1ef/scratchpad/nocny.log
+**Wszystkie trzy kryteria zaliczone:**
+
+```
+OK   DUPLIKATOW: 0 (ma byc 0)
+OK   PRZEDROSTKI: 3 -> 3 (bez przyrostu)
+OK   OSIEROCONYCH ulic_id: 0 (ma byc 0)
 ```
 
-Sprawdza dwie rzeczy, których nie dało się sprawdzić w dzień:
+Publikacja **nie odtwarza duplikatów** po zmianie klucza na `sym_ul` — to była
+główna niewiadoma i jest zamknięta. Kontrole jakości: wszystkie pięć `[OK]`.
 
-- **czy publikacja odtwarza duplikaty katalogu ulic.** Fragment ścieżki
-  przetestowano 9.08 z wycofaniem — wyszło zero duplikatów — ale pełny cykl
-  nie przeszedł jeszcze ani razu po zmianie klucza z nazwy na `sym_ul`.
-  W logu szukać wierszy „DUPLIKATOW (ma być 0)" i „nazw z przedrostkiem".
-- **czysty pomiar wydajności.** Wszystkie pomiary z popołudnia 9.08 robiono
-  przy obciążeniu maszyny 50 przy ośmiu rdzeniach i są bezwartościowe.
+Trzy nazwy z przedrostkiem **nie są usterką 11** — wszystkie mają wypełnioną
+`cecha`: „Aleja Klonów" (`os.`, 44 punkty) to nazwa poprawna, osiedle tak się
+nazywa; „Plac Obrońców Warszawy" (`pl.`, 3 punkty) i „Plac Słowiański"
+(`skwer`, 0 punktów) to resztka po 6.22. Usterka 11 dawała 20 586 takich nazw.
+Skrypt porównuje **przyrost**, nie wartość bezwzględną — wersja 1 wypisałaby
+tu „3" wobec oczekiwanego zera i wyglądałoby to na regres publikacji.
 
-Cykl idzie na **progach domyślnych** — bez `SANITY_MAX_DELTA_FRAC`. To też jest
-przedmiotem sprawdzenia: po pełnym załadunku progi mają działać bez obchodzenia.
+**Zmiany po przebiegu:** ulice 325 496 → **325 595** (+99), punkty **bez zmian**
+(8 605 682), artefakt 378 300 → **378 399** pozycji, 54,5 MB. `etl_run.delta`
+to same zera — cykl na tym samym archiwum `2026-08-06` nie wnosi nic nowego,
+co jest zachowaniem poprawnym.
 
-Gdyby log był pusty albo urwany: maszyna mogła się uśpić (blokada `caffeinate`
-wygasa 10.08 o 06:00) albo Docker nie działał. Przebieg da się powtórzyć —
-skrypt jest w tym samym katalogu, `nocny.sh`.
+**To jednak oznacza rzecz istotną dla etapów 2.8 i 2.13: cykl, który nie
+publikuje ANI JEDNEJ zmiany, kosztuje prawie cztery godziny.** Koszt jest
+stały, nie proporcjonalny do liczby zmian. Z rozbicia widać tylko dwie
+pozycje: odtwarzanie indeksów stagingu **2 671,7 s (44,5 min)** i budowa
+artefaktu 50,2 s; pozostałe ~3 h 11 min rozkłada się na ładowanie,
+`resolve_refs()` i transakcję publikującą — **bez rozbicia, bo tabeli etapów
+nie ma** (to właśnie zadanie 2.1).
+
+Zysku z poprawki 8 (`resolve_refs` przeniesione do okna ładowania masowego)
+**nie da się z tego przebiegu wyliczyć**: poprzedni pomiar 3 h 25 min dotyczył
+pierwszej publikacji z 6,6 mln wstawień, ten — publikacji zerowej. To dwa różne
+obciążenia i porównywanie ich wprost byłoby błędem.
 
 ### Kolejność dalszych prac
 
-1. **Etap 1.4 i 1.6 — archiwum i kopie zapasowe poza maszynę.** Odkładane
-   świadomie przez całą sesję, ale termin jest twardy: zrzut w strukturze
-   sprzed **1.09.2026** istnieje w jednej kopii na dysku roboczym i po tej
-   dacie jest nieodtwarzalny z żadnego źródła. Zostały trzy tygodnie.
-2. **Etap 2.13 i 2.8** — dwie pełne aktualizacje 8,6 mln wierszy przy
-   nałożonych indeksach, 303 GB zapisów przy zbiorze 12 GB. Nocny przebieg
-   pokaże, ile dała poprawka `resolve_refs`.
+1. **Zadanie 1.7 — jednorazowe odtworzenie z kopii offsite.** Najważniejsza
+   pozycja i jedyna, która zamienia dzisiejsze zabezpieczenie z domniemanego
+   na potwierdzone. Sumy zgadzają się 29 na 29, co dowodzi, że pliki dotarły
+   całe — **nie dowodzi, że da się z nich postawić bazę**. Zakres i pułapki
+   w planie. Dopiero jej wynik zamyka 1.4.
+2. **Zadanie 0.5 — higiena sekretów na `master`.** PILNE **przed** scaleniem
+   gałęzi `etap-8a`. Sprawdzone 10.08: `master` nie ma ani `.env`
+   w `.gitignore`, ani wpisu `env` w `.dockerignore`, ani `ON_ERROR_STOP=1`.
+   Dziś nic nie wycieka, bo pliku `.env` nie ma — ale etap 8A wymaga trzymania
+   w nim pieprza HMAC, więc luka otworzy się dokładnie przy scaleniu. Poprawki
+   gotowe na `etap-8a` (`036ef05`), chodzi o przeniesienie.
+3. **Etap 1.6** — cykliczność i retencja kopii. Termin z 1.09.2026 jest
+   **zdjęty**, więc to już praca porządkowa, nie ratunkowa.
+4. **Etap 2.13, 2.8 i nowe 2.14** — pomiar z 10.08 pokazał, że cykl bez ani
+   jednej zmiany trwa 3 h 57 min, czyli koszt jest stały. **2.14 jest
+   warunkiem wstępnym dla 2.10**: bez kontrolowanego środowiska pomiaru próg
+   regresji wydajności będzie odpalał się losowo.
 3. **Etap 8A — uwierzytelnianie.** Prowadzone w osobnej sesji na gałęzi
    `etap-8a` w drzewie `/Users/pro/adres-pl-8a`, własna baza na porcie 5433.
-   Sprawdzić stan przed planowaniem czegokolwiek w `packages/api`.
+   **Stan na 9.08 wieczorem — pięć commitów, wszystkie z odwróceniami
+   wykonanymi, nie założonymi:**
+
+   | zadanie | co powstało |
+   |---|---|
+   | 8.0 | hermetyczny zbiór testów (atrapa indeksu budowana tym samym `buildIndex`, co ETL) + higiena sekretów |
+   | 8.2 | migracja `003_licencje.sql` — osobny schemat, zero kluczy obcych w stronę `adres` |
+   | 8.3 | format klucza `adr_(live\|test)_<32>_<6>` w `core`, pieprz HMAC w `api` |
+   | 8.4a | replika rejestru kluczy w pamięci procesu (NOTIFY + odpytywanie) |
+   | 8.8a | przyrząd mierzący **faktyczną** ścieżkę HTTP i jego czułość |
+
+   W toku, niezacommitowane: `packages/api/src/keys/auth.ts` — hook
+   uwierzytelniający (8.4b). **Nie planować niczego w `packages/api` bez
+   sprawdzenia tej gałęzi**, bo dotyka `server.ts` i `routes/metrics.ts`.
+
+   Dwa ustalenia stamtąd dotyczą całego projektu, nie tylko etapu 8A:
+
+   - **`.env` nie był ignorowany przez git ani przez `.dockerignore`.**
+     Jeden `git add -A` wystarczyłby, żeby poświadczenia weszły do historii,
+     a `COPY . .` w Dockerfile wpiekłby je w warstwę obrazu. Naprawione tam;
+     sprawdzić, czy `master` też to ma.
+   - **`psql` bez `-v ON_ERROR_STOP=1` kończy się kodem 0 mimo błędów
+     w środku pliku.** Kryterium „migracja przeszła" było więc spełnialne
+     przez pomyłkę. Przełącznik dopisany do 001 i 002 w README oraz `e2e.sh`.
 4. Dalej wg `plan-produkcyjny.md`.
+
+### Kopia poza maszyną
+
+Wykonana 9.08.2026 wieczorem. **Zamyka zadanie 8.16** i zdejmuje termin
+1.09.2026 — stara struktura GML nie istnieje już w jednym egzemplarzu.
+
+| rzecz | wartość |
+|---|---|
+| host | `serwer2653901.hosting-home.pl`, port **22222**, SFTP/rsync po SSH |
+| katalog | `~/kopie/adres-pl/` — **poza `public_html`**, nic tego nie serwuje po HTTP |
+| pojemność konta | ~100 GB, zajęte ~3,9 GB |
+| dostęp | klucz `id_ed25519`; odcisk hosta ECDSA `SHA256:9nZb3HFtO4AwhU2Ujz3SQYpXRG3LHmI0h5Z4WL5De+A` |
+
+Zawartość: `archive/prg/2026-08-06/` (16 archiwów, 1,7 GB),
+`archive/teryt/2026-08-06/` (33 MB), `backup/` (oba zrzuty, 2,0 GB),
+`index/` (artefakt, 55 MB) oraz `SHA256SUMS.txt`.
+
+**Weryfikacja jest częścią kopii, nie dodatkiem.** Sumy policzono przed
+wysyłką i sprawdzono `sha256sum -c` **po stronie serwera** — czyli
+potwierdzono integralność po przesłaniu, a nie sam fakt skopiowania. Do tego
+kontrola, czy w każdym z 16 archiwów jest plik `.xml` ze starą strukturą; bez
+niej kopia mogłaby zawierać wyłącznie `NOWE_*.gml` i cały wysiłek byłby pusty.
+Ponowne sprawdzenie w dowolnym momencie:
+
+```bash
+ssh -p 22222 serwer2653901@serwer2653901.hosting-home.pl \
+  'cd kopie/adres-pl && sha256sum -c SHA256SUMS.txt | grep -v ": OK$"'
+```
+
+Czego ta kopia **nie** załatwia: jest jednorazowa i ręczna. Brak harmonogramu,
+retencji, blokady zapisu na zamrożonym archiwum (8.20) i **testu odtworzenia**
+(8.23). Do etapu 1.6 i 8C to nadal jest punkt wyjścia, nie zamknięcie.
 
 ### Odtworzenie bazy
 
@@ -328,6 +440,12 @@ docker compose exec -T db pg_restore -U adres -d adres --clean --if-exists \
 
 Uwaga: migracja `003_scalenie_ulic.sql` wymaga wcześniejszego założenia indeksu
 `ix_pa_ulic_id` — sama to sprawdza i przerywa z komunikatem, jeśli go brak.
+
+**Zrzut otwiera wyłącznie `pg_restore` z kontenera.** Lokalny z libpq to wersja
+**16.2**, a zrzut powstał pod **PostgreSQL 17.5** — próba lokalna kończy się
+`unsupported version (1.16) in file header`. To ograniczenie narzędzia, nie
+uszkodzenie pliku. Polecenie wyżej jest poprawne, bo idzie przez kontener;
+nie zamieniać go na `pg_restore` z PATH.
 
 Ustalenia dotyczące technologii (uzasadnienie w planie): serwis danych zostaje
 na Fastify bez ORM; NestJS i ewentualnie Drizzle rozważyć wyłącznie dla

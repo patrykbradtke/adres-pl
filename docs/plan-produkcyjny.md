@@ -21,6 +21,22 @@ Katalog projektu nie jest śledzony przez git. Awaria dysku = utrata pracy.
 | 0.2 | Commit stanu z opisem 5 napraw: parser UTF-8, wiązanie referencji, duplikaty, zapytanie z `OR`, ładowanie TERYT |
 | 0.3 | Zdalne repozytorium + push |
 | 0.4 | `.gitignore` na `data/` — 1,8 GB archiwów nie należy do repozytorium |
+| 0.5 | **PILNE przed scaleniem gałęzi `etap-8a`:** przenieść na `master` higienę sekretów — sprawdzone 10.08.2026, `master` **nie ma żadnej** z tych poprawek |
+
+**Uwaga do 0.5.** Na `master` `git check-ignore .env` kończy się kodem 1,
+`.dockerignore` nie ma wpisu `env`, a `README.md` i `scripts/e2e.sh` nie
+używają `ON_ERROR_STOP=1`. Dziś nic nie wycieka, bo pliku `.env` po prostu nie
+ma — ale etap 8A **wymaga** trzymania w nim pieprza HMAC, więc luka otworzy się
+w chwili scalenia gałęzi. Skutki obu braków:
+
+- jeden `git add -A` wprowadza pieprz do historii repozytorium, a `COPY . .`
+  w `Dockerfile` wpieka go w warstwę obrazu wysyłaną do rejestru;
+- `psql` bez `ON_ERROR_STOP=1` kończy się kodem 0 mimo błędów w środku pliku,
+  więc `set -e` nie ma czego złapać i kryterium „migracja przeszła" jest
+  spełnialne przez pomyłkę.
+
+Poprawki są gotowe na `etap-8a` (commit `036ef05`) — chodzi o przeniesienie,
+nie o napisanie ich od nowa.
 
 ---
 
@@ -32,15 +48,40 @@ Cel: komplet danych i **niezależność od źródła zewnętrznego**.
 |---|---|---|---|
 | 1.1 | ~~Załadowanie 12 pozostałych województw~~ **WYKONANE 9.08.2026** — komplet 16, ~17 min przy `--rownolegle 4` | — | — |
 | 1.2 | ~~Publikacja pełnego kraju~~ **WYKONANE 9.08.2026** — 8 605 682 punkty, o 45 tys. więcej niż zapowiadane 8,56 mln (przyrost za 4 miesiące) | — | — |
-| 1.3 | ~~Artefakt na pełnym zbiorze~~ **WYKONANE 9.08.2026** — 791 211 pozycji, 109,3 MB, RSS procesu 239 MB | — | — |
-| 1.4 | **Archiwum poza maszyną** — wysyłka archiwów i artefaktów do magazynu obiektowego | 1 d | 1.2 |
+| 1.3 | ~~Artefakt na pełnym zbiorze~~ **WYKONANE 9.08.2026** — **378 300 pozycji, 54,5 MB, RSS procesu 55 MB**. Wcześniej podawane 791 211 / 109,3 MB / 239 MB dotyczyło stanu sprzed scalenia ulic (6.19, 6.21) i jest nieaktualne | — | — |
+| 1.4 | **Archiwum poza maszyną** — wysyłka archiwów i artefaktów do magazynu obiektowego | 0,5 d (było 1 d) | 1.2 |
 | 1.5 | Odtworzenie z archiwum bez internetu (`cycle --z-archiwum`) — przećwiczyć | 0,5 d | 1.4 |
 | 1.6 | Kopie zapasowe bazy: harmonogram, retencja, test odtworzenia | 1 d | 1.2 |
+| 1.7 | **Jednorazowe odtworzenie z kopii offsite — dowodowe** | 0,5 d | 1.4 |
 
-**Uwaga do 1.4:** `docker-compose.yml` deklaruje MinIO, ale nic z niego nie
-korzysta — archiwum leży wyłącznie na dysku lokalnym. To dokładnie ten
-scenariusz, przed którym miał chronić „poziom 4” odporności. Dopóki kopia nie
-jest poza maszyną, zabezpieczenia nie ma.
+**Uwaga do 1.4 — zaktualizowana 9.08.2026 wieczorem.** Kopia poza maszyną
+**już istnieje**: komplet archiwów PRG i TERYT, oba zrzuty bazy i artefakt
+leżą na `serwer2653901.hosting-home.pl` w `~/kopie/adres-pl/` (poza katalogiem
+serwowanym po HTTP), z sumami SHA256 sprawdzonymi po stronie serwera. To
+zamyka zadanie **8.16** i zdejmuje termin 1.09.2026.
+
+**Uwaga do 1.7 — najważniejsza pozycja z całego etapu 1.** Kopia jest
+zweryfikowana sumami kontrolnymi po stronie serwera (29 z 29), co dowodzi, że
+pliki dotarły bez uszkodzenia. **Nie dowodzi, że da się z nich postawić
+działającą bazę** — odtworzenia nie przeprowadzono ani razu. Do tego czasu jest
+to kopia domniemana.
+
+Zakres 1.7: pobrać zestaw z serwera na czystą maszynę albo do osobnego
+wolumenu, odtworzyć bazę ze zrzutu **przez `pg_restore` z kontenera** (lokalny
+z libpq to 16.2 wobec zrzutu z PG 17.5 — patrz STAN-PRAC), uruchomić
+`cycle --z-archiwum 2026-08-06` na pobranym archiwum i potwierdzić komplet
+8 605 682 punktów oraz przejście zbioru wzorcowego. Zmierzyć przy okazji czas
+odtworzenia — to wejście do zadania 8.24.
+
+Dopiero wynik tego zadania pozwala uznać etap 1.4 za zamknięty. To ta sama
+klasa błędu co usterka 6: mechanizm wygląda na działający, bo nikt nie sprawdził
+warunku, w którym miałby zadziałać.
+
+Pozostała część 1.4 to **automatyzacja**, nie sama wysyłka: dziś jest to jeden
+ręczny `rsync`, a nie krok cyklu ETL (zadanie 8.19). `docker-compose.yml`
+nadal deklaruje MinIO, z którego nic nie korzysta — przy decyzji z 8.17
+(magazyn obiektowy w UE) MinIO należy albo wykorzystać jako cel testowy, albo
+usunąć z compose, żeby nie sugerował zabezpieczenia, którego nie ma.
 
 **Ukończenie:** skasowanie bazy i odtworzenie z archiwum bez dostępu do sieci
 kończy się kompletem 8,56 mln punktów.
@@ -68,12 +109,40 @@ Zrównoleglenie działa (zmierzone 3,6× na czterech procesach), ale jest
 | # | zadanie | nakład | uzasadnienie |
 |---|---|---|---|
 | 2.7 | ~~Profil pełnego cyklu na 16 województwach~~ **WYKONANE 9.08.2026** — ~3 h 25 min, rozbicie niżej | — | — |
-| 2.8 | Publikacja: **2 h 16 min dla całego kraju** — zbadać i skrócić | 1–2 d | to 2/3 całego cyklu; wcześniejszy szacunek 72 min dotyczył 4 województw |
+| 2.8 | Publikacja: **2 h 16 min dla całego kraju** — zbadać i skrócić | 1–2 d | to 2/3 całego cyklu; wcześniejszy szacunek 72 min dotyczył 4 województw. **Pomiar z 10.08: cykl bez ani jednej zmiany trwa 3 h 57 min** — koszt jest stały, nie proporcjonalny do zmian |
 | 2.9 | Strojenie bazy pod ładowanie masowe (`work_mem`, `maintenance_work_mem`, autovacuum) | 0,5 d | domyślne 4 MB przy 2 mln wierszy |
-| 2.10 | Testy regresji wydajności wyszukiwania | 1 d | jest już `bench-realny.ts`; podpiąć do cyklu i ustawić progi |
+| 2.10 | Testy regresji wydajności wyszukiwania | 1 d | jest już `bench-realny.ts`; podpiąć do cyklu i ustawić progi. **Warunek wstępny — patrz 2.14**, bez niego próg będzie odpalał się losowo |
+| 2.14 | **Kontrolowane środowisko pomiaru wydajności** | 0,5 d | ustalenie z 10.08.2026, opis niżej |
 | 2.11 | **Rozgrzewanie instancji przed skierowaniem ruchu** | 0,5 d | pierwsze zapytanie po starcie: 82 ms wobec 1,7 ms po rozgrzewce — to, a nie nazwy pospolite, jest realnym przypadkiem brzegowym |
 | 2.12 | Przegląd zapytań pod kątem wzorca z `OR` i pętli zagnieżdżonych | 1 d | ten sam błąd może być gdzie indziej |
 | 2.13 | **Wzmocnienie zapisu przy pełnych aktualizacjach stagingu** — przenieść `resolve_refs()` do okna ładowania masowego, zbadać wiązanie z ulicami | 1–1,5 d | zmierzone 8.08.2026, patrz niżej |
+
+**Uwaga do 2.14 — czystego pomiaru nie da się dziś zrobić na tej maszynie.**
+Nocny przebieg z 10.08.2026 miał zdjąć czysty pomiar czasów odpowiedzi.
+Nie zdjął — i przyczyna jest systemowa, nie przypadkowa. Przy bezczynnej sesji
+użytkownika `com.docker.backend` chodzi na **546% CPU**, bo działa osiem
+kontenerów projektu naraz:
+
+| kontener | CPU | używany przez kod |
+|---|---|---|
+| grafana | 31,4% | tak |
+| db | 22,6% | tak |
+| prometheus | 9,7% | tak |
+| **redis** | **9,1%** | **nie — zero odwołań w `packages/`** |
+| alertmanager | 0,7% | tak |
+| **minio** | 0,1%, 85 MB | **nie — jedyne wystąpienie to komentarz w `loader.ts`** |
+
+Sześć kolejnych przebiegów tego samego pomiaru dało p99: **33, 41, 49, 66, 99,
+129 ms**. Przy takim rozrzucie pojedyncza liczba nie znaczy nic, a próg regresji
+z 2.10 odpalałby się losowo. Zakres 2.14: wyłączyć `redis` i `minio` z
+domyślnego `docker-compose.yml` albo przenieść do osobnego profilu (dziś kosztują
+~9% CPU i 85 MB, nie dając niczego), zatrzymywać profil `monitoring` na czas
+pomiaru, i **odczekać na spadek obciążenia** zamiast mierzyć zaraz po cyklu —
+skrypt nocny mierzył przy obciążeniu 18, bo ruszył natychmiast po zakończeniu
+przetwarzania.
+
+Powiązane z 8B: zastrzeżenie o przeliczeniu przepustowości na aktualnych
+pomiarach nie da się spełnić, dopóki pomiary mają taki rozrzut.
 
 **Uwaga do 2.13 — zmierzone na komplecie 16 województw (8 605 908 punktów).**
 W ścieżce publikacji są **dwie pełne aktualizacje** tabeli `staging.punkt_adresowy`,
@@ -181,7 +250,7 @@ Z rozpoznania rynku, uporządkowane wg pilności.
 
 | # | zadanie | nakład | uwagi |
 |---|---|---|---|
-| 6.8 | ~~Zbiór wzorcowy i testy regresji jakości wyszukiwania~~ **WYKONANE 9.08.2026** — 22 przypadki, `npm run jakosc`. Ujawnił 6 wad, opisanych niżej | — | — |
+| 6.8 | ~~Zbiór wzorcowy i testy regresji jakości wyszukiwania~~ **WYKONANE 9.08.2026** — 28 przypadków, `npm run jakosc`. Ujawnił 6 wad, opisanych niżej | — | — |
 | 6.9 | Cele dostępności i czasu odpowiedzi, alarmy przy przekroczeniu | 1 d | `/metrics` i alarmy istnieją, brak progów |
 | 6.10 | Powiadomienie o nowej wersji danych (webhook) | 1 d | klient wie, kiedy odświeżyć |
 | 6.11 | Procedura postępowania przy awarii źródła | 0,5 d | poziomy odporności opisane, nieprzećwiczone |
@@ -308,13 +377,14 @@ zapytaniem, bez skanu tabeli.
 | # | zadanie | nakład |
 |---|---|---|
 | 8.1 | ~~**PILNE:** poprawka `keyGenerator` — limitowanie po IP do czasu wdrożenia uwierzytelniania~~ **WYKONANE 8.08.2026** — limitowanie po `req.ip`, `TRUST_PROXY` dla pracy za ingressem, test regresji `packages/api/test/limit-obejscie.ts` | — |
-| 8.2 | Model danych: `klient`, `klucz_api` (prefiks, hash, ważność, limity, status) | 1,5 d |
-| 8.3 | Generowanie i weryfikacja klucza w `@adres-pl/core` | 1 d |
-| 8.4 | Plugin uwierzytelniający Fastify jako `preHandler`, cache w procesie | 2 d |
+| 8.0 | ~~Hermetyczny zbiór testów + higiena sekretów~~ **WYKONANE 9.08.2026** — warunek wstępny dopisany w trakcie: `npm test` nie wstawał w świeżym drzewie, bo `buildServer()` wymaga artefaktu spod `data/` (w `.gitignore`). Atrapa indeksu budowana tym samym `buildIndex`, co ETL. Przy okazji: **`.env` nie był ignorowany ani przez git, ani przez `.dockerignore`** | — |
+| 8.2 | ~~Model danych: `klient`, `klucz_api` (prefiks, hash, ważność, limity, status)~~ **WYKONANE 9.08.2026** — `003_licencje.sql`, osobny schemat, **zero kluczy obcych w stronę `adres`** (bo `e2e.sh` robi `TRUNCATE adres.* CASCADE`). Unikat na skrócie **pełny, nie częściowy** — z częściowym unieważniony klucz mógłby wygrać wyszukiwanie | — |
+| 8.3 | ~~Generowanie i weryfikacja klucza w `@adres-pl/core`~~ **WYKONANE 9.08.2026** — `adr_(live\|test)_<32>_<6>`, stała długość 48. Suma kontrolna **bez pieprza** — warunek wykonalności 8.9, skaner wycieków musi rozpoznać kształt bez naszego sekretu. `core` bez importów `node:*`, bo ten sam kod pojedzie do panelu w przeglądarce | — |
+| 8.4 | Plugin uwierzytelniający Fastify jako `preHandler`, ~~cache w procesie~~ **replika w procesie** | **8.4a wykonane 9.08.2026**, 8.4b w toku |
 | 8.5 | Limity i kwoty per klient, magazyn współdzielony między instancjami | 1,5 d |
 | 8.6 | Cykl życia klucza: rotacja bezprzerwowa, okres przejściowy, unieważnianie | 1,5 d |
 | 8.7 | Endpointy administracyjne pod panel (klucz jawny pokazywany raz) | 1,5 d |
-| 8.8 | Test wydajnościowy: próg regresji nie więcej niż +0,3 ms do p99 | 1,5 d |
+| 8.8 | Test wydajnościowy: próg regresji nie więcej niż +0,3 ms do p99 | **8.8a wykonane 9.08.2026**, reszta po 8.4b |
 | 8.9 | Zgłoszenie prefiksu do wykrywania wycieków, dokumentacja dla integratorów | 0,75 d |
 
 **Zastrzeżenie weryfikacji — nie budować cache w Redisie.** Rekomendacja
@@ -322,6 +392,35 @@ proponowała dwa poziomy cache (w procesie + Redis). Weryfikator wykazał błąd
 obieg do Redisa po sieci w klastrze to 0,2–1 ms, czyli tyle samo albo więcej niż
 odrzucone zapytanie do Postgresa. Drugi poziom nie daje nic poza złożonością.
 Zostaje cache w procesie plus kanał powiadomień o unieważnieniu.
+
+**Doprecyzowanie z 9.08.2026 (zadanie 8.4a): replika, nie cache.** Cache
+z chybieniami ma trzy wady naraz. Chybienie to zapytanie do bazy, więc
+**zgadywanie kluczy dawałoby napastnikowi darmowy kanał obciążania Postgresa**.
+Zimny start poda to burza zapytań. A przy awarii bazy operator nie odróżni
+„chybienie cache" od „baza padła", bo objaw jest ten sam. Pełna replika usuwa
+wszystkie trzy — baza znika ze ścieżki żądania, a jej stan sprowadza się do
+jednej mierzalnej liczby: wieku repliki. Koszt ~2 MB przy tysiącu kluczy.
+
+Odświeżanie idzie **dwiema drogami i obie są potrzebne**: `NOTIFY` jako
+przyspieszacz (25 ms) i odpytywanie jako gwarancja (586–766 ms). `NOTIFY`
+ginie przy restarcie bazy i przełączeniu na replikę, i ginie **cicho** —
+unieważniony klucz po prostu działałby dalej. Znacznik zmian liczony z **obu**
+tabel, bo zawieszenie klienta nie dotyka ani jednego wiersza klucza.
+
+**Ustalenie z 8.8a, które zmienia kryterium odbioru.** Próg „+0,3 ms do p99"
+jest **niemierzalny** przy krótkich seriach — leży poniżej podłogi szumu
+przyrządu. Zmierzona krzywa czułości:
+
+| żądań na serię | podłoga szumu p99 | próg 0,3 ms |
+|---|---|---|
+| 3 000 | 6,030 ms | niemierzalny |
+| 60 000 | 0,659 ms | niemierzalny |
+| 180 000 | 0,039 i 0,187 ms | **mierzalny** |
+
+Dwie wartości przy 180 tys. to dwa przebiegi na tej samej maszynie — sama
+podłoga waha się pięciokrotnie, więc zapas nad progiem to 1,6–7,7×, a nie
+stała. Przy wyniku bliskim progu **powtórzyć pomiar**, zanim uzna się regresję
+za stwierdzoną.
 
 **Znaleziona przy okazji czynna luka:** dzisiejszy limiter używa
 `keyGenerator: req.headers['x-api-key'] ?? req.ip`. Klient wysyłający losową
@@ -353,7 +452,7 @@ Izolację wydajności taniej osiąga się inaczej:
 **Zastrzeżenia weryfikacji:** rekomendacja opierała arytmetykę przepustowości na
 liczbach z README (p50 0,114 ms), które **projekt sam wycofał** — pomiar na
 danych rzeczywistych daje ~4 ms. Podobnie zużycie pamięci 281 MB pochodziło
-z testu z artefaktem 10 MB, a dzisiejszy artefakt ma 66 MB. Przed decyzją
+z testu z artefaktem 10 MB, a dzisiejszy artefakt ma 54,5 MB. Przed decyzją
 o wydzielonych pulach trzeba przeliczyć wydajność na aktualnych pomiarach.
 
 ### 8C. Kopie zapasowe na osobną maszynę — 5–7 dni
@@ -363,9 +462,17 @@ w UE (rząd wielkości 1–5 EUR miesięcznie przy tym wolumenie), zamiast lokal
 MinIO. Blokada zapisu na archiwum PRG sprzed 1.09.2026 — ono jest
 **nieodtwarzalne**, bo po tej dacie stara struktura znika ze źródła.
 
+**Stan na 9.08.2026 wieczorem:** najpilniejsza część jest zrobiona — archiwum
+sprzed 1.09 leży poza maszyną ze zweryfikowanymi sumami (8.16). Termin przestał
+być twardy. Zostaje jednak zasadnicze: kopia jest **jednorazowa i ręczna**,
+bez harmonogramu (8.18), bez blokady zapisu (8.20) i — co najważniejsze — **bez
+ani jednego przećwiczonego odtworzenia** (8.23). Dopóki odtworzenie nie zostało
+wykonane, jest to kopia domniemana. Ta sama klasa błędu co usterka 6: mechanizm
+wygląda na działający, bo nikt nie sprawdził warunku, w którym miałby zadziałać.
+
 | # | zadanie | nakład |
 |---|---|---|
-| 8.16 | Zamrożenie archiwum sprzed 1.09.2026: pełne pobranie, sumy kontrolne, wysyłka | 0,5 d |
+| 8.16 | ~~Zamrożenie archiwum sprzed 1.09.2026: pełne pobranie, sumy kontrolne, wysyłka~~ **WYKONANE 9.08.2026** — 16 archiwów PRG (obie struktury), TERYT, oba zrzuty i artefakt na `serwer2653901.hosting-home.pl:~/kopie/adres-pl/`. Sumy SHA256 policzone przed wysyłką i zweryfikowane `sha256sum -c` **po stronie serwera**; osobno potwierdzono obecność pliku `.xml` ze starą strukturą w każdym z 16 archiwów | — |
 | 8.17 | Wybór dostawcy magazynu w UE, kubełki, rozdzielenie poświadczeń | 0,5 d |
 | 8.18 | Zadanie cykliczne kopii bazy: zrzut, suma kontrolna, szyfrowanie, wysyłka | 1 d |
 | 8.19 | Wysyłka archiwów i artefaktów w ramach cyklu ETL | 0,5 d |
@@ -462,15 +569,15 @@ zabezpieczeń.
 
 | etap | zakres | nakład |
 |---|---|---|
-| 0 | Zabezpieczenie stanu | 0,5 d |
+| 0 | Zabezpieczenie stanu | 0,75 d |
 | 1 | Dokończenie bazy | 3–4 d |
-| 2 | Wydajność i przetwarzanie równoległe | 6–8 d |
+| 2 | Wydajność i przetwarzanie równoległe | 6,5–8,5 d |
 | 3 | Podział na serwisy | 3–5 d |
 | 4 | Wersjonowanie wydań | 4–5 d |
 | 5 | Audyt zmian | 5–7 d |
 | 6 | Braki blokujące (bez 6.12–6.15) | 8–10 d |
 | 7 | Monitorowanie i obserwowalność | 6–8 d |
-| 8 | Komercjalizacja: klucze i licencje, wielodostępność, kopie zapasowe | 18–24 d |
+| 8 | Komercjalizacja: klucze i licencje, wielodostępność, kopie zapasowe | 17,5–23,5 d |
 | — | Narzędzie migracji | 1,5 d |
 | **razem** | | **55–73 dni** |
 
