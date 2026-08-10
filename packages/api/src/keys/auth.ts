@@ -56,10 +56,24 @@ export type ApiKeyMode = 'wylaczony' | 'opcjonalny' | 'wymagany';
  */
 const BEZ_KLUCZA = new Set(['/health', '/ready', '/metrics', '/status']);
 
+
 export interface AuthConfig {
   mode: ApiKeyMode;
   /** Limit zadan na minute z jednego adresu dla ruchu BEZ waznego klucza. */
   limitNieuwierzytelniony: number;
+  /**
+   * Sztuczne opoznienie sciezki uwierzytelniania, w mikrosekundach - WYLACZNIE
+   * do walidacji przyrzadu pomiarowego z zadania 8.8b.
+   *
+   * Pomiar pokazujacy "brak regresji" jest bezwartosciowy, dopoki nie wiadomo,
+   * czy przyrzad w ogole cokolwiek by wykryl. Seria kontrolna z wstrzyknietym
+   * kosztem MUSI przekroczyc prog - dopiero wtedy wynik serii wlasciwej cokolwiek
+   * znaczy. Zawsze zero w produkcji (patrz config.ts).
+   *
+   * Wartosc jest per INSTANCJA, a nie per proces: przyrzad stawia trzy serwery
+   * w jednym procesie i kazdy musi miec wlasne ustawienie.
+   */
+  debugOpoznienieUs?: number;
 }
 
 export interface AuthDeps {
@@ -310,6 +324,16 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
           code: 'KWOTA_WYCZERPANA',
         });
       }
+    }
+
+    // Celowe opoznienie do WALIDACJI PRZYRZADU pomiarowego (zadanie 8.8b).
+    // Bez serii kontrolnej z wstrzyknietym kosztem zielony wynik pomiaru
+    // znaczy tylko tyle, ze przyrzad niczego nie zmierzyl. Niedostepne
+    // w produkcji - to jedyny warunek, ktory tu wystarcza, bo koszt jest
+    // sterowany zmienna srodowiskowa, a nie danymi z zadania.
+    if (cfg.debugOpoznienieUs) {
+      const do_ = process.hrtime.bigint() + BigInt(cfg.debugOpoznienieUs * 1000);
+      while (process.hrtime.bigint() < do_) { /* zajete oczekiwanie */ }
     }
 
     deps.onWynik?.('ok');

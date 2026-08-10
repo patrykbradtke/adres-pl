@@ -45,6 +45,8 @@ export interface ServerConfig {
    * da sie ich znalezc sondowaniem.
    */
   adminToken: string;
+  /** Patrz AuthConfig.debugOpoznienieUs. Zawsze 0 w produkcji. */
+  debugOpoznienieUs: number;
   /** Pieprze jako zwykle dane - konfiguracja pozostaje serializowalna. */
   pieprze: Array<[number, string]>;
   pieprzAktywny: number | null;
@@ -88,11 +90,29 @@ export function loadConfig(env = process.env): ServerConfig {
     kluczeMaxWiekS: Number(env.KLUCZE_MAX_WIEK_S ?? 900),
     zuzycieFlushMs: Number(env.ZUZYCIE_FLUSH_MS ?? 60_000),
     adminToken: env.ADMIN_TOKEN ?? '',
+    debugOpoznienieUs: env.NODE_ENV === 'production'
+      ? 0
+      : Number(env.AUTH_DEBUG_OPOZNIENIE_US ?? 0),
     ...(() => { const { sekrety, aktywna } = pepperEntriesFromEnv(env); return { pieprze: sekrety, pieprzAktywny: aktywna }; })(),
   };
 }
 
 /** Nieznana wartosc daje 'wylaczony' - najbezpieczniejsza wobec zgodnosci wstecz. */
 export function parseApiKeyMode(v?: string): ApiKeyMode {
-  return v === 'wymagany' || v === 'opcjonalny' || v === 'wylaczony' ? v : 'wylaczony';
+  if (v === 'wymagany' || v === 'opcjonalny' || v === 'wylaczony') return v;
+  /**
+   * DOMYSLKA ZMIENIONA 10.08.2026 z 'wylaczony' na 'wymagany' (zadanie 8.9).
+   *
+   * To jedyna zmiana ZACHOWANIA w calym etapie 8A - cala reszta byla dokladana
+   * pod wylaczonym przelacznikiem. Celowo osobny, jednolinijkowy i odwracalny
+   * commit: gdyby cokolwiek poszlo nie tak przy wdrozeniu, cofniecie jest
+   * jedna zmiana, a nie rewizja calego etapu.
+   *
+   * Wszystkie zestawy testow maja tryb przypiety jawnie od zadania 8.4b, wiec
+   * przelaczenie ich nie dotyka. To byla cala pointa trybu przejsciowego.
+   *
+   * Nieznana wartosc daje 'wymagany', nie 'wylaczony': literowka w konfiguracji
+   * wdrozenia nie moze po cichu OTWIERAC serwisu.
+   */
+  return 'wymagany';
 }

@@ -46,6 +46,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildServer, loadConfig, type ServerConfig } from '../src/server.ts';
+import pg from 'pg';
+import { generateApiKey } from '@adres-pl/core';
+import { Peppers } from '../src/keys/pepper.ts';
 import { zapiszAtrapeIndeksu } from './atrapa-indeksu.ts';
 
 const tu = dirname(fileURLToPath(import.meta.url));
@@ -93,6 +96,8 @@ interface Seria {
   opis: string;
   env: Record<string, string>;
   naglowki?: Record<string, string>;
+  /** Seria potrzebuje waznego klucza - zostanie wystawiony przed pomiarem. */
+  wymagaKlucza?: boolean;
 }
 
 /**
@@ -102,8 +107,14 @@ interface Seria {
  * opoznieniem, ktora ma dowiesc, ze przyrzad rzeczywiscie cokolwiek wykrywa.
  */
 const SERIE: Seria[] = [
-  { id: 'A', opis: 'bez uwierzytelniania', env: {} },
-  { id: 'A-kontrolna', opis: 'bez uwierzytelniania (podloga szumu)', env: {} },
+  { id: 'A', opis: 'bez uwierzytelniania (odniesienie)', env: {} },
+  { id: 'B', opis: 'z waznym kluczem', env: { API_KEY_MODE: 'wymagany' }, wymagaKlucza: true },
+  {
+    id: 'C',
+    opis: 'kontrolna: uwierzytelnianie + wstrzykniete 500 us',
+    env: { API_KEY_MODE: 'wymagany', AUTH_DEBUG_OPOZNIENIE_US: '500' },
+    wymagaKlucza: true,
+  },
 ];
 
 function percentyl(posortowane: number[], p: number): number {
@@ -114,6 +125,26 @@ function percentyl(posortowane: number[], p: number): number {
 
 const artefakt = await zapiszAtrapeIndeksu(
   join(await mkdtemp(join(tmpdir(), 'adres-bench-')), 'current.bin'));
+
+/**
+ * Klucz na potrzeby serii uwierzytelnionych.
+ *
+ * Limit klienta jest podniesiony poza zasieg pomiaru: mierzymy koszt
+ * WERYFIKACJI, a nie odrzucen limitem - te sa rzedu 0,05 ms i zanizylyby wynik.
+ */
+const PIEPRZ = 'pieprz-bench-8.8b';
+const DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://adres:adres@localhost:5432/adres';
+const db = new pg.Client({ connectionString: DATABASE_URL });
+await db.connect();
+const { rows: [klientBench] } = await db.query(
+  `INSERT INTO licencje.klient (nazwa, pakiet, limit_zapytan_min)
+   VALUES ($1, 'test', 100000000) RETURNING id`, [`bench-8.8b-${ZADAN}-${ROZGRZEWKA}`]);
+const kluczBench = generateApiKey('live');
+await db.query(
+  `INSERT INTO licencje.klucz_api (klient_id, srodowisko, prefiks, hash)
+   VALUES ($1, 'live', 'adr_live_', $2)`,
+  [klientBench.id, Buffer.from(new Peppers(new Map([[1, PIEPRZ]]), 1).hash(kluczBench).hex, 'hex')]);
+await db.end();
 
 interface Wynik {
   id: string;
@@ -137,7 +168,12 @@ for (const s of SERIE) {
     INDEX_POLL_MS: '0',
     // Limit poza zasiegiem pomiaru - inaczej mierzylibysmy odrzucenia.
     RATE_LIMIT_MAX: String(ZADAN * 10),
+    API_KEY_PEPPER_1: PIEPRZ,
+    API_KEY_PEPPER_AKTYWNY: '1',
+    // Zrzut zuzycia poza pomiarem - interesuje nas koszt weryfikacji.
+    ZUZYCIE_FLUSH_MS: '0',
   });
+  if (s.wymagaKlucza) s.naglowki = { 'x-api-key': kluczBench };
   serwery.set(s.id, await buildServer(cfg));
   czasy.set(s.id, []);
   kody.set(s.id, new Map());
@@ -199,23 +235,45 @@ for (const w of wyniki) {
     `${w.p99.toFixed(3).padStart(7)} ms   ${JSON.stringify(w.kody)}`);
 }
 
-const bazowa = wyniki[0];
-const kontrolna = wyniki[1];
-const podlogaSzumu = {
-  p50: Math.abs(kontrolna.p50 - bazowa.p50),
-  p95: Math.abs(kontrolna.p95 - bazowa.p95),
-  p99: Math.abs(kontrolna.p99 - bazowa.p99),
-};
+const bazowa = wyniki.find((w) => w.id === 'A')!;
+const zKluczem = wyniki.find((w) => w.id === 'B');
+const kontrolna = wyniki.find((w) => w.id === 'C');
 
-console.log(`\nPODLOGA SZUMU (dwie identyczne serie): ` +
-  `p50 ${podlogaSzumu.p50.toFixed(3)} ms, p95 ${podlogaSzumu.p95.toFixed(3)} ms, ` +
-  `p99 ${podlogaSzumu.p99.toFixed(3)} ms`);
+const delta = (w: Wynik | undefined) => (w ? {
+  p50: w.p50 - bazowa.p50, p95: w.p95 - bazowa.p95, p99: w.p99 - bazowa.p99,
+} : null);
 
-const mierzalny = podlogaSzumu.p99 < PROG_MS;
-console.log(mierzalny
-  ? `Prog ${PROG_MS} ms jest MIERZALNY tym przyrzadem (podloga ${podlogaSzumu.p99.toFixed(3)} ms < ${PROG_MS} ms).`
-  : `Prog ${PROG_MS} ms jest NIEMIERZALNY: sam szum daje ${podlogaSzumu.p99.toFixed(3)} ms.\n` +
-    `  Zwieksz probe (--zadan) albo podnies prog - inaczej zadanie 8.8 bedzie fikcja.`);
+const dB = delta(zKluczem);
+const dC = delta(kontrolna);
+
+if (dB) {
+  console.log(`\nKOSZT UWIERZYTELNIANIA (B - A): p50 ${dB.p50.toFixed(3)} ms, ` +
+    `p95 ${dB.p95.toFixed(3)} ms, p99 ${dB.p99.toFixed(3)} ms`);
+}
+if (dC) {
+  console.log(`SERIA KONTROLNA (C - A, wstrzykniete 500 us): p50 ${dC.p50.toFixed(3)} ms, ` +
+    `p95 ${dC.p95.toFixed(3)} ms, p99 ${dC.p99.toFixed(3)} ms`);
+}
+
+/**
+ * Werdykt ma DWA warunki i drugi jest wazniejszy.
+ *
+ * Pierwszy mowi "uwierzytelnianie nie kosztuje za duzo". Drugi mowi "a gdyby
+ * kosztowalo, to bysmy to zobaczyli" - bez niego zielony wynik znaczy tylko
+ * tyle, ze przyrzad niczego nie zmierzyl.
+ */
+const wStawie = dB !== null && dB.p99 <= PROG_MS;
+const przyrzadWykrywa = dC !== null && dC.p50 > PROG_MS;
+
+console.log();
+console.log(wStawie
+  ? `OK   koszt uwierzytelniania miesci sie w progu (${dB!.p99.toFixed(3)} ms <= ${PROG_MS} ms)`
+  : `BLAD koszt uwierzytelniania przekracza prog (${dB ? dB.p99.toFixed(3) : '?'} ms > ${PROG_MS} ms)`);
+console.log(przyrzadWykrywa
+  ? `OK   przyrzad wykrywa wstrzyknieta regresje (${dC!.p50.toFixed(3)} ms > ${PROG_MS} ms)`
+  : `BLAD przyrzad NIE wykryl wstrzyknietych 500 us - wynik serii B jest bez wartosci`);
+
+const mierzalny = wStawie && przyrzadWykrywa;
 
 // ------------------------------------------------------------- odniesienie
 if (ZAPISZ) {

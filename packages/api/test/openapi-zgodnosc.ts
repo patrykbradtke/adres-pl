@@ -51,6 +51,10 @@ const app = await buildServer(
   loadConfig({
     ...process.env,
     LOG_LEVEL: 'error',
+    // Tryb przypiety JAWNIE, mimo ze do zadania 8.9 jest to takze domyslka.
+    // Ten zestaw sprawdza KSZTALT kontraktu, a nie uwierzytelnianie, i nie ma
+    // powodu, zeby wymagal zywej bazy z replika kluczy.
+    API_KEY_MODE: 'wylaczony',
     // Trasy /admin istnieja w routerze WYLACZNIE przy ustawionym tokenie.
     // Bez tego szesc sciezek ze specyfikacji wygladaloby na nieistniejace,
     // a test bylby zielony u autora (ktory ma token w otoczeniu) i czerwony

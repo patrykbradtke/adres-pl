@@ -43,7 +43,14 @@ const zbior = parse(readFileSync(join(tu, 'zbior-wzorcowy.yaml'), 'utf8')) as {
 };
 
 const app = await buildServer(loadConfig({
-  ...process.env, LOG_LEVEL: 'error', RATE_LIMIT_MAX: '1000000',
+  ...process.env,
+  LOG_LEVEL: 'error',
+  RATE_LIMIT_MAX: '1000000',
+  // Tryb przypiety JAWNIE: ten zestaw mierzy JAKOSC WYNIKOW, a nie
+  // uwierzytelnianie. Bez tego po zmianie domyslki w zadaniu 8.9 kazde
+  // zapytanie konczyloby sie kodem 401, a zestaw raportowalby kilkanascie
+  // rzekomych regresji jakosci.
+  API_KEY_MODE: 'wylaczony',
 }));
 
 const wersja = (await app.inject({ method: 'GET', url: '/v1/suggest?q=warszawa&limit=1' })

@@ -36,6 +36,7 @@ export interface KeyHash {
 
 export class Peppers {
   private readonly secrets: ReadonlyMap<number, string>;
+  private readonly posortowaneWersje: readonly number[];
   readonly activeVersion: number;
 
   constructor(secrets: ReadonlyMap<number, string>, activeVersion: number) {
@@ -44,11 +45,20 @@ export class Peppers {
       throw new Error(`Wersja aktywna ${activeVersion} nie ma sekretu w zestawie`);
     }
     this.secrets = secrets;
+    this.posortowaneWersje = [...secrets.keys()].sort((a, b) => a - b);
     this.activeVersion = activeVersion;
   }
 
-  get versions(): number[] {
-    return [...this.secrets.keys()].sort((a, b) => a - b);
+  /**
+   * Wersje w stalej kolejnosci, policzone RAZ przy budowie zestawu.
+   *
+   * Wczesniej kazde wywolanie alokowalo tablice i sortowalo ja od nowa,
+   * a hashAll wola to przy KAZDYM zadaniu - na goracej sciezce, ktora ma
+   * miescic sie w budzecie ulamka milisekundy. Zestaw pieprzy jest
+   * niezmienny od chwili utworzenia, wiec nie ma czego przeliczac.
+   */
+  get versions(): readonly number[] {
+    return this.posortowaneWersje;
   }
 
   /**

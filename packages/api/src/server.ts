@@ -193,6 +193,7 @@ export async function buildServer(
       cfg: {
         mode: cfg.apiKeyMode,
         limitNieuwierzytelniony: cfg.rateLimitNieuwierzytelniony,
+        debugOpoznienieUs: cfg.debugOpoznienieUs,
       },
       onWynik: (wynik) => metrics.uwierzytelnienie(wynik),
     });

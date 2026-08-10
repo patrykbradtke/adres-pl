@@ -190,6 +190,46 @@ Import słowników TERYT to dodatkowe ~8 min (400 tys. rekordów).
 
 ---
 
+## Zmienne środowiskowe
+
+**Nic w projekcie nie wczytuje pliku `.env`** — nie ma `dotenv` ani żadnego
+odpowiednika. Zmienne podaje się z powłoki, przez sekcję `environment`
+w `docker-compose.yml` albo przez sekret Kubernetesa (wzorzec:
+`deploy/cronjob.yaml`, `secretKeyRef`). `.env.example` jest **wzorcem
+do skopiowania i opisem znaczenia**, nie źródłem konfiguracji.
+
+| zmienna | domyślnie | znaczenie |
+|---|---|---|
+| `DATABASE_URL` | `postgres://adres:adres@localhost:5432/adres` | |
+| `INDEX_SOURCE` | `./data/index/current.bin` | ścieżka albo URL do artefaktu |
+| `INDEX_POINTER` | — | wskaźnik wersji; loader podmienia indeks bez restartu |
+| `INDEX_POLL_MS` | `60000` | co ile sprawdzać wskaźnik |
+| `PORT` / `HOST` | `3000` / `0.0.0.0` | |
+| `PG_POOL_MAX` | `10` | typeahead nie dotyka bazy, więc pula może być mała |
+| `RATE_LIMIT_MAX` | `600` | limit na minutę dla ruchu **bez** ważnego klucza |
+| `TRUST_PROXY` | wyłączone | **czytaj opis w `.env.example` przed włączeniem** |
+| `CORS_ORIGIN` | wszystkie | lista po przecinku |
+| `LOG_LEVEL` / `LOG_REQUESTS` | `info` / wyłączone | |
+
+Etap 8A — uwierzytelnianie:
+
+| zmienna | domyślnie | znaczenie |
+|---|---|---|
+| `API_KEY_MODE` | `wymagany` | `wylaczony` / `opcjonalny` / `wymagany`. Nieznana wartość daje `wymagany` — literówka nie może po cichu **otworzyć** serwisu |
+| `API_KEY_PEPPER_<n>` | — | pieprz HMAC. **Bez niego serwis nie wstaje** w trybie innym niż wyłączony |
+| `API_KEY_PEPPER_AKTYWNY` | najwyższy numer | wersja używana do skrótów nowych kluczy |
+| `RATE_LIMIT_NIEUWIERZYTELNIONY` | `60` | limit prób na minutę z jednego adresu |
+| `KLUCZE_ODSWIEZANIE_MS` | `10000` | gwarantowana zbieżność unieważnienia |
+| `KLUCZE_MAX_WIEK_S` | `900` | po tym czasie bez odświeżenia `/ready` → 503 |
+| `ZUZYCIE_FLUSH_MS` | `60000` | co ile zrzucać agregat zużycia |
+| `ADMIN_TOKEN` | — | **pusty = trasy `/admin` nie istnieją w routerze** |
+
+Dwa ustawienia kończą start błędem, zamiast działać w stanie pozornie
+poprawnym: brak pieprza przy włączonym uwierzytelnianiu oraz `ADMIN_TOKEN`
+krótszy niż 32 znaki.
+
+---
+
 ## Architektura
 
 ```
@@ -443,10 +483,24 @@ POST /v1/parse    {raw}                   rozbicie ciągu na pola
 POST /v1/validate {address|raw}           walidacja + confidence
 POST /v1/batch    {items[]}               walidacja wsadowa
 GET  /v1/meta                             wersja danych + wiek zrzutu
+
 GET  /health · /ready                     sondy Kubernetes
 GET  /status                              stan dla człowieka + ostrzeżenia
 GET  /metrics                             metryki Prometheusa
+
+POST /admin/clients · GET /admin/clients   zarządzanie klientami
+POST /admin/keys    · GET /admin/keys      wystawianie i podgląd kluczy
+POST /admin/keys/rotate                    rotacja bezprzerwowa
+POST /admin/keys/revoke                    unieważnienie natychmiastowe
 ```
+
+**Uwierzytelnianie.** Wszystkie `/v1/*` wymagają nagłówka `X-API-Key`. Cztery
+sondy operacyjne pozostają **otwarte**: potrzebują ich kubelet i Prometheus,
+a odcina się je na warstwie sieciowej, nie w aplikacji.
+
+Trasy `/admin` mają **odrębny** mechanizm — `Authorization: Bearer <ADMIN_TOKEN>` —
+i istnieją w routerze wyłącznie przy ustawionym tokenie. Klucz kliencki ich nie
+otwiera, bo byłaby to eskalacja uprawnień z klienta na operatora.
 
 Najważniejsza metryka to `adres_dane_wiek_dni`. PRG aktualizuje się na bieżąco,
 więc rosnący wiek danych oznacza zatrzymany pipeline albo problem po stronie
