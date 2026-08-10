@@ -45,7 +45,16 @@ export interface ServerConfig {
    * da sie ich znalezc sondowaniem.
    */
   adminToken: string;
-  /** Patrz AuthConfig.debugOpoznienieUs. Zawsze 0 w produkcji. */
+  /**
+   * Patrz AuthConfig.debugOpoznienieUs - furtka WYLACZNIE do walidacji
+   * przyrzadu pomiarowego.
+   *
+   * NODE_ENV=production zeruje ja twardo, ale nie da sie na tym poprzestac:
+   * w wielu wdrozeniach NODE_ENV po prostu nie jest ustawione, wiec sam ten
+   * warunek gwarantuje mniej, niz sugeruje. Dlatego buildServer wypisuje
+   * OSTRZEZENIE przy kazdym starcie z niezerowa wartoscia - furtka nie moze
+   * byc wlaczona po cichu.
+   */
   debugOpoznienieUs: number;
   /** Pieprze jako zwykle dane - konfiguracja pozostaje serializowalna. */
   pieprze: Array<[number, string]>;

@@ -199,6 +199,16 @@ export async function buildServer(
     });
   }
 
+  if (cfg.debugOpoznienieUs > 0) {
+    // Furtka pomiarowa nie moze byc wlaczona po cichu - patrz komentarz
+    // przy debugOpoznienieUs w config.ts.
+    app.log.warn(
+      { opoznienieUs: cfg.debugOpoznienieUs },
+      "AUTH_DEBUG_OPOZNIENIE_US jest USTAWIONE - sciezka uwierzytelniania jest " +
+      "sztucznie spowalniana. To furtka do walidacji przyrzadu pomiarowego; " +
+      "na produkcji nie powinna byc wlaczona.");
+  }
+
   if (cfg.trustProxy === false) {
     app.log.info('TRUST_PROXY wylaczone - limitowanie po adresie polaczenia. ' +
       'Za ingressem ustawic TRUST_PROXY na liczbe przeskokow albo liste CIDR.');
