@@ -38,6 +38,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { parseApiKey } from '@adres-pl/core';
 import type { Peppers } from './pepper.ts';
 import type { KeyRegistry, KeyEntry } from './registry.ts';
+import { type UsageMeter, jednostkiZadania } from './usage.ts';
 
 export type ApiKeyMode = 'wylaczony' | 'opcjonalny' | 'wymagany';
 
@@ -65,6 +66,8 @@ export interface AuthDeps {
   rejestr: KeyRegistry;
   pieprze: Peppers;
   cfg: AuthConfig;
+  /** Licznik zuzycia. Bez niego kwota nie jest egzekwowana ani ksiegowana. */
+  zuzycie?: UsageMeter;
   /** Licznik do metryk - wolany dla kazdego rozstrzygniecia. */
   onWynik?: (wynik: string) => void;
 }
@@ -76,7 +79,7 @@ export interface AuthDeps {
  */
 type Wynik =
   | 'ok' | 'brak_klucza' | 'nieprawidlowy' | 'niewazny_jeszcze' | 'wygasly'
-  | 'uniewazniony' | 'zawieszony' | 'limit_prob';
+  | 'uniewazniony' | 'zawieszony' | 'limit_prob' | 'kwota';
 
 /** Stany klucza, ktore konczy sie odmowa po trafieniu w wiersz rejestru. */
 type StanOdmowy = 'niewazny_jeszcze' | 'wygasly' | 'uniewazniony' | 'zawieszony';
@@ -210,6 +213,21 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     return reply.code(kod).send({ error: komunikat, code: wynik.toUpperCase() });
   };
 
+  if (deps.zuzycie) {
+    /**
+     * Ksiegowanie jednostek dopiero w onResponse - w onRequest cialo zadania
+     * nie jest jeszcze sparsowane, a wsad rozlicza sie po liczbie pozycji.
+     *
+     * Odpowiedzi 5xx nie obciazaja klienta: nie placi za nasze bledy.
+     */
+    app.addHook('onResponse', async (req, reply) => {
+      if (!req.klient || reply.statusCode >= 500) return;
+      deps.zuzycie!.zlicz(
+        req.klient.kluczId, req.klient.klientId,
+        jednostkiZadania(req.routeOptions?.url, req.body));
+    });
+  }
+
   app.addHook('onRequest', async (req, reply) => {
     const trasa = req.routeOptions?.url;
 
@@ -262,6 +280,30 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     if (stan) {
       const { kod, komunikat } = ODMOWY[stan];
       return odmow(req, reply, kod, stan, komunikat, wpis.prefiks);
+    }
+
+    /**
+     * Kwota miesieczna liczona jako STAN Z BAZY + JEDNOSTKI JESZCZE NIEZRZUCONE.
+     *
+     * Sam odczyt z repliki nie wystarcza: zapis jest zbiorczy, wiec przez cale
+     * okno zrzutu klient widzialby zuzycie sprzed minuty. Przy wsadzie po 1000
+     * pozycji daloby to przekroczenie kwoty o kilka rzedow wielkosci, zanim
+     * ktokolwiek by to zobaczyl.
+     *
+     * Nadmiar jest ograniczony JEDNYM zadaniem - najwyzej ostatni wsad przekroczy
+     * kwote o swoja wielkosc. Kwota jest podstawa faktury, a nie zaworem
+     * bezpieczenstwa; twarda ochrone daje limit minutowy.
+     */
+    if (wpis.kwotaMiesieczna !== null && deps.zuzycie) {
+      const zdalne = rejestr.zuzyteJednostki(wpis.klientId);
+      const lokalne = deps.zuzycie.jednostkiKlienta(wpis.klientId);
+      if (zdalne + lokalne >= wpis.kwotaMiesieczna) {
+        deps.onWynik?.('kwota');
+        return reply.code(429).send({
+          error: 'Miesieczna kwota zapytan wyczerpana.',
+          code: 'KWOTA_WYCZERPANA',
+        });
+      }
     }
 
     deps.onWynik?.('ok');

@@ -156,11 +156,16 @@ await maly.start();
 const przedUbytkiem = maly.rozmiar;
 // Udajemy zapytanie zwracajace prawie nic: podmieniamy pule na taka, ktora
 // filtruje wiekszosc wierszy.
+// Atrapa celuje w JEDNO konkretne zapytanie - to, ktore pobiera wpisy kluczy
+// (rozpoznawane po aliasie "AS klucz_id"). Wczesniej bylo odwrotnie: doklejala
+// filtr do wszystkiego, co nie bylo zapytaniem o znacznik. Gdy odswiezanie
+// zaczelo pobierac takze zuzycie, filtr trafil w zapytanie majace juz wlasne
+// WHERE i GROUP BY - i test padal na skladni SQL zamiast na badanej wlasnosci.
 const okrojona = {
   query: (tekst: string, param?: unknown[]) =>
-    tekst.includes('AS znacznik')
-      ? pool.query(tekst, param as never)
-      : pool.query(`${tekst} WHERE k.id = -1`, param as never),
+    tekst.includes('AS klucz_id')
+      ? pool.query(`${tekst} WHERE k.id = -1`, param as never)
+      : pool.query(tekst, param as never),
 } as unknown as pg.Pool;
 (maly as unknown as { cfg: { pool: pg.Pool } }).cfg.pool = okrojona;
 await maly.odswiez(true);

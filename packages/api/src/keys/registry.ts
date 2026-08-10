@@ -94,6 +94,20 @@ const SQL_WPISY = `
  * (porownanie wersji danych z nazwa pliku) - objaw jest cichy, bo wszystko
  * dziala, tylko drozej.
  */
+/**
+ * Zuzycie biezacego okresu rozliczeniowego, zsumowane per klient.
+ *
+ * date_trunc po stronie bazy, a nie w kodzie: okres jest wlasnoscia danych,
+ * a nie stanu procesu, wiec instancje w roznych strefach czasowych musza
+ * widziec ten sam miesiac.
+ */
+const SQL_ZUZYCIE = `
+  SELECT k.klient_id, coalesce(sum(z.jednostek), 0)::text AS jednostek
+    FROM licencje.zuzycie z
+    JOIN licencje.klucz_api k ON k.id = z.klucz_id
+   WHERE z.okres = date_trunc('month', now() AT TIME ZONE 'UTC')::date
+   GROUP BY k.klient_id`;
+
 const SQL_ZNACZNIK = `
   SELECT GREATEST(
            coalesce((SELECT max(zmieniony) FROM licencje.klucz_api), '-infinity'::timestamptz),
@@ -189,10 +203,31 @@ export class KeyRegistry {
    * wpisow przeladowanie trwa ponizej 5 ms, wiec logika przyrostowa byla by
    * zlozonoscia bez pokrycia.
    */
+  /**
+   * Zuzycie biezacego okresu, zagregowane per klient.
+   *
+   * Czytane przy KAZDYM odswiezeniu, niezaleznie od znacznika zmian. Wciagniecie
+   * go do znacznika uniewaznialoby sam mechanizm: zuzycie rosnie co minute
+   * w kazdej instancji, wiec znacznik nigdy nie bylby rowny poprzedniemu
+   * i replika przeladowywalaby sie w kolko.
+   */
+  private zuzycie = new Map<number, number>();
+
+  /** Jednostki zuzyte przez klienta w biezacym okresie, wedle stanu bazy. */
+  zuzyteJednostki(klientId: number): number {
+    return this.zuzycie.get(klientId) ?? 0;
+  }
+
   async odswiez(wymus = false): Promise<boolean> {
     if (this.odswiezaTrwa) return false;
     this.odswiezaTrwa = true;
     try {
+      const { rows: zuzycieWierszy } = await this.cfg.pool.query<
+        { klient_id: string; jednostek: string }>(SQL_ZUZYCIE);
+      const noweZuzycie = new Map<number, number>();
+      for (const r of zuzycieWierszy) noweZuzycie.set(Number(r.klient_id), Number(r.jednostek));
+      this.zuzycie = noweZuzycie;
+
       const { rows: [z] } = await this.cfg.pool.query<{ znacznik: string }>(SQL_ZNACZNIK);
       if (!wymus && this.znacznik !== null && z.znacznik === this.znacznik) {
         this.ostatnieUdaneMs = Date.now();

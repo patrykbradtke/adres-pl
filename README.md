@@ -258,10 +258,24 @@ Drogi problem podciągu zamienia się w tani problem prefiksu.
 | | Werdykt | Uzasadnienie |
 |---|---|---|
 | **PostgreSQL + PostGIS** | tak | Źródło prawdy. Dane adresowe są ściśle relacyjne i przestrzenne. |
-| **Redis** | tak, ale nie do wyszukiwania | Rate limiting, cache reverse-geocoding, pub/sub o nowej wersji artefaktu. Typeahead go nie potrzebuje. |
+| **Redis** | **nie, i to jest decyzja** | Patrz niżej — wiersz opisywał zamiar, nie stan. |
 | **RabbitMQ** | dopiero przy walidacji wsadowej | Do ETL wystarczy CronJob. Nie dodawajcie brokera „na zapas". |
 | **MongoDB** | nie | Brak przypadku użycia. Tracicie integralność referencyjną, którą model adresowy realnie wykorzystuje. |
 | Meilisearch / Typesense / Elastic | nie w wersji 1 | Dodają kontener i RAM do problemu, który rozwiązuje 50 MB w procesie. Meilisearch zmienił licencję w 2025 na dualny MIT/BUSL-1.1. |
+
+### Redis — gdzie przebiega granica
+
+Wiersz w tabeli opisywał do 9.08.2026 zamiar, nie stan: `REDIS_URL` jest
+podawany serwisowi w `docker-compose.yml` i **nigdy nieczytany**, a `grep`
+po `packages/` nie znajduje ani jednej linii używającej Redisa. Granica
+przebiega tak i jest to rozstrzygnięcie, nie zaniechanie:
+
+| zastosowanie | Redis? | dlaczego |
+|---|---|---|
+| weryfikacja klucza API | **nie** | obieg sieciowy w klastrze to 0,2–1 ms, czyli tyle samo albo więcej niż odrzucone zapytanie do Postgresa. Zamiast tego pełna replika rejestru w pamięci procesu — baza znika ze ścieżki żądania całkowicie |
+| liczniki limitu na minutę | **nie** | wymagałyby obiegu sieciowego przy **każdym** żądaniu. Licznik jest lokalny; efektywny limit przy N replikach to N × wartość i to jest własność do zapisania w umowie, nie luka |
+| kwota miesięczna | **nie — przez Postgresa** | musi być trwała i wspólna, ale nie musi być egzekwowana co do jednego żądania. Agregat w pamięci, jeden zapis zbiorczy co minutę |
+| cache geokodowania odwrotnego | otwarte | jedyne miejsce, w którym Redis może się jeszcze obronić — jeśli pomiar to pokaże |
 
 ---
 

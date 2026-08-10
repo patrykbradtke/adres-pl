@@ -20,6 +20,7 @@ import { registerMetricsRoutes, Metrics } from './routes/metrics.ts';
 import { registerAuth } from './keys/auth.ts';
 import { KeyRegistry } from './keys/registry.ts';
 import { Peppers } from './keys/pepper.ts';
+import { UsageMeter } from './keys/usage.ts';
 import { loadConfig, type ServerConfig } from './config.ts';
 
 /**
@@ -172,10 +173,22 @@ export async function buildServer(
     cache: 20_000,
   });
 
+  /**
+   * Licznik zuzycia rusza razem z uwierzytelnianiem: bez zweryfikowanego
+   * klienta nie ma czego ksiegowac.
+   */
+  const zuzycie = new UsageMeter({
+    pool,
+    flushMs: cfg.zuzycieFlushMs,
+    onError: (err) => app.log.error({ err }, 'zrzut zuzycia'),
+  });
+
   if (cfg.apiKeyMode !== 'wylaczony') {
+    zuzycie.start();
     registerAuth(app, {
       rejestr,
       pieprze: pieprze!,
+      zuzycie,
       cfg: {
         mode: cfg.apiKeyMode,
         limitNieuwierzytelniony: cfg.rateLimitNieuwierzytelniony,
@@ -199,6 +212,10 @@ export async function buildServer(
 
   app.decorate('pool', pool);
   app.decorate('index', holder);
+  // Rejestr i licznik zuzycia wystawione tak samo jak pula i indeks: testy
+  // musza moc wymusic odswiezenie albo zrzut, zamiast czekac na interwal.
+  app.decorate('rejestr', rejestr);
+  app.decorate('zuzycie', zuzycie);
 
   await holder.start();
 
@@ -293,6 +310,9 @@ export async function buildServer(
     // Bez tego wiersza app.close() konczy sie, ale PROCES NIE - petla zdarzen
     // ma wciaz zywe uchwyty. Objaw: test albo skrypt wisi po zakonczeniu pracy.
     rejestr.stop();
+    // Ostatni zrzut PRZED zamknieciem puli - inaczej zuzycie z ostatniej minuty
+    // pracy poda przepada przy kazdym wdrozeniu kroczacym.
+    await zuzycie.stop();
     await pool.end();
   });
 
@@ -303,6 +323,8 @@ declare module 'fastify' {
   interface FastifyInstance {
     pool: pg.Pool;
     index: IndexHolder;
+    rejestr: KeyRegistry;
+    zuzycie: UsageMeter;
   }
 }
 
