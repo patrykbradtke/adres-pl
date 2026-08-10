@@ -243,27 +243,48 @@ export async function buildServer(
     return { status: 'ok', wersjaDanych: holder.current.dataVersion };
   });
 
+  /**
+   * Sonda gotowosci - CO JEST WARUNKIEM, A CO NIM NIE JEST.
+   *
+   * Do 9.08.2026 sonda wykonywala `SELECT 1` i zwracala 503, gdy baza nie
+   * odpowiadala. Skutek byl odwrotny do zamierzonego: awaria bazy wyrzucala pod
+   * z ruchu takze dla /v1/suggest, ktore bazy w ogole nie dotyka (czyta artefakt
+   * z pamieci). Awaria czesciowa zamieniala sie w calkowita.
+   *
+   * Teraz warunkiem jest STAN TEGO, CZYM POD OBSLUGUJE RUCH:
+   *   - artefakt indeksu w pamieci,
+   *   - replika rejestru kluczy zaladowana i nieprzeterminowana.
+   *
+   * Uwierzytelnianie przy niedostepnej bazie dziala DALEJ, z repliki - wpisy
+   * zostaly juz raz zweryfikowane, a odrzucanie ich z powodu chwilowej awarii
+   * Postgresa zamienialoby ja w awarie calego API. Ryzyko jest ograniczone
+   * i mierzalne: przez czas awarii klucz uniewazniony pare minut temu nadal
+   * dziala. To okno, nie dziura - i zamyka je prog KLUCZE_MAX_WIEK_S.
+   *
+   * Dostepnosc samej bazy nie znika z widoku: raportuje ja metryka
+   * adres_baza_dostepna (regula BazaNiedostepna w deploy/alerty.yaml)
+   * oraz podglad /status. To sygnal dla operatora, nie warunek kierowania ruchu.
+   */
   app.get('/ready', async (_req, reply) => {
     if (!holder.ready) return reply.code(503).send({ ready: false, powod: 'indeks niezaladowany' });
 
-    /**
-     * Instancja z niezaladowanym rejestrem odpowiada 401 na CALYM ruchu /v1,
-     * bo zaden klucz nie da sie odnalezc. Bez tego warunku pod zostawal
-     * w rotacji i cicho odrzucal wszystkich klientow, a sonda meldowala
-     * gotowosc - stan gorszy niz jawna niedostepnosc, bo niewidoczny.
-     *
-     * Dotyczy wylacznie trybu, w ktorym rejestr w ogole rusza.
-     */
-    if (cfg.apiKeyMode !== 'wylaczony' && !rejestr.zaladowana) {
-      return reply.code(503).send({ ready: false, powod: 'rejestr kluczy niezaladowany' });
+    if (cfg.apiKeyMode !== 'wylaczony') {
+      // Instancja z niezaladowana replika odpowiada 401 na CALYM ruchu /v1,
+      // bo zadnego klucza nie da sie odnalezc. Meldowanie gotowosci byloby
+      // stanem gorszym niz jawna niedostepnosc, bo niewidocznym.
+      if (!rejestr.zaladowana) {
+        return reply.code(503).send({ ready: false, powod: 'rejestr kluczy niezaladowany' });
+      }
+      const wiekS = Math.round(rejestr.wiekMs / 1000);
+      if (wiekS > cfg.kluczeMaxWiekS) {
+        return reply.code(503).send({
+          ready: false,
+          powod: `replika kluczy przeterminowana (${wiekS} s > ${cfg.kluczeMaxWiekS} s)`,
+        });
+      }
     }
 
-    try {
-      await pool.query('SELECT 1');
-      return { ready: true };
-    } catch {
-      return reply.code(503).send({ ready: false, powod: 'baza niedostepna' });
-    }
+    return { ready: true };
   });
 
   app.addHook('onClose', async () => {

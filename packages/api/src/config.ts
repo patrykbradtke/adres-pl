@@ -32,6 +32,12 @@ export interface ServerConfig {
   /** Limit na minute z jednego adresu dla ruchu bez waznego klucza. */
   rateLimitNieuwierzytelniony: number;
   kluczeOdswiezanieMs: number;
+  /**
+   * Po ilu sekundach bez UDANEGO odswiezenia repliki instancja przestaje
+   * meldowac gotowosc. Uwierzytelnianie dziala dalej (fail-open) - to jest
+   * decyzja o KIEROWANIU RUCHU, nie o wpuszczaniu klientow.
+   */
+  kluczeMaxWiekS: number;
   /** Pieprze jako zwykle dane - konfiguracja pozostaje serializowalna. */
   pieprze: Array<[number, string]>;
   pieprzAktywny: number | null;
@@ -72,6 +78,7 @@ export function loadConfig(env = process.env): ServerConfig {
     apiKeyMode: parseApiKeyMode(env.API_KEY_MODE),
     rateLimitNieuwierzytelniony: Number(env.RATE_LIMIT_NIEUWIERZYTELNIONY ?? 60),
     kluczeOdswiezanieMs: Number(env.KLUCZE_ODSWIEZANIE_MS ?? 10_000),
+    kluczeMaxWiekS: Number(env.KLUCZE_MAX_WIEK_S ?? 900),
     ...(() => { const { sekrety, aktywna } = pepperEntriesFromEnv(env); return { pieprze: sekrety, pieprzAktywny: aktywna }; })(),
   };
 }
