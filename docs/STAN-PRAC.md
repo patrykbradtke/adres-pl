@@ -303,7 +303,88 @@ aż do 8.08.2026; teraz jest z dokumentem zsynchronizowany.
 
 ---
 
-## 8. Od czego zacząć w nowej sesji
+## 8. Etap 8A — uwierzytelnianie klientów API (10.08.2026)
+
+Gałąź `etap-8a`, scalona z `master` po zakończeniu równoległej sesji.
+Wszystkie dziewięć zadań planu (8.2–8.9) zamknięte, każde osobnym commitem.
+
+### Co powstało
+
+| obszar | gdzie |
+|---|---|
+| Format i rozbiór klucza | `packages/core/src/api-key.ts` — **zero importów `node:*`**, działa też w przeglądarce |
+| Pieprz HMAC z rotacją | `packages/api/src/keys/pepper.ts` |
+| Replika rejestru w pamięci | `packages/api/src/keys/registry.ts` + `notify-listener.ts` |
+| Hook uwierzytelniający | `packages/api/src/keys/auth.ts` |
+| Zużycie i kwoty | `packages/api/src/keys/usage.ts` |
+| Endpointy operatorskie | `packages/api/src/routes/admin.ts` — 6 tras, **poza** `/v1` |
+| CLI do wystawiania kluczy | `packages/api/src/keys/cli.ts` (`npm run klucze`) |
+| Schemat bazy | `db/migrations/004_licencje.sql` |
+| Runbook operacyjny | `docs/runbook-klucze.md` |
+| Zgłoszenie prefiksu do skanerów | `docs/zgloszenie-prefiksu.md` |
+
+### Trzy rzeczy, które trzeba wiedzieć przed zmianą czegokolwiek tutaj
+
+**1. Kolejność hooków jest gwarancją bezpieczeństwa, nie konwencją.**
+Uwierzytelnianie działa w `onRequest` **poziomu instancji**. Fastify skleja hooki
+instancji przed hookami trasy (`lib/route.js:391`), a `@fastify/rate-limit`
+dokłada się per trasa — dlatego `keyGenerator` widzi już gotowe `req.klient`
+i surowy nagłówek nie ma jak tam trafić. Zapis w planie mówił „jako `preHandler`"
+i był **błędny**: wzięty dosłownie odtwarzałby lukę z zadania 8.1. Potwierdzone
+odwróceniem — po przestawieniu hooka na `preHandler` obaj klienci wpadają do
+wspólnego kubełka po adresie.
+
+**2. `npm test` jest hermetyczny i ma taki zostać.** Sześć zestawów, żaden nie
+wymaga bazy ani danych — budują sobie atrapę artefaktu produkcyjnym `buildIndex`.
+Dzięki temu podniesienie formatu artefaktu do wersji 2 przez równoległą sesję
+przeszło **bez jednej zmiany w kodzie testów**; wystarczyło przebudować plik.
+Zestawy wymagające bazy stoją osobno: `npm run test:baza`.
+
+**3. Nie osłabiaj `limit-obejscie.ts`.** Gdy sczerwienieje po zmianie
+w uwierzytelnianiu, znaczy to, że kubełek limitu przestał być liczony po
+zweryfikowanym kliencie — a nie że asercja jest za ostra. W nagłówku pliku są
+cztery instrukcje odtworzenia luki, każda dla innej drogi powrotu.
+
+### Zmierzone
+
+| co | wynik |
+|---|---|
+| Koszt uwierzytelniania | **34–36 µs** na p50, przy budżecie 300 µs |
+| Ta sama liczba, drugą metodą | ~50 µs (`koszt-uwierzytelnienia.ts`, bez serwera) |
+| Zbieżność unieważnienia | 25–100 ms kanałem `NOTIFY`, gwarantowane ~10 s odpytywaniem |
+| Bramka jakości po zmianach | 28 przypadków, **zero odstępstw**, na pełnych danych |
+
+**Kryterium 8.8 wymagało sprostowania.** „+0,3 ms do p99" nie mierzy kosztu
+żądania. Seria kontrolna z **dokładnie znanym** kosztem 500 µs wstrzykniętym
+w ścieżkę uwierzytelniania pokazuje się na p50 jako +0,63 ms (wiernie, 1,25×),
+a na p99 jako +32 do +48 ms — zawyżenie 51–96×, przy czym sam współczynnik jest
+niestabilny. Ogonem rządzą pauzy odśmiecania, a koszt na żądanie tylko przesuwa
+ich prawdopodobieństwo. Próg egzekwujemy więc na p50, gdzie seria kontrolna
+dowodzi wierności pomiaru.
+
+### Czego NIE zweryfikowano
+
+Wydajność mierzono na **atrapie artefaktu**, nie na pełnym kraju. Koszt
+uwierzytelniania jest niezależny od danych adresowych i temu ufam; wartości
+bezwzględne p50/p95/p99 nie są porównywalne z produkcją.
+
+`app.inject()` **przecieka** ~10 kB na żądanie: 50 tys. wywołań podnosi stertę
+z 10 MB do 468 MB. Ta sama trasa przez prawdziwe gniazdo nie rośnie wcale, więc
+ścieżka produkcyjna jest czysta — ale przyrząd pomiarowy ma sufit rzędu 400 tys.
+wywołań na proces. Docelowo: osobny proces na serię.
+
+### Zanim wdrożysz
+
+1. `psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/004_licencje.sql`
+2. Ustaw `API_KEY_PEPPER_1` — **bez niego serwis nie wstanie**, bo domyślką
+   `API_KEY_MODE` jest od zadania 8.9 `wymagany`
+3. Wystaw pierwszy klucz: `npm run klucze -- wystaw --klient <ID>`
+4. Zabezpiecz kopię pieprza. Jego utrata unieważnia **wszystkie** klucze i nie
+   da się jej odwrócić z kopii bazy, bo baza zawiera same skróty (zadanie 8.22)
+
+---
+
+## 9. Od czego zacząć w nowej sesji
 
 ### PIERWSZA RZECZ: odczytaj wynik nocnego przebiegu
 

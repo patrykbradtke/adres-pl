@@ -312,11 +312,11 @@ zapytaniem, bez skanu tabeli.
 | 8.2 | ~~Model danych: `klient`, `klucz_api`, `zuzycie`~~ **WYKONANE 9.08.2026** — `db/migrations/004_licencje.sql`, osobny schemat `licencje` bez kluczy obcych w stronę `adres` (bo `e2e.sh` robi `TRUNCATE adres.* CASCADE`), unikat na skrócie **pełny, nie częściowy**, wyzwalacze `NOTIFY` na obu tabelach | — |
 | 8.3 | ~~Generowanie i weryfikacja klucza w `@adres-pl/core`~~ **WYKONANE 9.08.2026** — `core/src/api-key.ts` bez ani jednego importu `node:*` (własny base64url i CRC32), suma kontrolna liczona **bez pieprza**, bo skaner wycieków musi potwierdzić kształt klucza bez naszego sekretu; HMAC z rotacją w `api/src/keys/pepper.ts` | — |
 | 8.4 | ~~Uwierzytelnianie i limitowanie po zweryfikowanym kliencie~~ **WYKONANE 9.08.2026** — **zapis „jako `preHandler`" był błędny**, patrz sprostowanie niżej. Hook w `onRequest` poziomu instancji, pełna replika rejestru w pamięci zamiast cache, drugi poziom limitu dla ruchu bez ważnego klucza | — |
-| 8.5 | Limity i kwoty per klient, magazyn współdzielony między instancjami | 1,5 d |
-| 8.6 | Cykl życia klucza: rotacja bezprzerwowa, okres przejściowy, unieważnianie | 1,5 d |
-| 8.7 | Endpointy administracyjne pod panel (klucz jawny pokazywany raz) | 1,5 d |
-| 8.8 | Test wydajnościowy: próg regresji nie więcej niż +0,3 ms do p99 — **część a wykonana 9.08.2026**: przyrząd `npm run bench` mierzy pełny cykl życia żądania i **własną czułość**; próg jest mierzalny dopiero przy 180 tys. żądań na serię | 0,75 d |
-| 8.9 | Zgłoszenie prefiksu do wykrywania wycieków, dokumentacja dla integratorów | 0,75 d |
+| 8.5 | ~~Limity i kwoty per klient~~ **WYKONANE 10.08.2026** — limit minutowy lokalnie, kwota miesięczna przez Postgresa zapisem zbiorczym; jednostką rozliczeniową wsadu jest liczba pozycji, nie żądań | — |
+| 8.6 | ~~Cykl życia klucza~~ **WYKONANE 10.08.2026** — rotacja bezprzerwowa, unieważnienie jednym `UPDATE`, rotacja pieprza jako wymiana kluczy, `docs/runbook-klucze.md` | — |
+| 8.7 | ~~Endpointy administracyjne~~ **WYKONANE 10.08.2026** — 6 tras poza `/v1`, po angielsku, z odrębnym mechanizmem; klucz kliencki ich nie otwiera | — |
+| 8.8 | ~~Test wydajnościowy: próg regresji~~ **WYKONANE 10.08.2026** — koszt uwierzytelniania **34–36 µs na p50** wobec budżetu 300 µs, potwierdzony dwiema niezależnymi metodami. Kryterium wymagało sprostowania: p99 nie mierzy kosztu żądania (patrz niżej) | — |
+| 8.9 | ~~Włączenie wymogu klucza, dokumentacja, zgłoszenie prefiksu~~ **WYKONANE 10.08.2026** — domyślka `API_KEY_MODE` przełączona na `wymagany`, `docs/zgloszenie-prefiksu.md`, sekcja zmiennych środowiskowych w README | — |
 
 **Sprostowanie zapisu 8.4 (9.08.2026): `preHandler` był błędem.** Rekomendacja
 mówiła „plugin uwierzytelniający Fastify jako `preHandler`". Wzięta dosłownie,
@@ -345,6 +345,35 @@ wyglądającą tak samo i wartą zero. Przy okazji sprostowano atrybucję: wiers
 „pełna ścieżka HTTP" w `STAN-PRAC.md` i `alerty.yaml` był przypisany skryptowi
 `bench-realny.ts`, który Fastify w ogóle nie dotyka — hook uwierzytelniający
 nie wykonuje się tam wcale, więc pomiar „przed i po" pokazywałby zero.
+
+**Sprostowanie kryterium 8.8 (10.08.2026): p99 nie mierzy kosztu żądania.**
+Kryterium brzmi „próg regresji nie więcej niż +0,3 ms do p99". Pomiar pokazał,
+że tak sformułowane **nie jest miarą kosztu jednego żądania**, tylko zachowania
+ogona rozkładu.
+
+Dowodem jest seria kontrolna z **dokładnie znanym** kosztem 500 µs wstrzykniętym
+w ścieżkę uwierzytelniania:
+
+| miara | delta serii kontrolnej | wobec znanych 500 µs |
+|---|---|---|
+| p50 | +0,63 ms | 1,25× — wiernie |
+| p95 | +5,3 ms | 10× |
+| p99 | +32 do +57 ms | **51–96×**, i sam współczynnik jest niestabilny |
+
+Ogonem rządzą pauzy odśmiecania i szeregowanie procesów; koszt na żądanie tylko
+przesuwa ich prawdopodobieństwo. Próg egzekwujemy więc na **p50**, gdzie seria
+kontrolna dowodzi wierności pomiaru, a p95 i p99 raportujemy informacyjnie.
+
+**Zmierzony koszt uwierzytelniania: 34–36 µs na p50** (trzy niezależne przebiegi) przy budżecie 300 µs — ośmiokrotny
+zapas. Potwierdza to niezależny mikropomiar samej ścieżki weryfikacji
+(`koszt-uwierzytelnienia.ts`, ~50 µs na wywołanie), więc dwie różne metody dają
+tę samą liczbę.
+
+**Wyciek w `app.inject()` (10.08.2026).** Przy okazji: `app.inject()` zatrzymuje
+około 10 kB na żądanie — 50 tys. wywołań podnosi stertę z 10 MB do 468 MB. Ta sama
+trasa przez prawdziwe gniazdo nie rośnie wcale. Wyciek siedzi w bibliotece
+testowej, **nie w ścieżce produkcyjnej**; nakłada jednak sufit ~400 tys. wywołań
+na proces. Docelowo: osobny proces na serię.
 
 **Zastrzeżenie weryfikacji — nie budować cache w Redisie.** Rekomendacja
 proponowała dwa poziomy cache (w procesie + Redis). Weryfikator wykazał błąd:

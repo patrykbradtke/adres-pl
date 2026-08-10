@@ -21,8 +21,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const WERSJA = '1.6';
-const DATA = '9 sierpnia 2026';
+const WERSJA = '1.7';
+const DATA = '10 sierpnia 2026';
 
 const W = 9026;                 // szerokosc kolumny tekstu A4 przy marginesach 1"
 const C = {
@@ -234,14 +234,14 @@ children.push(table(
     ['Baza danych', 'Gotowe', 'Schemat, indeksy, publikacja transakcyjna'],
     ['Kontrole jakości danych', 'Gotowe', '5 kontroli, każda odpowiada realnemu incydentowi'],
     ['Silnik wyszukiwania', 'Gotowe', 'Mediana 1,7 ms na pełnym kraju, przez interfejs HTTP — patrz 8.6'],
-    ['Mikroserwis HTTP', 'Gotowe', '11 punktów końcowych /v1 oraz 4 operacyjne — patrz 5.4'],
+    ['Mikroserwis HTTP', 'Gotowe', '11 punktów końcowych /v1, 4 operacyjne oraz 6 operatorskich — patrz 5.4'],
     ['Reguły walidacji adresu', 'Gotowe', 'Format, zgodność z rejestrem, poziomy pewności'],
     ['Import słowników TERYT', 'Gotowe', 'Pliki pełne z eTeryt, bez konta w GUS'],
     ['Metryki i reguły alertów', 'Gotowe', '17 metryk pod /metrics, 7 reguł alertów, manifest zadania cyklicznego'],
     ['Odbiorca metryk i pulpit operacyjny', 'Gotowe', 'Uruchomiony 9.08.2026 — zbieranie metryk, reguły wczytane, jeden ekran stanu usługi'],
     ['Uruchomienie na pełnym zbiorze', 'Gotowe', 'Wszystkie 16 województw opublikowane 9.08.2026: 8 605 682 punkty — patrz 8.3'],
     ['Powiadomienia i zasady eskalacji', 'Do zrobienia', 'Zbieranie i pulpit działają; brakuje realnego kanału powiadomień i ustalenia, co budzi w nocy'],
-    ['Uwierzytelnianie klientów API', 'Do zrobienia', 'Serwis nie weryfikuje dziś tożsamości klienta — patrz 5.5'],
+    ['Uwierzytelnianie klientów API', 'Gotowe', 'Klucze API z licencjami, limitami i kwotami — wdrożone 10.08.2026, patrz 5.5'],
     ['Kopie zapasowe poza maszyną', 'Do zrobienia', 'Archiwum i zrzut bazy leżą wyłącznie na dysku lokalnym — patrz 7.3'],
     ['Automatyzacja cyklu aktualizacji', 'Do zrobienia', 'Uruchomienie zadania cyklicznego, wznawianie przerwanych przebiegów'],
     ['Drugie źródło danych (iMPA)', 'Do zrobienia', 'Zabezpieczenie na wypadek awarii źródła podstawowego'],
@@ -266,7 +266,7 @@ children.push(P(
 children.push(table(
   { head: ['Brak', 'Na czym polega', 'Nakład'], widths: [2500, 4926, 1600] },
   [
-    ['Serwis nie uwierzytelnia klientów', 'Serwis nie weryfikuje tożsamości klienta, więc nie da się rozdzielić limitów ani rozliczeń per klient. Do czasu naprawy nie powinien opuszczać sieci wewnętrznej. Możliwość obejścia limitowania zamknięto 8.08.2026 — patrz 5.5', '9–11 dni'],
+    ['Uwierzytelnianie klientów API — ZAMKNIĘTE', 'Zamknięte 10.08.2026. Klucze API z terminem ważności, limitami per klient i kwotami miesięcznymi. Limitowanie idzie po zweryfikowanej tożsamości — patrz 5.5', 'wykonane'],
     ['Kopie zapasowe nie opuszczają maszyny', 'Archiwum plików źródłowych i zrzut bazy leżą wyłącznie na dysku roboczym. Deklarowany czwarty poziom odporności na awarię źródła nie istnieje jeszcze fizycznie', '5–7 dni'],
     ['Alerty nie mają adresata', 'Zbieranie metryk i pulpit operacyjny uruchomiono 9.08.2026, więc awarie są już widoczne. Brakuje realnego kanału powiadomień oraz ustalenia, kto co dostaje i co budzi w nocy', '3–5 dni'],
   ],
@@ -516,7 +516,7 @@ children.push(P(
   'Mikroserwis udostępnia interfejs REST. Poniższa tabela opisuje zakres funkcjonalny ' +
   'w ujęciu produktowym. Wiążącym kontraktem dla zespołów integrujących jest od ' +
   '9 sierpnia 2026 formalna specyfikacja OpenAPI, dostarczana wraz z serwisem: podaje ' +
-  'metody, ścieżki, parametry, kody odpowiedzi i przykłady dla wszystkich piętnastu tras.'));
+  'metody, ścieżki, parametry, kody odpowiedzi i przykłady dla wszystkich dwudziestu jeden tras.'));
 
 children.push(P(
   'Kształty odpowiedzi w specyfikacji zdjęto z odpytania działającej usługi na pełnych ' +
@@ -570,21 +570,46 @@ children.push(...box(
 ));
 
 children.push(...box(
-  'Pozostaje otwarte: serwis nie uwierzytelnia klientów',
+  'Zamknięte 10.08.2026: uwierzytelnianie klientów i klucze z licencjami',
   [
-    'W mikroserwisie nadal nie ma mechanizmu weryfikacji tożsamości klienta. Nagłówek klucza API nie jest z niczym porównywany i nie pełni już żadnej funkcji.',
-    'Konsekwencja jest produktowa, nie tylko techniczna: bez zweryfikowanej tożsamości nie da się nadać klientom różnych limitów, rozliczyć ruchu ani odciąć pojedynczego odbiorcy. Wszyscy dzielą jeden limit liczony po adresie sieciowym.',
-    'Dodatkowo liczniki limitera żyją w pamięci pojedynczej instancji, więc przy kilku replikach efektywny limit mnoży się przez ich liczbę, a polityka pochodzenia zapytań (CORS) domyślnie dopuszcza dowolne źródło.',
-    'Wniosek pozostaje w mocy: do czasu wdrożenia kluczy API z licencjami serwis nie powinien być wystawiany poza sieć wewnętrzną Zamawiającego.',
+    'Serwis weryfikuje tożsamość klienta kluczem API przekazywanym w nagłówku. Klucz ma postać rozpoznawalnego prefiksu, części tajnej i sumy kontrolnej; jest pokazywany jeden raz, przy wystawieniu, a usługa przechowuje wyłącznie jego skrót kryptograficzny liczony z dodatkowym sekretem trzymanym poza bazą. Zrzut bazy danych — kopia zapasowa, replika, zrzut diagnostyczny — nie pozwala odtworzyć żadnego klucza.',
+    'Kluczem limitowania jest od tej chwili zweryfikowana tożsamość klienta, a nie wartość przysłana w żądaniu. Rozróżnienie jest istotne, bo to właśnie ono odróżnia obecny stan od luki zamkniętej 8 sierpnia: wszystkie klucze jednego klienta dzielą wspólny licznik, więc wystawienie sobie dodatkowego klucza nie podnosi przepustowości.',
+    'Ruch bez ważnego klucza podlega osobnemu, niższemu limitowi liczonemu po adresie sieciowym. Bez tego zgadywanie kluczy byłoby nieograniczone, ponieważ żądanie odrzucone na wejściu nie dociera do właściwego limitera.',
+    'Klucz ma termin ważności i daje się unieważnić natychmiast. Unieważnienie dociera do wszystkich instancji usługi w czasie poniżej sekundy, a gwarantowany czas zbieżności wynosi około dziesięciu sekund niezależnie od stanu kanału powiadomień. Rotacja przebiega bez przerwy w dostępie: następca powstaje obok poprzednika, który przez ustalony okres przejściowy nadal działa.',
   ],
-  C.stop,
+  C.ok,
 ));
 
-children.push(LEAD('Pełne rozwiązanie — 9–11 dni. ',
-  'Klucze API z terminem ważności, limitami i licencjami, wraz z limitowaniem ' +
-  'współdzielonym między instancjami, opisano w rozdziale 10 jako etap komercjalizacji. ' +
-  'Dopiero wtedy kluczem limitowania może ponownie stać się tożsamość klienta — ' +
-  'wyłącznie taka, która została wcześniej zweryfikowana.'));
+children.push(...box(
+  'Rozliczanie i podział klientów',
+  [
+    'Każdy klient ma własny limit zapytań na minutę oraz opcjonalną kwotę miesięczną. Kwota liczona jest w jednostkach rozliczeniowych, a nie w żądaniach — walidacja wsadowa zużywa tyle jednostek, ile adresów zawiera. Rozróżnienie jest konieczne, bo bez niego klient rozliczany w żądaniach obchodziłby kwotę, pakując tysiąc adresów w jedno zapytanie.',
+    'Limit minutowy chroni przed przeciążeniem i jest liczony w pamięci pojedynczej instancji; przy wielu replikach łączna przepustowość jest odpowiednio wyższa i tak należy go zapisywać w umowie. Kwota miesięczna, jako podstawa faktury, jest wspólna dla wszystkich instancji i utrwalana w bazie.',
+    'Zarządzanie klientami i kluczami odbywa się przez sześć punktów operatorskich, celowo umieszczonych poza przestrzenią interfejsu klienckiego i zabezpieczonych odrębnym mechanizmem. Klucz kliencki nie otwiera żadnego z nich — inaczej dowolny klient mógłby wystawić sobie klucz bez ograniczeń.',
+  ],
+  C.ok,
+));
+
+children.push(...box(
+  'Zachowanie przy awarii bazy danych',
+  [
+    'Weryfikacja klucza nie odpytuje bazy. Usługa utrzymuje pełną replikę rejestru kluczy w pamięci procesu, odświeżaną kanałem powiadomień i cyklicznym zapytaniem. Dzięki temu niedostępność bazy nie odcina klientów, a podpowiedzi adresowe — które bazy nie potrzebują — działają dalej.',
+    'Cena tego rozwiązania jest ograniczona i mierzalna: przez czas awarii klucz unieważniony kilka minut wcześniej nadal działa. Jest to okno, a nie luka, i domyka je próg wieku repliki — po jego przekroczeniu instancja przestaje zgłaszać gotowość i wypada z ruchu, dzięki czemu awaria staje się widoczna zamiast być po cichu tolerowana.',
+  ],
+  C.warn,
+));
+
+children.push(LEAD('Koszt uwierzytelniania. ',
+  'Zmierzony narzut na żądanie wynosi 34–36 mikrosekund przy przyjętym budżecie ' +
+  '300 mikrosekund, co potwierdzono dwiema niezależnymi metodami pomiaru. Weryfikacja ' +
+  'nie wykonuje żadnego zapytania do bazy danych ani do usług zewnętrznych.'));
+
+children.push(LEAD('Co pozostaje do wykonania. ',
+  'Wystawianie kluczy odbywa się dziś przez punkty operatorskie i narzędzie wiersza ' +
+  'poleceń; panel administracyjny z rolami wymaga wcześniejszego wdrożenia rejestru ' +
+  'wydań i dziennika zmian (etapy 4 i 5). Kopia zapasowa sekretu użytego do skrótów ' +
+  'kluczy jest pozycją etapu 8C i wymaga uwagi: jego utrata unieważnia wszystkie klucze ' +
+  'bez możliwości odtworzenia z kopii bazy danych.'));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -1186,7 +1211,7 @@ children.push(P(
 children.push(...box(
   'Co można odłożyć, a czego nie',
   [
-    'Etap 8 w całości dotyczy komercjalizacji. Jeśli nie jest ona celem pierwszego wdrożenia, można go odłożyć — jedyna pozycja pilna niezależnie od tej decyzji, zamknięcie luki w limitowaniu zapytań, została wykonana 8.08.2026 (rozdz. 5.5).',
+    'Etap 8 dotyczy komercjalizacji. Jego pierwsza część — uwierzytelnianie klientów i klucze z licencjami (8A) — została wykonana 10.08.2026 i zdejmuje ograniczenie „wyłącznie sieć wewnętrzna” (rozdz. 5.5). Pozostałe części, wielodostępność i kopie zapasowe na osobną maszynę, można odłożyć, jeśli komercjalizacja nie jest celem pierwszego wdrożenia.',
     'Etapy 4 i 5 muszą poprzedzać prace nad panelem administracyjnym — bez rejestru wydań i dziennika zmian nie ma czym zarządzać.',
     'Z etapu 7 warto wykonać wcześnie dwie pierwsze pozycje (odbiorca metryk i pulpit operacyjny, ok. 3 dni). Zaczynają się zwracać już w trakcie etapów 1 i 2, bo dziś przebieg przetwarzania jest nieprzejrzysty.',
     'Etap 2 przed etapem 3, żeby nie przenosić problemów wydajnościowych do nowej struktury.',
@@ -1267,7 +1292,7 @@ children.push(table(
     ['Artefakt indeksu', 'Niezmienny plik zawierający strukturę wyszukiwania, wytwarzany przez proces przetwarzania i ładowany przez mikroserwis'],
     ['Obszar przejściowy', 'Wydzielona część bazy danych, do której trafiają dane przed weryfikacją i publikacją'],
     ['Punkt końcowy', 'Pojedynczy adres funkcji w interfejsie REST — jedna operacja, którą aplikacja może wywołać'],
-    ['Klucz API', 'Poświadczenie identyfikujące aplikację klienta. Podstawa limitowania zapytań i rozliczania. W obecnej wersji nieweryfikowany — patrz 5.5'],
+    ['Klucz API', 'Poświadczenie identyfikujące aplikację klienta. Podstawa limitowania zapytań i rozliczania. Weryfikowane od 10.08.2026; serwis przechowuje wyłącznie skrót — patrz 5.5'],
     ['Wielodostępność', 'Obsługa wielu klientów przez jedną instalację, z rozdzieleniem limitów, uprawnień i rozliczeń'],
     ['Metryka', 'Liczba udostępniana przez usługę na potrzeby monitorowania, np. wiek danych lub czas odpowiedzi'],
     ['Sonda gotowości', 'Zapytanie kontrolne, na podstawie którego środowisko uruchomieniowe decyduje, czy kierować ruch do danej instancji'],

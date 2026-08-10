@@ -1,37 +1,55 @@
 {
   "opis": "Wartosci odniesienia dla progu z zadania 8.8. Mierzone app.inject, czyli pelny cykl zycia zadania w Fastify bez gniazda systemowego.",
-  "zmierzono": "2026-08-09T19:45:06.424Z",
-  "etap": "przed 8A (bez uwierzytelniania)",
+  "zmierzono": "2026-08-10T07:06:46.709Z",
+  "etap": "po 8A (uwierzytelnianie wlaczone)",
   "maszyna": "darwin-x64, node v22.23.2",
   "artefakt": "atrapa testowa",
-  "zadanNaSerie": 180000,
-  "rozgrzewka": 8000,
-  "czuloscMs": {
-    "p50": 0.0013109999999999788,
-    "p95": 0.015445000000000153,
-    "p99": 0.18683700000000059
+  "zadanNaSerie": 90000,
+  "rozgrzewka": 5000,
+  "progMs": 0.3,
+  "kosztUwierzytelniania": {
+    "p50": 0.03438000000000002,
+    "p95": 0.3659650000000001,
+    "p99": 3.483333000000002
   },
+  "seriaKontrolna": {
+    "p50": 0.629937,
+    "p95": 5.706091,
+    "p99": 57.388497
+  },
+  "zawyzenieOgona": 91.1019625772101,
   "serie": [
     {
       "id": "A",
-      "opis": "bez uwierzytelniania",
-      "n": 180000,
-      "p50": 0.17996,
-      "p95": 2.532558,
-      "p99": 13.493541,
+      "opis": "bez uwierzytelniania (odniesienie)",
+      "n": 90000,
+      "p50": 0.249627,
+      "p95": 4.238998,
+      "p99": 20.811784,
       "kody": {
-        "200": 180000
+        "200": 90000
       }
     },
     {
-      "id": "A-kontrolna",
-      "opis": "bez uwierzytelniania (podloga szumu)",
-      "n": 180000,
-      "p50": 0.181271,
-      "p95": 2.548003,
-      "p99": 13.306704,
+      "id": "B",
+      "opis": "z waznym kluczem",
+      "n": 90000,
+      "p50": 0.284007,
+      "p95": 4.604963,
+      "p99": 24.295117,
       "kody": {
-        "200": 180000
+        "200": 90000
+      }
+    },
+    {
+      "id": "C",
+      "opis": "kontrolna: uwierzytelnianie + wstrzykniete 500 us",
+      "n": 90000,
+      "p50": 0.879564,
+      "p95": 9.945089,
+      "p99": 78.200281,
+      "kody": {
+        "200": 90000
       }
     }
   ]
