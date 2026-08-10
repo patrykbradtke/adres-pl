@@ -12,7 +12,7 @@
  *   - dodaj `import ... from 'node:crypto'` w core/src -> kontrola 6
  *   - zamien crc32(secret) na crc32(secret + pieprz)   -> kontrola 7
  *
- *   node --experimental-strip-types packages/core/test/api-key.ts
+ *   node --experimental-strip-types packages/core/test/klucz-api.ts
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

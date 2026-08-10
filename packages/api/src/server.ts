@@ -17,73 +17,16 @@ import { registerSearchRoutes } from './routes/search.ts';
 import { registerLookupRoutes } from './routes/lookup.ts';
 import { registerValidateRoutes } from './routes/validate.ts';
 import { registerMetricsRoutes, Metrics } from './routes/metrics.ts';
-import { registerAuth, type ApiKeyMode } from './keys/auth.ts';
+import { registerAuth } from './keys/auth.ts';
 import { KeyRegistry } from './keys/registry.ts';
-import { Peppers, pepperEntriesFromEnv } from './keys/pepper.ts';
-
-export interface ServerConfig {
-  port: number;
-  host: string;
-  databaseUrl: string;
-  indexSource: string;
-  indexPointer?: string;
-  indexPollMs: number;
-  rateLimitMax: number;
-  trustProxy: boolean | number | string;
-  corsOrigin: string | string[] | boolean;
-  /** Etap 8A. Domyslnie wylaczony - wlaczenie jest osobna decyzja (8.9). */
-  apiKeyMode: ApiKeyMode;
-  /** Limit na minute z jednego adresu dla ruchu bez waznego klucza. */
-  rateLimitNieuwierzytelniony: number;
-  kluczeOdswiezanieMs: number;
-  /** Pieprze jako zwykle dane - konfiguracja pozostaje serializowalna. */
-  pieprze: Array<[number, string]>;
-  pieprzAktywny: number | null;
-}
+import { Peppers } from './keys/pepper.ts';
+import { loadConfig, type ServerConfig } from './config.ts';
 
 /**
- * Zaufanie do naglowkow proxy przy ustalaniu adresu klienta.
- *
- * Domyslnie WYLACZONE i to jest celowe: gdy proces stoi bezposrednio na porcie,
- * wlaczenie pozwoliloby dowolnemu klientowi podac wlasny X-Forwarded-For, a wiec
- * wlasny klucz limitowania - czyli dokladnie ta luke, ktora zamyka zadanie 8.1.
- *
- * Za ingressem ustawic liczbe przeskokow (TRUST_PROXY=1) albo liste CIDR
- * zaufanych proxy. Bez tego caly ruch wpada do jednego kubelka po adresie
- * ingressu i limit dziala na cala instalacje zamiast na klienta.
+ * Reeksport dla zgodnosci: kilkanascie testow i skryptow importuje loadConfig
+ * oraz parseTrustProxy z tego modulu. Definicje mieszkaja w ./config.ts.
  */
-export function parseTrustProxy(v?: string): boolean | number | string {
-  if (!v || v === 'false') return false;
-  if (v === 'true') return true;
-  const hops = Number(v);
-  return Number.isInteger(hops) && hops >= 0 ? hops : v;
-}
-
-export function loadConfig(env = process.env): ServerConfig {
-  return {
-    port: Number(env.PORT ?? 3000),
-    host: env.HOST ?? '0.0.0.0',
-    databaseUrl: env.DATABASE_URL ?? 'postgres://adres:adres@localhost:5432/adres',
-    indexSource: env.INDEX_SOURCE ?? './data/index/current.bin',
-    indexPointer: env.INDEX_POINTER,
-    indexPollMs: Number(env.INDEX_POLL_MS ?? 60_000),
-    rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 600),
-    trustProxy: parseTrustProxy(env.TRUST_PROXY),
-    corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : true,
-    // loadConfig zostaje CZYSTA i nie rzuca, takze przy niespojnej konfiguracji
-    // (np. tryb wymagany bez pieprza). Kontrola spojnosci siedzi w buildServer -
-    // dzieki temu da sie zbadac sama konfiguracje, nie stawiajac serwera.
-    apiKeyMode: parseApiKeyMode(env.API_KEY_MODE),
-    rateLimitNieuwierzytelniony: Number(env.RATE_LIMIT_NIEUWIERZYTELNIONY ?? 60),
-    kluczeOdswiezanieMs: Number(env.KLUCZE_ODSWIEZANIE_MS ?? 10_000),
-    ...(() => { const { sekrety, aktywna } = pepperEntriesFromEnv(env); return { pieprze: sekrety, pieprzAktywny: aktywna }; })(),
-  };
-}
-
-/** Nieznana wartosc daje 'wylaczony' - najbezpieczniejsza wobec zgodnosci wstecz. */
-export function parseApiKeyMode(v?: string): ApiKeyMode {
-  return v === 'wymagany' || v === 'opcjonalny' || v === 'wylaczony' ? v : 'wylaczony';
-}
+export { loadConfig, parseTrustProxy, parseApiKeyMode, type ServerConfig } from './config.ts';
 
 export interface BuildOptions {
   /**
@@ -164,6 +107,26 @@ export async function buildServer(
     await rejestr.start();
   }
 
+  /**
+   * DWIE OSIE KOLEJNOSCI - NIE PRZESTAWIAC BEZ PRZECZYTANIA TEGO.
+   *
+   * Ponizej limiter jest rejestrowany PRZED uwierzytelnianiem, co wyglada
+   * odwrotnie do wymagania bezpieczenstwa. Obie kolejnosci sa poprawne, bo
+   * dotycza czego innego:
+   *
+   *   REJESTRACJA (ten plik, z gory na dol): limiter musi byc pierwszy, bo
+   *   registerAuth uzywa app.createRateLimit, ktore powstaje dopiero przy
+   *   rejestracji wtyczki. Odwrocenie da blad przy starcie.
+   *
+   *   WYKONANIE (w czasie zadania): uwierzytelnianie biegnie PIERWSZE, bo jego
+   *   hook jest hookiem INSTANCJI, a limiter dokleja sie per trasa - Fastify
+   *   sklada tablice jako this[kHooks][hook].concat(opts[hook] || [])
+   *   (lib/route.js:391). Dlatego keyGenerator widzi juz gotowe req.klient.
+   *
+   * Konsekwencja praktyczna: kolejnosci REJESTRACJI nie da sie zamienic, a
+   * kolejnosc WYKONANIA nie zalezy od niej wcale. Szczegoly i numery linii
+   * w zrodlach - w naglowku keys/auth.ts.
+   */
   await app.register(rateLimit, {
     /**
      * Limit zalezy od ZWERYFIKOWANEGO klienta, a nie od czegokolwiek, co

@@ -22,7 +22,7 @@
  * ten sam kod ma dzialac w przegladarce w panelu administracyjnym. Losowosc
  * bierzemy z Web Crypto (`globalThis.crypto`), obecnego i w Node 22, i w
  * przegladarkach. HMAC z pieprzem to osobna sprawa i mieszka po stronie
- * serwera - patrz packages/api/src/klucze/pieprz.ts.
+ * serwera - patrz packages/api/src/keys/pepper.ts.
  */
 
 export type ApiKeyEnvironment = 'test' | 'live';
@@ -36,10 +36,27 @@ export const API_KEY_SECRET_BYTES = 24;
 export const API_KEY_SECRET_CHARS = 32;
 /** Suma kontrolna: 4 bajty CRC32 -> 6 znakow base64url. */
 export const API_KEY_CHECKSUM_CHARS = 6;
-/** `adr_live_` (9) + sekret (32) + `_` (1) + suma (6). */
-export const API_KEY_LENGTH = 48;
+/**
+ * Oba prefiksy maja ROWNA dlugosc i to jest warunek rozbioru: sekret wycinamy
+ * po stalym przesunieciu, bez sprawdzania, ktory prefiks wystapil.
+ */
+export const API_KEY_PREFIX_CHARS = API_KEY_PREFIX_LIVE.length;
 
-export const RE_API_KEY = /^adr_(live|test)_[A-Za-z0-9_-]{32}_[A-Za-z0-9_-]{6}$/;
+/** prefiks + sekret + separator + suma. Liczone, nie wpisane - patrz nizej. */
+export const API_KEY_LENGTH =
+  API_KEY_PREFIX_CHARS + API_KEY_SECRET_CHARS + 1 + API_KEY_CHECKSUM_CHARS;
+
+/**
+ * Wzorzec BUDOWANY ze stalych, nie wpisany.
+ *
+ * Format byl zapisany trzy razy niezaleznie: w stalych, w recznie policzonej
+ * dlugosci 48 i w literale wyrazenia regularnego. Zmiana ktorejkolwiek stalej
+ * nie ruszala pozostalych dwoch, a rozjazd bylby CICHY - generator wytwarzalby
+ * klucze, ktorych wlasny rozbior juz by nie przyjmowal.
+ */
+export const RE_API_KEY = new RegExp(
+  '^adr_(live|test)_[A-Za-z0-9_-]{' + API_KEY_SECRET_CHARS + '}' +
+  '_[A-Za-z0-9_-]{' + API_KEY_CHECKSUM_CHARS + '}$');
 
 export interface ApiKeyParts {
   environment: ApiKeyEnvironment;
