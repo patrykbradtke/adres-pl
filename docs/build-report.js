@@ -621,8 +621,9 @@ children.push(...box(
 
 children.push(LEAD('Koszt uwierzytelniania. ',
   'Zmierzony narzut na żądanie wynosi 34–36 mikrosekund przy przyjętym budżecie ' +
-  '300 mikrosekund, co potwierdzono dwiema niezależnymi metodami pomiaru. Weryfikacja ' +
-  'nie wykonuje żadnego zapytania do bazy danych ani do usług zewnętrznych.'));
+  '300 mikrosekund, co potwierdzono dwiema niezależnymi metodami pomiaru. Sam przyrząd ' +
+  'przeszedł przy tym próbę kontrolną z celowo wstrzykniętym opóźnieniem — rozdział 8.6. ' +
+  'Weryfikacja nie wykonuje żadnego zapytania do bazy danych ani do usług zewnętrznych.'));
 
 children.push(LEAD('Co pozostaje do wykonania. ',
   'Wystawianie kluczy odbywa się dziś przez punkty operatorskie i narzędzie wiersza ' +
@@ -1160,6 +1161,16 @@ children.push(...box(
     'Przyrząd mierzący pełny cykl życia żądania powstał 9.08.2026 wraz z pomiarem własnej czułości — patrz rozdział 10, prace równoległe.',
   ],
   C.warn,
+));
+
+children.push(SPACER());
+children.push(...box(
+  'Próba kontrolna: czy przyrząd w ogóle cokolwiek wykrywa',
+  [
+    'Wniosek z powyższego sprostowania zastosowano od razu do pomiaru kosztu uwierzytelniania z rozdziału 5.5. Obok serii odniesienia (ścieżka bez uwierzytelniania) i serii właściwej (z ważnym kluczem) wykonano trzecią, kontrolną: tę samą ścieżkę z celowo wstrzykniętym opóźnieniem 500 mikrosekund. Przyrząd musiał to opóźnienie pokazać — bez takiej próby wynik „narzut 34–36 mikrosekund” byłby nie do odróżnienia od wyniku przyrządu ślepego na wszystko, a dokładnie ten błąd opisano akapit wyżej.',
+    'Wstrzykiwanie opóźnienia jest przełącznikiem w kodzie usługi, sterowanym zmienną środowiskową. Konfiguracja produkcyjna zeruje go twardo, ale sam ten warunek gwarantuje mniej, niż sugeruje: w wielu wdrożeniach znacznik środowiska po prostu nie jest ustawiany. Nie jest to droga wejścia z zewnątrz — kto ustawia zmienne środowiskowe procesu, ten już go kontroluje — jest to natomiast przełącznik, który da się zostawić włączony przez pomyłkę w konfiguracji wdrożenia. Dlatego usługa wypisuje ostrzeżenie przy każdym starcie z wartością niezerową: furtka pomiarowa nie może być włączona po cichu.',
+  ],
+  C.head,
 ));
 
 children.push(SPACER());
