@@ -221,7 +221,7 @@ export async function buildServer(
 
   await holder.start();
 
-  registerMetricsRoutes(app, pool, holder, metrics, rejestr);
+  registerMetricsRoutes(app, pool, holder, metrics, rejestr, pieprze ?? undefined);
   registerSearchRoutes(app, holder);
   registerLookupRoutes(app, pool);
   registerValidateRoutes(app, pool, holder);

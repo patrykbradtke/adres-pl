@@ -94,6 +94,8 @@ export function registerMetricsRoutes(
   rejestr?: {
     rozmiar: number; wiekMs: number; zaladowana: boolean; liczbaPowiadomien: number;
   },
+  /** Do odcisku zestawu pieprzy w /status - patrz komentarz przy uzyciu. */
+  pieprze?: { fingerprint(): Array<{ version: number; odcisk: string }> },
 ): void {
   /**
    * Pomiar czasu dla zapytan /v1/*.
@@ -367,6 +369,27 @@ export function registerMetricsRoutes(
             liczby: holder.current.header.counts }
         : { zaladowany: false },
       dane: { punktow: Number(d.punkty), wiekZrzutuDni: wiek },
+      /**
+       * Stan warstwy kluczy - to jest podglad dla CZLOWIEKA przy diagnozie,
+       * osobny od metryk dla Prometheusa.
+       *
+       * Odcisk pieprza jest tu po to, zeby dalo sie odpowiedziec jednym curl
+       * na pytanie z czwartego kroku rotacji pieprza: "czy wszystkie pody maja
+       * juz nowa wersje". Odpowiedz 401 jest celowo nieodroznialna, wiec bez
+       * tego pola sprawdzenie sprowadzaloby sie do zgadywania.
+       *
+       * Odcisk NIE ujawnia sekretu: to HMAC ze stalej etykiety, obciety do
+       * osmiu znakow.
+       */
+      klucze: rejestr
+        ? {
+            wReplice: rejestr.rozmiar,
+            zaladowana: rejestr.zaladowana,
+            wiekS: Number.isFinite(rejestr.wiekMs) ? Math.round(rejestr.wiekMs / 1000) : null,
+            powiadomien: rejestr.liczbaPowiadomien,
+            pieprze: pieprze?.fingerprint() ?? null,
+          }
+        : null,
       ostrzezenia: [
         wiek !== null && wiek > 30
           ? `Najnowszy zrzut ma ${wiek} dni. PRG aktualizuje sie na biezaco - sprawdz pipeline i dostepnosc zrodla.`
