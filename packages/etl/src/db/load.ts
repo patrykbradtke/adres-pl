@@ -21,26 +21,26 @@ import { buildingSortKey, shortStreetName, normalizeText } from '@adres-pl/core'
 
 export interface LoadOptions {
   pool: pg.Pool;
-  zrodlo: string;
-  zrodloWersja: string;
-  wojewodztwo?: string;
+  source: string;
+  sourceVersion: string;
+  voivodeship?: string;
   /** Co ile rekordow raportowac postep. */
   progressEvery?: number;
   onProgress?: (n: number) => void;
 }
 
 export interface LoadStats {
-  punkty: number;
-  miejscowosci: number;
-  ulice: number;
-  pominiete: number;
-  powodyPominiec: Record<string, number>;
-  osieOdwrocone: number;
-  pozaPolska: number;
-  bezGeometrii: number;
-  profil?: string;
+  points: number;
+  localities: number;
+  streets: number;
+  skipped: number;
+  skipReasons: Record<string, number>;
+  axisSwapped: number;
+  outsidePoland: number;
+  geometryMissing: number;
+  profile?: string;
   namespaceUri?: string;
-  czasS: number;
+  durationSeconds: number;
 }
 
 /**
@@ -48,7 +48,7 @@ export interface LoadStats {
  *
  * Sluzy do wykrywania zmian bez porownywania geometrii pole po polu.
  * Wchodza TYLKO atrybuty, ktorych zmiana oznacza zmiane adresu -
- * `pobrano` czy `zrodlo_wersja` sa celowo pominiete, bo inaczej kazdy
+ * `fetched_at` czy `source_version` sa celowo pominiete, bo inaczej kazdy
  * zrzut wygladalby jak zmiana wszystkiego.
  *
  * Wspolrzedne zaokraglone do 1e-6 (~11 cm) - drobne przeliczenia
@@ -59,12 +59,12 @@ export function hashPoint(r: PointRecord): Buffer {
   h.update([
     r.simcRef ?? '',
     r.ulicRef ?? '',
-    r.nrBudynku,
-    r.kodPocztowy ?? '',
+    r.buildingNumber,
+    r.postalCode ?? '',
     r.status ?? '',
     r.lat !== undefined ? r.lat.toFixed(6) : '',
     r.lon !== undefined ? r.lon.toFixed(6) : '',
-  ].join(''));
+  ].join(''));
   return h.digest();
 }
 
@@ -97,13 +97,13 @@ export async function loadGmlToStaging(
   opts: LoadOptions,
 ): Promise<LoadStats> {
   const t0 = Date.now();
-  const { pool, zrodlo, zrodloWersja, wojewodztwo } = opts;
+  const { pool, source, sourceVersion, voivodeship } = opts;
   const progressEvery = opts.progressEvery ?? 100_000;
 
   const stats: LoadStats = {
-    punkty: 0, miejscowosci: 0, ulice: 0, pominiete: 0,
-    powodyPominiec: {}, osieOdwrocone: 0, pozaPolska: 0, bezGeometrii: 0,
-    czasS: 0,
+    points: 0, localities: 0, streets: 0, skipped: 0,
+    skipReasons: {}, axisSwapped: 0, outsidePoland: 0, geometryMissing: 0,
+    durationSeconds: 0,
   };
 
   const localities: Array<LocalityRecord & { gmlId?: string }> = [];
@@ -115,48 +115,50 @@ export async function loadGmlToStaging(
     // jest do rozwiazania referencji i tak jest jej niewiele.
     const pointStream = new Readable({ read() {} });
     const copyPoints = client.query(copyFrom(
-      `COPY staging.punkt_adresowy (
-         prg_local_id, wersja_id, poczatek_wersji, simc_ref, ulic_ref,
-         nr_budynku, nr_key, nr_sort, kod_pocztowy, status, terc_ref,
-         geom, zrodlo, zrodlo_wersja, tresc_hash, wojewodztwo
+      `COPY staging.address_point (
+         prg_local_id, version_id, version_start, simc_ref, ulic_ref,
+         building_number, building_number_key, building_number_sort,
+         postal_code, status, terc_ref,
+         geom, source, source_version, content_hash, voivodeship
        ) FROM STDIN`,
     ));
 
     const copyDone = pipeline(pointStream, copyPoints);
 
     const parseStats = await parseGmlStream(await openStream(), {
-      onProfileDetected: (p, ns) => { stats.profil = p.name; stats.namespaceUri = ns; },
+      onProfileDetected: (p, ns) => { stats.profile = p.name; stats.namespaceUri = ns; },
       onFeature: (f: RawFeature) => {
         const r = mapFeature(f);
         if (r.kind === 'skipped') {
-          stats.pominiete++;
+          stats.skipped++;
           const key = r.warning.reason.replace(/"[^"]*"/, '"…"').slice(0, 60);
-          stats.powodyPominiec[key] = (stats.powodyPominiec[key] ?? 0) + 1;
+          stats.skipReasons[key] = (stats.skipReasons[key] ?? 0) + 1;
           return;
         }
 
         if (r.kind === 'point') {
           const p = r.record;
           const row = [
-            esc(p.prgLocalId), esc(p.wersjaId), esc(p.poczatekWersji),
+            esc(p.prgLocalId), esc(p.versionId), esc(p.versionStart),
             esc(p.simcRef), esc(p.ulicRef),
-            esc(p.nrBudynku), esc(p.nrKey), esc(buildingSortKey(p.nrBudynku)),
-            esc(p.kodPocztowy), esc(p.status), esc(p.tercRef),
+            esc(p.buildingNumber), esc(p.buildingNumberKey),
+            esc(buildingSortKey(p.buildingNumber)),
+            esc(p.postalCode), esc(p.status), esc(p.tercRef),
             wkt(p.lon, p.lat),
-            esc(zrodlo), esc(zrodloWersja),
+            esc(source), esc(sourceVersion),
             // bytea w formacie tekstowym COPY: \\x<hex>
             '\\\\x' + hashPoint(p).toString('hex'),
-            esc(wojewodztwo),
+            esc(voivodeship),
           ].join('\t') + '\n';
           pointStream.push(row);
-          stats.punkty++;
-          if (stats.punkty % progressEvery === 0) opts.onProgress?.(stats.punkty);
+          stats.points++;
+          if (stats.points % progressEvery === 0) opts.onProgress?.(stats.points);
         } else if (r.kind === 'locality') {
           localities.push({ ...r.record, gmlId: f.gmlId });
-          stats.miejscowosci++;
+          stats.localities++;
         } else {
           streets.push({ ...r.record, gmlId: f.gmlId });
-          stats.ulice++;
+          stats.streets++;
         }
       },
     });
@@ -164,32 +166,32 @@ export async function loadGmlToStaging(
     pointStream.push(null);
     await copyDone;
 
-    stats.osieOdwrocone = parseStats.axisSwapped;
-    stats.pozaPolska = parseStats.outsidePoland;
-    stats.bezGeometrii = parseStats.geometryMissing;
+    stats.axisSwapped = parseStats.axisSwapped;
+    stats.outsidePoland = parseStats.outsidePoland;
+    stats.geometryMissing = parseStats.geometryMissing;
 
-    await copyLocalities(client, localities, zrodlo, zrodloWersja);
-    await copyStreets(client, streets, zrodlo, zrodloWersja);
+    await copyLocalities(client, localities, source, sourceVersion);
+    await copyStreets(client, streets, source, sourceVersion);
   } finally {
     client.release();
   }
 
-  stats.czasS = Math.round((Date.now() - t0) / 1000);
+  stats.durationSeconds = Math.round((Date.now() - t0) / 1000);
   return stats;
 }
 
 async function copyLocalities(
   client: pg.PoolClient,
   rows: Array<LocalityRecord & { gmlId?: string }>,
-  zrodlo: string,
-  wersja: string,
+  source: string,
+  version: string,
 ): Promise<void> {
   if (rows.length === 0) return;
   const stream = new Readable({ read() {} });
   const copy = client.query(copyFrom(
-    `COPY staging.miejscowosc (
-       prg_local_id, gml_id, simc, nazwa, nazwa_norm, rodzaj, rodzaj_raw,
-       terc_gminy, identyfikator_prng, centroid, zrodlo, zrodlo_wersja
+    `COPY staging.locality (
+       prg_local_id, gml_id, simc, name, name_norm, kind, kind_raw,
+       gmina_terc, prng_id, centroid, source, source_version
      ) FROM STDIN`,
   ));
   const done = pipeline(stream, copy);
@@ -200,9 +202,9 @@ async function copyLocalities(
     if (seen.has(r.prgLocalId)) continue;
     seen.add(r.prgLocalId);
     stream.push([
-      esc(r.prgLocalId), esc(r.gmlId), esc(r.simc), esc(r.nazwa), esc(r.nazwaNorm),
-      esc(r.rodzaj), esc(r.rodzajRaw), esc(r.tercGminy), esc(r.identyfikatorPRNG),
-      wkt(r.lon, r.lat), esc(zrodlo), esc(wersja),
+      esc(r.prgLocalId), esc(r.gmlId), esc(r.simc), esc(r.name), esc(r.nameNorm),
+      esc(r.kind), esc(r.kindRaw), esc(r.gminaTerc), esc(r.prngId),
+      wkt(r.lon, r.lat), esc(source), esc(version),
     ].join('\t') + '\n');
   }
   stream.push(null);
@@ -212,15 +214,15 @@ async function copyLocalities(
 async function copyStreets(
   client: pg.PoolClient,
   rows: Array<StreetRecord & { gmlId?: string }>,
-  zrodlo: string,
-  wersja: string,
+  source: string,
+  version: string,
 ): Promise<void> {
   if (rows.length === 0) return;
   const stream = new Readable({ read() {} });
   const copy = client.query(copyFrom(
-    `COPY staging.ulica (
-       prg_local_id, gml_id, sym_ul, simc_ref, cecha, nazwa, nazwa_norm,
-       nazwa_skroc, nazwa_skroc_norm, nazwa_1, nazwa_2, zrodlo, zrodlo_wersja
+    `COPY staging.street (
+       prg_local_id, gml_id, sym_ul, simc_ref, street_type, name, name_norm,
+       short_name, short_name_norm, name_1, name_2, source, source_version
      ) FROM STDIN`,
   ));
   const done = pipeline(stream, copy);
@@ -229,13 +231,13 @@ async function copyStreets(
     if (seen.has(r.prgLocalId)) continue;
     seen.add(r.prgLocalId);
     // Forma potoczna liczona tutaj, nie w mapperze - zalezy od pelnej nazwy,
-    // a ta w strukturze 2021 przychodzi jako `nazwaPelna`, w 2012 jako `nazwa`.
-    const skroc = shortStreetName(r.nazwa);
+    // a ta w strukturze 2021 przychodzi jako `fullName`, w 2012 jako `name`.
+    const shortName = shortStreetName(r.name);
     stream.push([
-      esc(r.prgLocalId), esc(r.gmlId), esc(r.symUl), esc(r.simcRef), esc(r.cecha),
-      esc(r.nazwa), esc(r.nazwaNorm),
-      esc(skroc), esc(skroc ? normalizeText(skroc) : undefined),
-      esc(r.nazwa1), esc(r.nazwa2), esc(zrodlo), esc(wersja),
+      esc(r.prgLocalId), esc(r.gmlId), esc(r.symUl), esc(r.simcRef), esc(r.streetType),
+      esc(r.name), esc(r.nameNorm),
+      esc(shortName), esc(shortName ? normalizeText(shortName) : undefined),
+      esc(r.name1), esc(r.name2), esc(source), esc(version),
     ].join('\t') + '\n');
   }
   stream.push(null);
@@ -248,25 +250,25 @@ async function copyStreets(
  */
 export async function publish(
   pool: pg.Pool,
-  zrodlo: string,
-  wersja: string,
-  wojewodztwa?: string[],
-): Promise<{ dodane: number; zmienione: number; wycofane: number; przywrocone: number }> {
+  source: string,
+  version: string,
+  voivodeships?: string[],
+): Promise<{ added: number; changed: number; withdrawn: number; restored: number }> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query<{
-      dodane: string; zmienione: string; wycofane: string; przywrocone: string;
+      added: string; changed: string; withdrawn: string; restored: string;
     }>(
-      'SELECT * FROM adres.publikuj_zrzut($1, $2, $3)',
-      [zrodlo, wersja, wojewodztwa ?? null],
+      'SELECT * FROM address.publish_snapshot($1, $2, $3)',
+      [source, version, voivodeships ?? null],
     );
     await client.query('COMMIT');
     return {
-      dodane: Number(rows[0].dodane),
-      zmienione: Number(rows[0].zmienione),
-      wycofane: Number(rows[0].wycofane),
-      przywrocone: Number(rows[0].przywrocone),
+      added: Number(rows[0].added),
+      changed: Number(rows[0].changed),
+      withdrawn: Number(rows[0].withdrawn),
+      restored: Number(rows[0].restored),
     };
   } catch (e) {
     await client.query('ROLLBACK');
@@ -277,7 +279,7 @@ export async function publish(
 }
 
 export async function clearStaging(pool: pg.Pool): Promise<void> {
-  await pool.query('SELECT staging.wyczysc()');
+  await pool.query('SELECT staging.truncate_all()');
 }
 
 /**
@@ -286,10 +288,10 @@ export async function clearStaging(pool: pg.Pool): Promise<void> {
  * kosztem, a same indeksy sa potrzebne dopiero do kontroli jakosci.
  */
 export async function beforeBulkLoad(pool: pg.Pool): Promise<void> {
-  await pool.query('SELECT staging.przed_ladowaniem()');
+  await pool.query('SELECT staging.before_load()');
 }
 
 /** Odtwarza indeksy i statystyki po zaladowaniu wszystkich wojewodztw. */
 export async function afterBulkLoad(pool: pg.Pool): Promise<void> {
-  await pool.query('SELECT staging.po_ladowaniu()');
+  await pool.query('SELECT staging.after_load()');
 }

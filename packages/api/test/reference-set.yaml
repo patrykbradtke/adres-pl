@@ -6,62 +6,62 @@
 #
 # ZASADA: zapisujemy odpowiedz POPRAWNA, nie biezaca. Zbior wzorcowy, ktory
 # utrwala stan faktyczny, utrwala rowniez bledy i przestaje byc wzorcem.
-# Tam, gdzie system dzis odpowiada zle, przypadek ma `znaneOdstepstwo`
+# Tam, gdzie system dzis odpowiada zle, przypadek ma `knownDeviation`
 # z uzasadnieniem. Uruchamiajacy raportuje je osobno i nie przewraca zestawu,
 # ale pilnuje, zeby po naprawie znacznik zostal zdjety.
 #
 # Zamrozone na danych: 2026-08-06 (16 wojewodztw, 8 605 682 punkty).
-# Uruchomienie: node --experimental-strip-types packages/api/test/jakosc-wyszukiwania.ts
+# Uruchomienie: node --experimental-strip-types packages/api/test/search-quality.ts
 
-wersjaDanych: '2026-08-06'
+dataVersion: '2026-08-06'
 
-podpowiedzi:
+suggestions:
   # --- brak polskich znakow: uzytkownik prawie nigdy ich nie wpisuje ---
   - q: lodz
-    oczekiwane: { label: 'Łódź', type: locality }
-    wTop: 1
-    dlaczego: Zapis bez znakow diakrytycznych to najczestszy sposob wpisywania.
+    expected: { label: 'Łódź', type: locality }
+    inTop: 1
+    why: Zapis bez znakow diakrytycznych to najczestszy sposob wpisywania.
 
   - q: gdansk
-    oczekiwane: { label: 'Gdańsk', type: locality }
-    wTop: 1
+    expected: { label: 'Gdańsk', type: locality }
+    inTop: 1
 
   - q: krakow
-    oczekiwane: { label: 'Kraków', type: locality }
-    wTop: 1
+    expected: { label: 'Kraków', type: locality }
+    inTop: 1
 
   - q: zoliborz
-    oczekiwane: { label: 'Żoliborz', type: locality }
-    wTop: 2
-    dlaczego: Zoliborz wystepuje wielokrotnie; wystarczy, ze trafi wysoko.
+    expected: { label: 'Żoliborz', type: locality }
+    inTop: 2
+    why: Zoliborz wystepuje wielokrotnie; wystarczy, ze trafi wysoko.
 
   # --- literowki ---
   - q: mickievicza
     oczekiwaneZawiera: Mickiewicza
-    wTop: 3
-    dlaczego: Podmiana litery to typowa literowka klawiaturowa.
+    inTop: 3
+    why: Podmiana litery to typowa literowka klawiaturowa.
 
   - q: marszalkowsak
     oczekiwaneZawiera: Marszałkowska
-    wTop: 5
-    dlaczego: Przestawienie dwoch ostatnich liter.
+    inTop: 5
+    why: Przestawienie dwoch ostatnich liter.
 
   # --- formy potoczne i skroty cechy ---
   - q: jerozolimskie
-    oczekiwane: { label: 'Aleje Jerozolimskie, Warszawa' }
-    wTop: 1
-    dlaczego: Nazwa unikatowa w skali kraju - musi trafic w pierwsze miejsce.
+    expected: { label: 'Aleje Jerozolimskie, Warszawa' }
+    inTop: 1
+    why: Nazwa unikatowa w skali kraju - musi trafic w pierwsze miejsce.
 
   - q: al. jerozolimskie
-    oczekiwane: { label: 'Aleje Jerozolimskie, Warszawa' }
-    wTop: 1
-    dlaczego: Cecha podana skrotem nie moze pogorszyc wyniku.
+    expected: { label: 'Aleje Jerozolimskie, Warszawa' }
+    inTop: 1
+    why: Cecha podana skrotem nie moze pogorszyc wyniku.
 
-  # --- podpowiedzi nie moga prowadzic donikad ---
+  # --- suggestions nie moga prowadzic donikad ---
   - q: gdansk
     bezSlepychZaulkow: true
-    wTop: 10
-    dlaczego: >
+    inTop: 10
+    why: >
       Zadna podpowiedz nie moze miec zera punktow adresowych, jesli nie ma tez
       ulic - taki wybor konczy sie pustym formularzem. Do 9.08.2026 zapytanie
       "gdansk" zwracalo na drugim miejscu czesc o tej nazwie w gminie Lidzbark,
@@ -69,24 +69,24 @@ podpowiedzi:
 
   - q: warszawa
     bezSlepychZaulkow: true
-    wTop: 10
+    inTop: 10
 
   # --- duplikaty nazw: rozstrzyga uzytkownik, wiec musi dostac czym ---
   - q: nowa wies
-    oczekiwane: { label: 'Nowa Wieś', type: locality }
-    wTop: 1
+    expected: { label: 'Nowa Wieś', type: locality }
+    inTop: 1
   - q: nowa wies
     roznychSimc: 5
-    wTop: 10
-    dlaczego: >
+    inTop: 10
+    why: >
       Nazwa wystepuje setki razy. Lista musi pokazac kilka roznych miejscowosci,
       a nie te sama - inaczej uzytkownik nie ma czego wybrac. Rozdzial 6.4.
 
   # --- duze miasta wobec wsi o tej samej nazwie ulicy ---
   - q: marszalkowska
     oczekiwaneMiejscowosc: Warszawa
-    wTop: 1
-    dlaczego: >
+    inTop: 1
+    why: >
       Zapytanie o sama nazwe ulicy bez miejscowosci: uzytkownik prawie zawsze
       ma na mysli te w duzym miescie. Do 9.08.2026 Warszawy nie bylo nawet
       w pierwszej 25 - wygrywaly wsie, bo ranking nie znal wielkosci
@@ -94,90 +94,90 @@ podpowiedzi:
 
   - q: grojecka
     oczekiwaneMiejscowosc: Warszawa
-    wTop: 1
-    dlaczego: >
+    inTop: 1
+    why: >
       Przypadek mocniejszy niz Marszalkowska: Konin ma przy tej ulicy 168
       adresow, Warszawa 114. O kolejnosci ma decydowac wielkosc miejscowosci.
 
   - q: pulawska
     oczekiwaneMiejscowosc: Warszawa
-    wTop: 3
+    inTop: 3
 
   # --- ale male miejscowosci musza zostac znajdywalne ---
   - q: Cmolas
-    oczekiwane: { label: 'Cmolas', type: locality }
-    wTop: 1
-    dlaczego: >
+    expected: { label: 'Cmolas', type: locality }
+    inTop: 1
+    why: >
       Straznik w druga strone. Premia za wielkosc miejscowosci nie moze
       przykryc dopasowania nazwy - wies wpisana wprost ma byc pierwsza.
 
   - q: polna cmolas
     oczekiwaneZawiera: Cmolas
-    wTop: 1
-    dlaczego: Zawezenie miejscowoscia w zapytaniu ma przewazyc nad popularnoscia.
+    inTop: 1
+    why: Zawezenie miejscowoscia w zapytaniu ma przewazyc nad popularnoscia.
 
-walidacja:
+validation:
   # --- adres wzorcowy ---
   - raw: 'ul. Marszałkowska 1, 00-624 Warszawa'
-    oczekiwane: { simc: '0918123', confidence: zweryfikowany_rejestr }
+    expected: { simc: '0918123', confidence: verified_registry }
 
   # --- ksztalt, w jakim adresy przychodza z rejestru REGON ---
   - raw: 'UL. MARSZALKOWSKA 1, 00-624 WARSZAWA'
-    oczekiwane: { simc: '0918123', confidence: zweryfikowany_rejestr }
-    dlaczego: >
+    expected: { simc: '0918123', confidence: verified_registry }
+    why: >
       Wersaliki bez znakow diakrytycznych i cecha skrotem - tak wyglada adres
       zwracany przez wyszukiwarke REGON. Jesli adres-pl ma byc drugim krokiem
       po odpytaniu REGON, musi to obsluzyc.
 
   - raw: 'Marszałkowska 1 00-624 Warszawa'
-    oczekiwane: { simc: '0918123', confidence: zweryfikowany_rejestr }
-    dlaczego: Brak przecinkow i cechy - typowy zapis wklejony z innego systemu.
+    expected: { simc: '0918123', confidence: verified_registry }
+    why: Brak przecinkow i cechy - typowy zapis wklejony z innego systemu.
 
   # --- numer spoza rejestru: ostrzezenie, nie blad ---
   - raw: 'ul. Marszałkowska 199, Warszawa'
-    oczekiwane: { simc: '0918123', confidence: zweryfikowany_czesciowo }
-    zawieraUwage: NUMER_SPOZA_REJESTRU
-    dlaczego: >
-      Zasada nadrzedna z rozdzialu 6.3: walidacja nie blokuje zapisu.
+    expected: { simc: '0918123', confidence: verified_partial }
+    zawieraUwage: BUILDING_NUMBER_OUTSIDE_REGISTRY
+    why: >
+      Zasada nadrzedna z rozdzialu 6.3: validation nie blokuje zapisu.
       Nowe budownictwo musi przejsc z obnizonym poziomem pewnosci.
 
   # --- zapis dwuznaczny 12/14 ---
   - raw: 'ul. Marszałkowska 12/14, Warszawa'
-    oczekiwane: { nrBudynku: '12', nrLokalu: '14' }
-    dlaczego: >
+    expected: { nrBudynku: '12', nrLokalu: '14' }
+    why: >
       Obecna implementacja przyjmuje odczyt budynek + lokal, gdy istnieja obie
       interpretacje. Docelowa regula daje pierwszenstwo numerowi "12/14";
       przypadek pilnuje, zeby zmiana byla swiadoma, a nie przypadkowa.
 
   - raw: 'ul. Marszałkowska 12 m. 5, Warszawa'
-    oczekiwane: { nrBudynku: '12', nrLokalu: '5' }
-    dlaczego: Jawny marker lokalu nie moze byc dwuznaczny.
+    expected: { nrBudynku: '12', nrLokalu: '5' }
+    why: Jawny marker lokalu nie moze byc dwuznaczny.
 
   # --- miejscowosc bez ulic ---
   - raw: 'Wólka Pełkińska 10'
-    oczekiwane: { simc: '0603632' }
-    dlaczego: >
+    expected: { simc: '0603632' }
+    why: >
       Miejscowosc bez ulic - numer odnosi sie bezposrednio do miejscowosci.
       Rozdzial 6.4.
 
   # --- kod pocztowy bez mysnika nadal ma dzialac ---
   - raw: 'ul. Marszałkowska 1, 00950 Warszawa'
-    oczekiwane: { kodPocztowy: '00-950', simc: '0918123' }
-    dlaczego: >
+    expected: { kodPocztowy: '00-950', simc: '0918123' }
+    why: >
       Straznik poprawki 6.20. Odrzucamy kody-zaslepki podane bez mysnika,
       ale zwykly kod bez mysnika musi przechodzic dalej.
 
   # --- skrytka pocztowa ---
   - raw: 'skr. poczt. 15, Warszawa'
-    oczekiwane: { confidence: nietypowy }
+    expected: { confidence: nietypowy }
 
   # --- nazwa ulicy podobna do markera skrytki ---
   - raw: 'ul. Skrytkowa 5, Warszawa'
-    oczekiwane: { ulica: 'Skrytkowa', confidence: zweryfikowany_czesciowo }
-    dlaczego: >
+    expected: { ulica: 'Skrytkowa', confidence: verified_partial }
+    why: >
       Straznik poprawki 6.17. Marker skrytki dopasowuje sie do calego slowa,
       wiec "Skrytkowa" nie moze byc brana za skrytke pocztowa.
 
   # --- absurdalny numer ---
   - raw: 'ul. Marszałkowska 99999, Warszawa'
-    oczekiwane: { nrBudynku: '99999' }
+    expected: { nrBudynku: '99999' }

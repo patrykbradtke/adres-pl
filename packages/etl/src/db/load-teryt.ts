@@ -31,9 +31,9 @@ export interface TerytLoadStats {
   /** Miejscowosci pominiete, bo ich gmina nie istnieje w TERC. */
   simcBezGminy: number;
   /** Ulice pominiete, bo ich miejscowosc nie istnieje w SIMC. */
-  ulicBezMiejscowosci: number;
-  stanNa?: string;
-  czasS: number;
+  ulicWithoutLocality: number;
+  asOf?: string;
+  durationSeconds: number;
 }
 
 export interface TerytInput {
@@ -53,14 +53,14 @@ export interface TerytInput {
 export async function loadTeryt(
   pool: pg.Pool,
   input: TerytInput,
-  opts: { stanNa?: string; onProgress?: (msg: string) => void } = {},
+  opts: { asOf?: string; onProgress?: (msg: string) => void } = {},
 ): Promise<TerytLoadStats> {
   const t0 = Date.now();
   const log = opts.onProgress ?? (() => {});
   const stats: TerytLoadStats = {
     wmrodz: 0, terc: 0, simc: 0, ulic: 0,
-    simcBezGminy: 0, ulicBezMiejscowosci: 0,
-    stanNa: opts.stanNa, czasS: 0,
+    simcBezGminy: 0, ulicWithoutLocality: 0,
+    asOf: opts.asOf, durationSeconds: 0,
   };
 
   const client = await pool.connect();
@@ -72,13 +72,13 @@ export async function loadTeryt(
       const rows = parseWmrodz(toCsv(input.wmrodz));
       for (const r of rows) {
         await client.query(
-          `INSERT INTO adres.wmrodz (kod, nazwa) VALUES ($1, $2)
-             ON CONFLICT (kod) DO UPDATE SET nazwa = EXCLUDED.nazwa`,
-          [Number(r.rm), r.nazwaRm],
+          `INSERT INTO address.wmrodz (kod, name) VALUES ($1, $2)
+             ON CONFLICT (kod) DO UPDATE SET name = EXCLUDED.name`,
+          [Number(r.rm), r.nameRemoved],
         );
       }
       stats.wmrodz = rows.length;
-      stats.stanNa ??= rows[0]?.stanNa;
+      stats.asOf ??= rows[0]?.asOf;
       log(`WMRODZ: ${rows.length}`);
     }
 
@@ -87,9 +87,9 @@ export async function loadTeryt(
       const rows = parseTerc(toCsv(input.terc));
       // Kolejnosc wg poziomu - klucz obcy `parent_terc` wskazuje w gore
       // hierarchii, wiec wojewodztwa musza wejsc przed powiatami.
-      rows.sort((a, b) => a.poziom - b.poziom);
-      stats.terc = await upsertTerc(client, rows, opts.stanNa);
-      stats.stanNa ??= rows[0]?.stanNa;
+      rows.sort((a, b) => a.level - b.level);
+      stats.terc = await upsertTerc(client, rows, opts.asOf);
+      stats.asOf ??= rows[0]?.asOf;
       log(`TERC: ${stats.terc}`);
     }
 
@@ -97,23 +97,23 @@ export async function loadTeryt(
     if (input.simc) {
       const rows = parseSimc(toCsv(input.simc));
       const res = await upsertSimc(client, rows);
-      stats.simc = res.wstawione;
-      stats.simcBezGminy = res.pominiete;
-      stats.stanNa ??= rows[0]?.stanNa;
-      log(`SIMC: ${res.wstawione}${res.pominiete ? ` (pominieto ${res.pominiete} bez gminy w TERC)` : ''}`);
+      stats.simc = res.inserted;
+      stats.simcBezGminy = res.skipped;
+      stats.asOf ??= rows[0]?.asOf;
+      log(`SIMC: ${res.inserted}${res.skipped ? ` (skipped ${res.skipped} without gminy w TERC)` : ''}`);
     }
 
     // --- 4. ULIC: katalog ulic ---------------------------------------
     if (input.ulic) {
       const rows = parseUlic(toCsv(input.ulic));
       const res = await upsertUlic(client, rows);
-      stats.ulic = res.wstawione;
-      stats.ulicBezMiejscowosci = res.pominiete;
-      stats.stanNa ??= rows[0]?.stanNa;
-      log(`ULIC: ${res.wstawione}${res.pominiete ? ` (pominieto ${res.pominiete} bez miejscowosci w SIMC)` : ''}`);
+      stats.ulic = res.inserted;
+      stats.ulicWithoutLocality = res.skipped;
+      stats.asOf ??= rows[0]?.asOf;
+      log(`ULIC: ${res.inserted}${res.skipped ? ` (skipped ${res.skipped} without localities w SIMC)` : ''}`);
     }
 
-    await client.query('SELECT adres.refresh_derived()');
+    await client.query('SELECT address.refresh_derived()');
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK');
@@ -122,35 +122,35 @@ export async function loadTeryt(
     client.release();
   }
 
-  stats.czasS = Math.round((Date.now() - t0) / 1000);
+  stats.durationSeconds = Math.round((Date.now() - t0) / 1000);
   return stats;
 }
 
 async function upsertTerc(
   client: pg.PoolClient,
   rows: TercRow[],
-  stanNa?: string,
+  asOf?: string,
 ): Promise<number> {
   let n = 0;
   for (const r of rows) {
-    const nazwa = r.nazwa || r.nazwaDod;
-    if (!nazwa) continue;
+    const name = r.name || r.nameAdded;
+    if (!name) continue;
     await client.query(
-      `INSERT INTO adres.teryt_jednostka (terc, nazwa, poziom, rodzaj_gminy, parent_terc, stan_na)
+      `INSERT INTO address.teryt_unit (terc, name, level, gmina_kind, parent_terc, as_of)
          VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (terc) DO UPDATE SET
-         nazwa = EXCLUDED.nazwa,
-         poziom = EXCLUDED.poziom,
-         rodzaj_gminy = EXCLUDED.rodzaj_gminy,
-         parent_terc = COALESCE(EXCLUDED.parent_terc, adres.teryt_jednostka.parent_terc),
-         stan_na = EXCLUDED.stan_na`,
+         name = EXCLUDED.name,
+         level = EXCLUDED.level,
+         gmina_kind = EXCLUDED.gmina_kind,
+         parent_terc = COALESCE(EXCLUDED.parent_terc, address.teryt_unit.parent_terc),
+         as_of = EXCLUDED.as_of`,
       [
         r.terc,
-        titleCasePl(nazwa),
-        r.poziom,
-        r.rodz ? Number(r.rodz) : null,
+        titleCasePl(name),
+        r.level,
+        r.kind ? Number(r.kind) : null,
         r.parentTerc ?? null,
-        r.stanNa || stanNa || new Date().toISOString().slice(0, 10),
+        r.asOf || asOf || new Date().toISOString().slice(0, 10),
       ],
     );
     n++;
@@ -161,7 +161,7 @@ async function upsertTerc(
 /**
  * Buduje mape rozwiazywania TERC gminy.
  *
- * PUŁAPKA GMIN MIEJSKO-WIEJSKICH:
+ * PULAPKA GMIN MIEJSKO-WIEJSKICH:
  * W katalogu TERC gmina miejsko-wiejska wystepuje pod RODZ=3, a dodatkowo
  * jako dwa obszary skladowe: RODZ=4 (miasto) i RODZ=5 (obszar wiejski).
  * Katalogi SIMC i ULIC odwoluja sie do wariantow 4/5, nie do 3.
@@ -176,13 +176,13 @@ async function upsertTerc(
  * akceptujemy kazdy istniejacy.
  */
 async function buildGminaResolver(client: pg.PoolClient): Promise<Map<string, string>> {
-  const { rows } = await client.query<{ terc: string; rodzaj_gminy: number | null }>(
-    `SELECT terc, rodzaj_gminy FROM adres.teryt_jednostka WHERE poziom = 3`,
+  const { rows } = await client.query<{ terc: string; gmina_kind: number | null }>(
+    `SELECT terc, gmina_kind FROM address.teryt_unit WHERE level = 3`,
   );
   const map = new Map<string, string>();
   // Priorytet: 1,2,3 (gmina wlasciwa) przed 4,5 (obszary skladowe)
   const rank = (r: number | null) => (r === null ? 9 : r <= 3 ? 0 : 1);
-  for (const row of rows.sort((a, b) => rank(a.rodzaj_gminy) - rank(b.rodzaj_gminy))) {
+  for (const row of rows.sort((a, b) => rank(a.gmina_kind) - rank(b.gmina_kind))) {
     const prefix = row.terc.slice(0, 6);
     if (!map.has(prefix)) map.set(prefix, row.terc);
     // pelny TERC tez musi dzialac, gdy istnieje wprost
@@ -197,7 +197,7 @@ async function buildGminaResolver(client: pg.PoolClient): Promise<Map<string, st
  *
  * DLACZEGO: katalogi maja ~103 tys. miejscowosci i ~250 tys. ulic. Wstawianie
  * wiersz po wierszu to tyle samo sekwencyjnych obiegow do bazy - w pomiarze
- * pelny import trwal ponad 20 minut i zdazyl paść na zerwanym polaczeniu,
+ * pelny import trwal ponad 20 minut i zdazyl pasc na zerwanym polaczeniu,
  * zanim doszedl do konca. Cala transakcja przepadala. COPY przenosi ten sam
  * zbior jednym strumieniem, a upsert wykonuje sie jako jedna instrukcja.
  *
@@ -208,126 +208,126 @@ async function buildGminaResolver(client: pg.PoolClient): Promise<Map<string, st
 async function upsertSimc(
   client: pg.PoolClient,
   rows: SimcRow[],
-): Promise<{ wstawione: number; pominiete: number }> {
+): Promise<{ inserted: number; skipped: number }> {
   const resolver = await buildGminaResolver(client);
 
   await client.query(`
     CREATE TEMP TABLE tmp_simc (
-      simc text, nazwa text, nazwa_norm text, rodzaj int,
-      terc_gminy text, simc_nadrzedna text, zrodlo_wersja text
+      simc text, name text, name_norm text, kind int,
+      gmina_terc text, parent_simc text, source_version text
     ) ON COMMIT DROP`);
 
   const stream = new Readable({ read() {} });
   const done = pipeline(stream, client.query(copyFrom('COPY tmp_simc FROM STDIN')));
 
-  let wstawione = 0;
-  let pominiete = 0;
+  let inserted = 0;
+  let skipped = 0;
   // Duplikat SIMC w zrodle wywrocilby upsert bledem "cannot affect row
   // a second time", wiec odsiewamy go po stronie strumienia.
   const seen = new Set<string>();
   for (const r of rows) {
-    const terc = resolver.get(r.tercGminy) ?? resolver.get(r.tercGminy.slice(0, 6));
-    if (!terc) { pominiete++; continue; }
+    const terc = resolver.get(r.gminaTerc) ?? resolver.get(r.gminaTerc.slice(0, 6));
+    if (!terc) { skipped++; continue; }
     if (seen.has(r.sym)) continue;
     seen.add(r.sym);
-    const nazwa = titleCasePl(cleanText(r.nazwa));
+    const name = titleCasePl(cleanText(r.name));
     stream.push([
-      esc(r.sym), esc(nazwa), esc(normalizeText(nazwa)),
+      esc(r.sym), esc(name), esc(normalizeText(name)),
       esc(r.rm ? Number(r.rm) : null),
       esc(terc),
       esc(r.sympod !== r.sym ? r.sympod : null),
-      esc(r.stanNa || 'teryt'),
+      esc(r.asOf || 'teryt'),
     ].join('\t') + '\n');
-    wstawione++;
+    inserted++;
   }
   stream.push(null);
   await done;
 
   await client.query(`
-    INSERT INTO adres.miejscowosc
-      (simc, nazwa, nazwa_norm, rodzaj, terc_gminy, simc_nadrzedna,
-       zrodlo, zrodlo_wersja, pobrano)
-    SELECT simc, nazwa, nazwa_norm, rodzaj, terc_gminy, simc_nadrzedna,
-           'teryt', zrodlo_wersja, now()
+    INSERT INTO address.locality
+      (simc, name, name_norm, kind, gmina_terc, parent_simc,
+       source, source_version, fetched_at)
+    SELECT simc, name, name_norm, kind, gmina_terc, parent_simc,
+           'teryt', source_version, now()
       FROM tmp_simc
     ON CONFLICT (simc) DO UPDATE SET
-      -- Nazwa z TERYT jest urzedowa i ma pierwszenstwo nad nazwa z PRG.
-      nazwa = EXCLUDED.nazwa,
-      nazwa_norm = EXCLUDED.nazwa_norm,
-      rodzaj = COALESCE(EXCLUDED.rodzaj, adres.miejscowosc.rodzaj),
-      terc_gminy = EXCLUDED.terc_gminy,
-      simc_nadrzedna = EXCLUDED.simc_nadrzedna,
-      zrodlo_wersja = EXCLUDED.zrodlo_wersja,
-      pobrano = now(),
-      wycofany_od = NULL`);
+      -- Nazwa z TERYT jest urzedowa i ma pierwszenstwo nad name z PRG.
+      name = EXCLUDED.name,
+      name_norm = EXCLUDED.name_norm,
+      kind = COALESCE(EXCLUDED.kind, address.locality.kind),
+      gmina_terc = EXCLUDED.gmina_terc,
+      parent_simc = EXCLUDED.parent_simc,
+      source_version = EXCLUDED.source_version,
+      fetched_at = now(),
+      withdrawn_at = NULL`);
 
-  return { wstawione, pominiete };
+  return { inserted, skipped };
 }
 
 async function upsertUlic(
   client: pg.PoolClient,
   rows: UlicRow[],
-): Promise<{ wstawione: number; pominiete: number }> {
+): Promise<{ inserted: number; skipped: number }> {
   const { rows: msc } = await client.query<{ simc: string }>(
-    `SELECT simc FROM adres.miejscowosc`,
+    `SELECT simc FROM address.locality`,
   );
-  const znane = new Set(msc.map((m) => m.simc));
+  const known = new Set(msc.map((m) => m.simc));
 
   await client.query(`
     CREATE TEMP TABLE tmp_ulic (
-      simc text, sym_ul text, cecha text, nazwa text, nazwa_norm text,
-      nazwa_skroc text, nazwa_skroc_norm text, nazwa_1 text, nazwa_2 text,
-      zrodlo_wersja text
+      simc text, sym_ul text, street_type text, name text, name_norm text,
+      short_name text, short_name_norm text, name_1 text, name_2 text,
+      source_version text
     ) ON COMMIT DROP`);
 
   const stream = new Readable({ read() {} });
   const done = pipeline(stream, client.query(copyFrom('COPY tmp_ulic FROM STDIN')));
 
-  let wstawione = 0;
-  let pominiete = 0;
+  let inserted = 0;
+  let skipped = 0;
   // Klucz taki sam jak indeks docelowy - inaczej upsert dostalby ten sam
   // wiersz dwa razy w jednej instrukcji i przerwal cala transakcje.
   const seen = new Set<string>();
   for (const r of rows) {
-    if (!znane.has(r.sym)) { pominiete++; continue; }
-    const nazwa = titleCasePl(cleanText(r.nazwaPelna));
-    if (!nazwa) continue;
-    const nazwaNorm = normalizeText(nazwa);
-    const cecha = r.cecha || null;
-    const klucz = `${r.sym} ${nazwaNorm} ${cecha ?? ''}`;
-    if (seen.has(klucz)) continue;
-    seen.add(klucz);
-    const skroc = shortStreetName(nazwa);
+    if (!known.has(r.sym)) { skipped++; continue; }
+    const name = titleCasePl(cleanText(r.fullName));
+    if (!name) continue;
+    const nameNorm = normalizeText(name);
+    const streetType = r.streetType || null;
+    const key = `${r.sym} ${nameNorm} ${streetType ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const shortName = shortStreetName(name);
 
     stream.push([
-      esc(r.sym), esc(r.symUl), esc(cecha), esc(nazwa), esc(nazwaNorm),
-      esc(skroc ?? null), esc(skroc ? normalizeText(skroc) : null),
-      esc(r.nazwa1 || null), esc(r.nazwa2 || null),
-      esc(r.stanNa || 'teryt'),
+      esc(r.sym), esc(r.symUl), esc(streetType), esc(name), esc(nameNorm),
+      esc(shortName ?? null), esc(shortName ? normalizeText(shortName) : null),
+      esc(r.name1 || null), esc(r.name2 || null),
+      esc(r.asOf || 'teryt'),
     ].join('\t') + '\n');
-    wstawione++;
+    inserted++;
   }
   stream.push(null);
   await done;
 
   await client.query(`
-    INSERT INTO adres.ulica
-      (simc, sym_ul, cecha, nazwa, nazwa_norm, nazwa_skroc, nazwa_skroc_norm,
-       nazwa_1, nazwa_2, zrodlo, zrodlo_wersja, pobrano)
-    SELECT simc, sym_ul, cecha, nazwa, nazwa_norm, nazwa_skroc, nazwa_skroc_norm,
-           nazwa_1, nazwa_2, 'teryt', zrodlo_wersja, now()
+    INSERT INTO address.street
+      (simc, sym_ul, street_type, name, name_norm, short_name, short_name_norm,
+       name_1, name_2, source, source_version, fetched_at)
+    SELECT simc, sym_ul, street_type, name, name_norm, short_name, short_name_norm,
+           name_1, name_2, 'teryt', source_version, now()
       FROM tmp_ulic
-    ON CONFLICT (simc, nazwa_norm, cecha) DO UPDATE SET
+    ON CONFLICT (simc, name_norm, street_type) DO UPDATE SET
       -- SYM_UL z TERYT jest wartoscia dodana: PRG czesto go nie ma.
-      sym_ul = COALESCE(EXCLUDED.sym_ul, adres.ulica.sym_ul),
-      nazwa = EXCLUDED.nazwa,
-      nazwa_skroc = EXCLUDED.nazwa_skroc,
-      nazwa_skroc_norm = EXCLUDED.nazwa_skroc_norm,
-      nazwa_1 = EXCLUDED.nazwa_1,
-      nazwa_2 = EXCLUDED.nazwa_2,
-      zrodlo_wersja = EXCLUDED.zrodlo_wersja,
-      pobrano = now(),
-      wycofany_od = NULL`);
+      sym_ul = COALESCE(EXCLUDED.sym_ul, address.street.sym_ul),
+      name = EXCLUDED.name,
+      short_name = EXCLUDED.short_name,
+      short_name_norm = EXCLUDED.short_name_norm,
+      name_1 = EXCLUDED.name_1,
+      name_2 = EXCLUDED.name_2,
+      source_version = EXCLUDED.source_version,
+      fetched_at = now(),
+      withdrawn_at = NULL`);
 
-  return { wstawione, pominiete };
+  return { inserted, skipped };
 }

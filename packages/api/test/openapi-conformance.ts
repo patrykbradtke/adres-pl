@@ -8,7 +8,7 @@
  * Test porownuje trasy zarejestrowane w Fastify z pathami w specyfikacji
  * w OBIE strony - brak w specyfikacji i nadmiar w specyfikacji sa rownie zle.
  *
- *   node --experimental-strip-types packages/api/test/openapi-zgodnosc.ts
+ *   node --experimental-strip-types packages/api/test/openapi-conformance.ts
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -21,10 +21,10 @@ const spec = parse(readFileSync(join(tu, '..', 'openapi.yaml'), 'utf8')) as {
   paths: Record<string, Record<string, unknown>>;
 };
 
-let bledy = 0;
-const zglos = (ok: boolean, opis: string) => {
-  console.log(`${ok ? 'OK  ' : 'BLAD'} ${opis}`);
-  if (!ok) bledy++;
+let errors = 0;
+const report = (ok: boolean, description: string) => {
+  console.log(`${ok ? 'OK  ' : 'ERROR'} ${description}`);
+  if (!ok) errors++;
 };
 
 /**
@@ -46,7 +46,7 @@ const zglos = (ok: boolean, opis: string) => {
  *
  * Hook musi powstac przed rejestracja tras, stad drugi argument buildServer.
  */
-const wKodzie = new Set<string>();
+const inCode = new Set<string>();
 const app = await buildServer(
   loadConfig({
     ...process.env,
@@ -54,7 +54,7 @@ const app = await buildServer(
     // Tryb przypiety JAWNIE, mimo ze do zadania 8.9 jest to takze domyslka.
     // Ten zestaw sprawdza KSZTALT kontraktu, a nie uwierzytelnianie, i nie ma
     // powodu, zeby wymagal zywej bazy z replika kluczy.
-    API_KEY_MODE: 'wylaczony',
+    API_KEY_MODE: 'disabled',
     // Trasy /admin istnieja w routerze WYLACZNIE przy ustawionym tokenie.
     // Bez tego szesc sciezek ze specyfikacji wygladaloby na nieistniejace,
     // a test bylby zielony u autora (ktory ma token w otoczeniu) i czerwony
@@ -71,7 +71,7 @@ const app = await buildServer(
         const met = m.toLowerCase();
         // HEAD i OPTIONS dokladaja Fastify i @fastify/cors, nie my.
         if (met === 'head' || met === 'options') continue;
-        wKodzie.add(`${met} ${url}`);
+        inCode.add(`${met} ${url}`);
       }
     },
   },
@@ -89,48 +89,48 @@ const naFastify = (p: string) => p.replace(/\{([^}]+)\}/g, ':$1');
  * oraz "PARAMETERS ... nie opisuje odpowiedzi 200".
  */
 const METODY_HTTP = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']);
-const operacjeSciezki = (operacje: Record<string, unknown>) =>
-  Object.entries(operacje).filter(([klucz]) => METODY_HTTP.has(klucz.toLowerCase()));
+const pathOperations = (operations: Record<string, unknown>) =>
+  Object.entries(operations).filter(([key]) => METODY_HTTP.has(key.toLowerCase()));
 
 const wSpec = new Set<string>();
-for (const [sciezka, operacje] of Object.entries(spec.paths)) {
-  for (const [metoda] of operacjeSciezki(operacje)) {
-    wSpec.add(`${metoda.toLowerCase()} ${naFastify(sciezka)}`);
+for (const [path, operations] of Object.entries(spec.paths)) {
+  for (const [metoda] of pathOperations(operations)) {
+    wSpec.add(`${metoda.toLowerCase()} ${naFastify(path)}`);
   }
 }
 
-console.log(`tras w kodzie: ${wKodzie.size}, operacji w specyfikacji: ${wSpec.size}\n`);
+console.log(`tras w kodzie: ${inCode.size}, operacji w specyfikacji: ${wSpec.size}\n`);
 
-const brakujace = [...wKodzie].filter((t) => !wSpec.has(t)).sort();
-const nadmiarowe = [...wSpec].filter((t) => !wKodzie.has(t)).sort();
+const brakujace = [...inCode].filter((t) => !wSpec.has(t)).sort();
+const surplus = [...wSpec].filter((t) => !inCode.has(t)).sort();
 
-zglos(brakujace.length === 0,
+report(brakujace.length === 0,
   brakujace.length === 0
     ? 'kazda trasa z kodu jest w specyfikacji'
     : `trasy BEZ opisu w specyfikacji: ${brakujace.join(', ')}`);
 
-zglos(nadmiarowe.length === 0,
-  nadmiarowe.length === 0
+report(surplus.length === 0,
+  surplus.length === 0
     ? 'specyfikacja nie opisuje tras, ktorych nie ma'
-    : `opisane, ale nieistniejace: ${nadmiarowe.join(', ')}`);
+    : `opisane, ale nieistniejace: ${surplus.join(', ')}`);
 
 // Liczba endpointow /v1 krazy po dokumentacji i raporcie - niech test ja pilnuje.
-const v1 = [...wKodzie].filter((t) => t.includes(' /v1/')).length;
-zglos(v1 === 11, `endpointow /v1: ${v1} (dokumentacja i raport podaja 11)`);
+const v1 = [...inCode].filter((t) => t.includes(' /v1/')).length;
+report(v1 === 11, `endpointow /v1: ${v1} (dokumentacja i raport podaja 11)`);
 
 // Powierzchnia administracyjna liczona OSOBNO od klienckiej.
 //
 // Licznik zlicza PARY metoda+sciezka, a nie sciezki: dzisiejsza rownosc
 // "11 tras = 11 par" dla /v1 jest przypadkowa i rozjedzie sie przy pierwszej
 // sciezce z dwiema metodami. /admin ma ich cztery i szesc operacji.
-const admin = [...wKodzie].filter((t) => t.includes(' /admin/')).length;
-zglos(admin === 6, `operacji /admin: ${admin} (cztery sciezki, szesc par metoda+sciezka)`);
+const admin = [...inCode].filter((t) => t.includes(' /admin/')).length;
+report(admin === 6, `operacji /admin: ${admin} (cztery sciezki, szesc par metoda+sciezka)`);
 
 // Kazda operacja musi opisywac odpowiedz 200 - inaczej kontrakt jest pusty.
-for (const [sciezka, operacje] of Object.entries(spec.paths)) {
-  for (const [metoda, op] of operacjeSciezki(operacje)) {
+for (const [path, operations] of Object.entries(spec.paths)) {
+  for (const [metoda, op] of pathOperations(operations)) {
     const odp = (op as { responses?: Record<string, unknown> }).responses ?? {};
-    if (!odp['200']) zglos(false, `${metoda.toUpperCase()} ${sciezka} nie opisuje odpowiedzi 200`);
+    if (!odp['200']) report(false, `${metoda.toUpperCase()} ${path} nie opisuje odpowiedzi 200`);
   }
 }
 
@@ -144,34 +144,34 @@ const schematy = Object.keys(
   (spec as { components?: { securitySchemes?: Record<string, unknown> } })
     .components?.securitySchemes ?? {});
 
-zglos(schematy.length > 0, `zdefiniowane schematy bezpieczenstwa: ${schematy.join(', ') || 'BRAK'}`);
+report(schematy.length > 0, `zdefiniowane schematy bezpieczenstwa: ${schematy.join(', ') || 'BRAK'}`);
 
-const bezZwolnienia: string[] = [];
-const zwolnioneNiepotrzebnie: string[] = [];
-const bez401: string[] = [];
-for (const [sciezka, operacje] of Object.entries(spec.paths)) {
-  for (const [metoda, op] of operacjeSciezki(operacje)) {
+const withoutExemption: string[] = [];
+const exemptUnnecessarily: string[] = [];
+const without401: string[] = [];
+for (const [path, operations] of Object.entries(spec.paths)) {
+  for (const [metoda, op] of pathOperations(operations)) {
     const o = op as { security?: unknown[]; responses?: Record<string, unknown> };
-    const zwolniona = Array.isArray(o.security) && o.security.length === 0;
-    if (SONDY.has(sciezka) && !zwolniona) bezZwolnienia.push(`${metoda} ${sciezka}`);
-    if (!SONDY.has(sciezka) && zwolniona) zwolnioneNiepotrzebnie.push(`${metoda} ${sciezka}`);
-    if (!SONDY.has(sciezka) && !o.responses?.['401']) bez401.push(`${metoda} ${sciezka}`);
+    const exempt = Array.isArray(o.security) && o.security.length === 0;
+    if (SONDY.has(path) && !exempt) withoutExemption.push(`${metoda} ${path}`);
+    if (!SONDY.has(path) && exempt) exemptUnnecessarily.push(`${metoda} ${path}`);
+    if (!SONDY.has(path) && !o.responses?.['401']) without401.push(`${metoda} ${path}`);
   }
 }
 
-zglos(bezZwolnienia.length === 0,
-  bezZwolnienia.length === 0
+report(withoutExemption.length === 0,
+  withoutExemption.length === 0
     ? 'sondy operacyjne maja jawne security: []'
-    : `sondy BEZ jawnego security: [] (dostana 401 od Prometheusa i kubeleta): ${bezZwolnienia.join(', ')}`);
-zglos(zwolnioneNiepotrzebnie.length === 0,
-  zwolnioneNiepotrzebnie.length === 0
+    : `sondy BEZ jawnego security: [] (dostana 401 od Prometheusa i kubeleta): ${withoutExemption.join(', ')}`);
+report(exemptUnnecessarily.length === 0,
+  exemptUnnecessarily.length === 0
     ? 'zadna trasa poza sondami nie jest zwolniona z uwierzytelniania'
-    : `zwolnione z uwierzytelniania mimo ze nie sa sondami: ${zwolnioneNiepotrzebnie.join(', ')}`);
-zglos(bez401.length === 0,
-  bez401.length === 0
+    : `zwolnione z uwierzytelniania mimo ze nie sa sondami: ${exemptUnnecessarily.join(', ')}`);
+report(without401.length === 0,
+  without401.length === 0
     ? 'kazda chroniona operacja opisuje odpowiedz 401'
-    : `chronione operacje bez opisu 401: ${bez401.join(', ')}`);
+    : `chronione operacje bez opisu 401: ${without401.join(', ')}`);
 
 await app.close();
-console.log(bledy === 0 ? '\nSpecyfikacja zgodna z kodem.' : `\n${bledy} niezgodnosci.`);
-process.exit(bledy === 0 ? 0 : 1);
+console.log(errors === 0 ? '\nSpecyfikacja zgodna z kodem.' : `\n${errors} niezgodnosci.`);
+process.exit(errors === 0 ? 0 : 1);

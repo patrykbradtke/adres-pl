@@ -4,7 +4,7 @@ groups:
   - name: adres-pl
     rules:
       - alert: DaneAdresoweZamrozone
-        expr: adres_dane_wiek_dni > 30
+        expr: adres_data_age_days > 30
         for: 6h
         labels: { severity: warning }
         annotations:
@@ -16,7 +16,7 @@ groups:
             przez firme zewnetrzna, a nie przez instytucje prowadzaca rejestr.
 
       - alert: PublikacjaWstrzymana
-        expr: adres_etl_ostatni_status_info{status="wstrzymany"} == 1
+        expr: adres_etl_last_status_info{status="wstrzymany"} == 1
         for: 15m
         labels: { severity: warning }
         annotations:
@@ -28,7 +28,7 @@ groups:
             z flaga --force.
 
       - alert: IndeksNiespojnyZDanymi
-        expr: adres_indeks_niespojny == 1
+        expr: adres_index_inconsistent == 1
         for: 30m
         labels: { severity: warning }
         annotations:
@@ -39,14 +39,14 @@ groups:
             nowej wersji.
 
       - alert: IndeksNieZaladowany
-        expr: adres_indeks_zaladowany == 0
+        expr: adres_index_loaded == 0
         for: 5m
         labels: { severity: critical }
         annotations:
           summary: "Instancja bez zaladowanego indeksu"
 
       - alert: BazaNiedostepna
-        expr: adres_baza_dostepna == 0
+        expr: adres_db_up == 0
         for: 2m
         labels: { severity: critical }
         annotations:
@@ -76,7 +76,7 @@ groups:
       - alert: WysokaLatencjaPodpowiedzi
         expr: >
           histogram_quantile(0.99,
-            sum(rate(adres_zapytanie_ms_bucket{endpoint="/v1/suggest"}[5m])) by (le)) > 60
+            sum(rate(adres_request_ms_bucket{endpoint="/v1/suggest"}[5m])) by (le)) > 60
         for: 10m
         labels: { severity: warning }
         annotations:

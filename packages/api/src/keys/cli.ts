@@ -12,9 +12,9 @@
  * Przydaje sie takze na starcie: pierwszy klucz trzeba wystawic, zanim
  * ktokolwiek zdazy uzyc panelu.
  *
- *   node --experimental-strip-types packages/api/src/keys/cli.ts wystaw --klient 1
- *   node --experimental-strip-types packages/api/src/keys/cli.ts wystaw --klient 1 --zastepuje 7 --srodowisko test
- *   node --experimental-strip-types packages/api/src/keys/cli.ts lista --klient 1
+ *   node --experimental-strip-types packages/api/src/keys/cli.ts wystaw --client 1
+ *   node --experimental-strip-types packages/api/src/keys/cli.ts wystaw --client 1 --replaces 7 --environment test
+ *   node --experimental-strip-types packages/api/src/keys/cli.ts lista --client 1
  *
  * KLUCZ JAWNY JEST POKAZYWANY RAZ. Nie zapisujemy go nigdzie - w bazie ladzie
  * wylacznie skrot, a odtworzenie z niego klucza nie jest mozliwe.
@@ -23,72 +23,72 @@ import pg from 'pg';
 import { generateApiKey, type ApiKeyEnvironment } from '@adres-pl/core';
 import { peppersFromEnv } from './pepper.ts';
 
-function argument(nazwa: string): string | undefined {
-  const i = process.argv.indexOf(`--${nazwa}`);
+function argument(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-function zakoncz(komunikat: string): never {
-  console.error(komunikat);
+function exitWith(message: string): never {
+  console.error(message);
   process.exit(1);
 }
 
-const polecenie = process.argv[2];
+const command = process.argv[2];
 const databaseUrl = process.env.DATABASE_URL
   ?? 'postgres://adres:adres@localhost:5432/adres';
 const db = new pg.Client({ connectionString: databaseUrl });
 await db.connect();
 
-if (polecenie === 'wystaw') {
-  const klientId = Number(argument('klient'));
-  if (!Number.isInteger(klientId)) zakoncz('Podaj --klient <ID>.');
+if (command === 'wystaw') {
+  const clientId = Number(argument('client'));
+  if (!Number.isInteger(clientId)) exitWith('Podaj --client <ID>.');
 
-  const srodowisko = (argument('srodowisko') ?? 'live') as ApiKeyEnvironment;
-  if (srodowisko !== 'live' && srodowisko !== 'test') {
-    zakoncz("--srodowisko przyjmuje 'live' albo 'test'.");
+  const environment = (argument('environment') ?? 'live') as ApiKeyEnvironment;
+  if (environment !== 'live' && environment !== 'test') {
+    exitWith("--environment przyjmuje 'live' albo 'test'.");
   }
 
   // Pieprz jest warunkiem, nie opcja: bez niego nie ma czym policzyc skrotu.
-  const pieprze = peppersFromEnv();
-  if (!pieprze) {
-    zakoncz('Brak pieprza. Ustaw API_KEY_PEPPER_1 - patrz .env.example.');
+  const peppers = peppersFromEnv();
+  if (!peppers) {
+    exitWith('Brak pieprza. Ustaw API_KEY_PEPPER_1 - patrz .env.example.');
   }
 
-  const zastepuje = argument('zastepuje') ? Number(argument('zastepuje')) : null;
-  const jawny = generateApiKey(srodowisko);
-  const { version, hex } = pieprze.hash(jawny);
-  const prefiks = srodowisko === 'live' ? 'adr_live_' : 'adr_test_';
+  const replaces = argument('replaces') ? Number(argument('replaces')) : null;
+  const plaintext = generateApiKey(environment);
+  const { version, hex } = peppers.hash(plaintext);
+  const prefix = environment === 'live' ? 'adr_live_' : 'adr_test_';
 
-  const { rows: [wiersz] } = await db.query<{ id: string }>(
-    `INSERT INTO licencje.klucz_api
-       (klient_id, srodowisko, prefiks, hash, pieprz_wersja, nazwa, zastepuje_id, utworzony_przez)
+  const { rows: [row] } = await db.query<{ id: string }>(
+    `INSERT INTO licensing.api_key
+       (client_id, environment, prefix, hash, pepper_version, name, replaces_id, created_by)
      VALUES ($1, $2, $3, decode($4, 'hex'), $5, $6, $7, $8) RETURNING id`,
-    [klientId, srodowisko, prefiks, hex, version,
-      argument('nazwa') ?? null, zastepuje, process.env.USER ?? 'cli']);
+    [clientId, environment, prefix, hex, version,
+      argument('name') ?? null, replaces, process.env.USER ?? 'cli']);
 
-  console.log(`\nKlucz wystawiony. Identyfikator: ${wiersz.id}, pieprz w wersji ${version}.`);
-  console.log('\n  ' + jawny + '\n');
+  console.log(`\nKlucz wystawiony. Identyfikator: ${row.id}, pieprz w wersji ${version}.`);
+  console.log('\n  ' + plaintext + '\n');
   console.log('Ta wartosc NIE ZOSTANIE pokazana ponownie - w bazie lezy wylacznie skrot.');
-  if (zastepuje !== null) {
+  if (replaces !== null) {
     console.log(`\nRotacja: ustaw poprzednikowi koniec waznosci, zeby oba klucze dzialaly\n` +
       `przez okres przejsciowy (patrz docs/runbook-klucze.md):\n` +
-      `  psql "$DATABASE_URL" -c "UPDATE licencje.klucz_api ` +
-      `SET wazny_do = now() + interval '7 days' WHERE id = ${zastepuje};"`);
+      `  psql "$DATABASE_URL" -c "UPDATE licensing.api_key ` +
+      `SET valid_to = now() + interval '7 days' WHERE id = ${replaces};"`);
   }
-} else if (polecenie === 'lista') {
-  const klientId = argument('klient') ? Number(argument('klient')) : null;
+} else if (command === 'lista') {
+  const clientId = argument('client') ? Number(argument('client')) : null;
   const { rows } = await db.query(
-    `SELECT k.id, c.nazwa AS klient, k.srodowisko, k.prefiks, k.pieprz_wersja,
-            k.wazny_od, k.wazny_do, k.uniewazniony_od, c.zawieszony_od
-       FROM licencje.klucz_api k
-       JOIN licencje.klient c ON c.id = k.klient_id
-      WHERE ($1::bigint IS NULL OR k.klient_id = $1)
-      ORDER BY k.id`, [klientId]);
+    `SELECT k.id, c.name AS client, k.environment, k.prefix, k.pepper_version,
+            k.valid_from, k.valid_to, k.revoked_at, c.suspended_at
+       FROM licensing.api_key k
+       JOIN licensing.client c ON c.id = k.client_id
+      WHERE ($1::bigint IS NULL OR k.client_id = $1)
+      ORDER BY k.id`, [clientId]);
   // Skrotu ani klucza jawnego nie wypisujemy NIGDY - takze tutaj.
   console.table(rows);
 } else {
-  zakoncz('Uzycie: cli.ts wystaw --klient <ID> [--srodowisko live|test] ' +
-    '[--zastepuje <ID>] [--nazwa <tekst>]\n       cli.ts lista [--klient <ID>]');
+  exitWith('Uzycie: cli.ts wystaw --client <ID> [--environment live|test] ' +
+    '[--replaces <ID>] [--name <tekst>]\n       cli.ts lista [--client <ID>]');
 }
 
 await db.end();

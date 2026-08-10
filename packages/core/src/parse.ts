@@ -25,7 +25,7 @@ const NOISE = /\b(?:polska|poland|pl|rzeczpospolita\s+polska)\b\.?/gi;
  * Rozpoznajemy ja PRZED reszta parsowania, bo inaczej marker zostaje odrzucony
  * jako nierozpoznany fragment, numer skrytki wpada w pole numeru budynku
  * i - jesli w tej miejscowosci istnieje budynek o tym numerze - adres dostaje
- * `zweryfikowany_rejestr`. Tak bylo do 9.08.2026: "skr. poczt. 15, Warszawa"
+ * `verified_registry`. Tak bylo do 9.08.2026: "skr. poczt. 15, Warszawa"
  * wracalo z najwyzszym poziomem pewnosci i szlo do wysylki bez przegladu.
  */
 const SKRYTKA = /\b(?:skr(?:ytka)?\.?\s*poczt(?:owa|\.)?|skrytka|p\.?\s?o\.?\s?box)\b/i;
@@ -41,7 +41,7 @@ const SKRYTKA = /\b(?:skr(?:ytka)?\.?\s*poczt(?:owa|\.)?|skrytka|p\.?\s?o\.?\s?b
  * czy "Nowa Wies 27" to miejscowosc bez ulic, czy ulica "Nowa" w jakiejs wsi.
  */
 export function parseAddressLine(raw: string): ParsedAddressLine {
-  const out: ParsedAddressLine = { reszta: [], raw };
+  const out: ParsedAddressLine = { unparsed: [], raw };
   let work = cleanText(raw).replace(NOISE, ' ').replace(/\s+/g, ' ').trim();
   if (!work) return out;
 
@@ -49,7 +49,7 @@ export function parseAddressLine(raw: string): ParsedAddressLine {
   // Wykrywamy przed wszystkim innym. Numer skrytki NIE jest numerem budynku,
   // wiec usuwamy marker razem z nim i nie probujemy dopasowac do rejestru.
   if (SKRYTKA.test(work)) {
-    out.nietypowy = 'skrytka_pocztowa';
+    out.irregular = 'post_office_box';
     work = work.replace(SKRYTKA, ' ').replace(/(?:^|\s)\d{1,6}[A-Za-z]?(?=\s|$|,)/, ' ')
       .replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '').trim();
   }
@@ -57,12 +57,12 @@ export function parseAddressLine(raw: string): ParsedAddressLine {
   // --- 1. kod pocztowy -------------------------------------------------
   const postal = extractPostalCode(work);
   // Podzial zapamietujemy PRZED wycieciem kodu - potem pozycje sie przesuwaja.
-  let przedKodem = '';
-  let poKodzie = '';
+  let beforePostalCode = '';
+  let afterPostalCode = '';
   if (postal) {
-    out.kodPocztowy = postal.code;
-    przedKodem = work.slice(0, postal.index).replace(/\s+/g, ' ').replace(/[\s,]+$/, '').trim();
-    poKodzie = work.slice(postal.index + postal.length).replace(/\s+/g, ' ').replace(/^[\s,]+/, '').trim();
+    out.postalCode = postal.code;
+    beforePostalCode = work.slice(0, postal.index).replace(/\s+/g, ' ').replace(/[\s,]+$/, '').trim();
+    afterPostalCode = work.slice(postal.index + postal.length).replace(/\s+/g, ' ').replace(/^[\s,]+/, '').trim();
     work = (work.slice(0, postal.index) + ' ' + work.slice(postal.index + postal.length))
       .replace(/\s+/g, ' ')
       .trim();
@@ -74,20 +74,20 @@ export function parseAddressLine(raw: string): ParsedAddressLine {
   // Brak przecinkow, a byl kod pocztowy: dzielimy w miejscu, gdzie kod stal.
   //
   // Przecinek byl wczesniej JEDYNYM separatorem pol, wiec zapis bez niego -
-  // "Marszalkowska 1 00-624 Warszawa" - lądował w calosci w jednym polu jako
+  // "Marszalkowska 1 00-624 Warszawa" - ladowal w calosci w jednym polu jako
   // nazwa miejscowosci. Ksztalt czesty: adresy wklejane z faktur i PDF-ow gubia
   // przecinki, a REGON zwraca pola osobno i naiwne zlaczenie spacja daje
   // dokladnie to. Kod pocztowy stoi w polskim zapisie miedzy czescia ulicowa
   // a miejscowoscia, wiec jego pozycja jest wiarygodnym punktem podzialu.
-  if (segments.length === 1 && przedKodem && poKodzie) {
-    segments = [przedKodem, poKodzie];
+  if (segments.length === 1 && beforePostalCode && afterPostalCode) {
+    segments = [beforePostalCode, afterPostalCode];
   }
 
   // --- 3. cecha ulicy w ktoryms z segmentow ----------------------------
   let streetSegIdx = -1;
   for (let i = 0; i < segments.length; i++) {
-    const { cecha } = splitStreetPrefix(segments[i]);
-    if (cecha) { streetSegIdx = i; out.cecha = cecha; break; }
+    const { streetType } = splitStreetPrefix(segments[i]);
+    if (streetType) { streetSegIdx = i; out.streetType = streetType; break; }
   }
 
   // --- 4. numer budynku ------------------------------------------------
@@ -99,8 +99,8 @@ export function parseAddressLine(raw: string): ParsedAddressLine {
     if (tail) {
       const parsed = parseNumber(tail.value);
       if (parsed) {
-        out.nrBudynku = parsed.nrBudynku;
-        out.nrLokalu = parsed.nrLokalu;
+        out.buildingNumber = parsed.buildingNumber;
+        out.unitNumber = parsed.unitNumber;
       }
       segments[numberHost] = seg.slice(0, tail.index).trim().replace(/[,;]+$/, '');
     }
@@ -110,34 +110,34 @@ export function parseAddressLine(raw: string): ParsedAddressLine {
   const remaining = segments.map((s) => s.trim()).filter(Boolean);
 
   if (streetSegIdx >= 0 && remaining.length > 0) {
-    const { nazwa } = splitStreetPrefix(segments[streetSegIdx] || '');
-    if (nazwa) out.ulica = nazwa;
+    const { name } = splitStreetPrefix(segments[streetSegIdx] || '');
+    if (name) out.street = name;
     // miejscowosc: pierwszy segment inny niz ten z ulica
     for (let i = 0; i < segments.length; i++) {
       if (i === streetSegIdx) continue;
-      if (segments[i]) { out.miejscowosc = segments[i]; break; }
+      if (segments[i]) { out.locality = segments[i]; break; }
     }
     for (let i = 0; i < segments.length; i++) {
-      if (i !== streetSegIdx && segments[i] && segments[i] !== out.miejscowosc) {
-        out.reszta.push(segments[i]);
+      if (i !== streetSegIdx && segments[i] && segments[i] !== out.locality) {
+        out.unparsed.push(segments[i]);
       }
     }
   } else if (remaining.length === 1) {
     // Jeden segment bez cechy: "Nowa Wies" albo "Marszalkowska".
     // Nie da sie rozstrzygnac bez rejestru - zapisujemy jako miejscowosc,
     // bo to statystycznie czestszy przypadek przy adresach wiejskich.
-    out.miejscowosc = remaining[0];
+    out.locality = remaining[0];
   } else if (remaining.length >= 2) {
     // "Marszalkowska, Warszawa" - ostatni segment to zwykle miejscowosc
-    out.ulica = remaining[0];
-    out.miejscowosc = remaining[remaining.length - 1];
-    out.reszta.push(...remaining.slice(1, -1));
+    out.street = remaining[0];
+    out.locality = remaining[remaining.length - 1];
+    out.unparsed.push(...remaining.slice(1, -1));
   }
 
   // "Nowa Wies 27, 05-123 Nowa Wies" - powtorzona nazwa oznacza miejscowosc
   // bez ulic, a nie ulice o nazwie identycznej z miejscowoscia.
-  if (out.ulica && out.miejscowosc && !out.cecha && out.ulica === out.miejscowosc) {
-    out.ulica = undefined;
+  if (out.street && out.locality && !out.streetType && out.street === out.locality) {
+    out.street = undefined;
   }
 
   return out;

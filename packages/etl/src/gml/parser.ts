@@ -54,7 +54,7 @@ export function srsToEpsg(srsName: string | undefined): string {
 /**
  * Czy dana deklaracja srsName narzuca kolejnosc osi (northing, easting).
  *
- * TO JEST PUŁAPKA, KTORA CICHO PSUJE CALY ZBIOR.
+ * TO JEST PULAPKA, KTORA CICHO PSUJE CALY ZBIOR.
  *
  * Uklady PL-1992 i PL-2000 maja w rejestrze EPSG kolejnosc osi (X=north, Y=east).
  * Formy `urn:ogc:def:crs:EPSG::2180` i `http://.../def/crs/EPSG/0/2180`
@@ -352,7 +352,7 @@ function pushMulti(map: Map<string, string[]>, key: string, value: string): void
   if (arr) arr.push(value); else map.set(key, [value]);
 }
 
-// `for..in` zamiast `Object.keys` - to gorąca sciezka wolana dla kazdego
+// `for..in` zamiast `Object.keys` - to goraca sciezka wolana dla kazdego
 // elementu dokumentu (a tych sa dziesiatki milionow), a Object.keys alokuje
 // przy kazdym wywolaniu tablice, ktora natychmiast idzie do GC.
 function attr(tag: SaxesTagPlain, name: string): string | undefined {
@@ -377,17 +377,17 @@ function attr(tag: SaxesTagPlain, name: string): string | undefined {
  */
 function attrHref(tag: SaxesTagPlain): string | undefined {
   const attrs = tag.attributes as Record<string, any>;
-  let zapasowy: string | undefined;
+  let fallback: string | undefined;
   for (const k in attrs) {
     const a = attrs[k];
     if (typeof a === 'object' && a !== null) {
       if (a.local === 'href') return a.value;
-      if (zapasowy === undefined && (k === 'href' || k.endsWith(':href'))) zapasowy = a.value;
-    } else if (zapasowy === undefined && (k === 'href' || k.endsWith(':href'))) {
-      zapasowy = a;
+      if (fallback === undefined && (k === 'href' || k.endsWith(':href'))) fallback = a.value;
+    } else if (fallback === undefined && (k === 'href' || k.endsWith(':href'))) {
+      fallback = a;
     }
   }
-  return zapasowy;
+  return fallback;
 }
 
 function attrNs(tag: SaxesTagPlain, name: string): string | undefined {

@@ -33,21 +33,21 @@ export function validateFormat(
   const { requireNumber = true, requirePostalCode = false } = opts;
   const issues: Issue[] = [];
 
-  const miejscowosc = address.miejscowosc ? cleanText(address.miejscowosc) : '';
-  if (!miejscowosc) {
+  const locality = address.locality ? cleanText(address.locality) : '';
+  if (!locality) {
     issues.push({
-      code: 'BRAK_MIEJSCOWOSCI',
+      code: 'MISSING_LOCALITY',
       severity: 'error',
       field: 'miejscowosc',
       message: 'Podaj miejscowosc.',
     });
   }
 
-  const nr = address.nrBudynku ? cleanText(address.nrBudynku) : '';
+  const nr = address.buildingNumber ? cleanText(address.buildingNumber) : '';
   if (!nr) {
     if (requireNumber) {
       issues.push({
-        code: 'BRAK_NUMERU',
+        code: 'MISSING_BUILDING_NUMBER',
         severity: 'error',
         field: 'nrBudynku',
         message: 'Podaj numer budynku.',
@@ -55,37 +55,37 @@ export function validateFormat(
     }
   } else if (!looksLikeBuildingNumber(nr)) {
     issues.push({
-      code: 'ZLY_FORMAT_NUMERU',
+      code: 'INVALID_BUILDING_NUMBER_FORMAT',
       severity: 'warning',
       field: 'nrBudynku',
       message: `Nietypowy zapis numeru: "${nr}". Sprawdz, czy jest poprawny.`,
     });
   }
 
-  const kod = address.kodPocztowy?.trim();
-  if (kod) {
-    if (!isValidPostalFormat(kod)) {
-      const suggested = normalizePostalCode(kod);
+  const code = address.postalCode?.trim();
+  if (code) {
+    if (!isValidPostalFormat(code)) {
+      const suggested = normalizePostalCode(code);
       issues.push({
-        code: 'ZLY_FORMAT_KODU',
+        code: 'INVALID_POSTAL_CODE_FORMAT',
         severity: suggested ? 'warning' : 'error',
         field: 'kodPocztowy',
         message: suggested
           ? `Kod pocztowy powinien miec format NN-NNN.`
-          : `"${kod}" nie jest poprawnym kodem pocztowym.`,
+          : `"${code}" nie jest poprawnym kodem pocztowym.`,
         suggested: suggested ?? undefined,
       });
-    } else if (isPlaceholderPostalCode(kod)) {
+    } else if (isPlaceholderPostalCode(code)) {
       issues.push({
-        code: 'ZLY_FORMAT_KODU',
+        code: 'INVALID_POSTAL_CODE_FORMAT',
         severity: 'warning',
         field: 'kodPocztowy',
-        message: `"${kod}" wyglada na wartosc zastepcza, nie na realny kod.`,
+        message: `"${code}" wyglada na wartosc zastepcza, nie na realny kod.`,
       });
     }
   } else if (requirePostalCode) {
     issues.push({
-      code: 'ZLY_FORMAT_KODU',
+      code: 'INVALID_POSTAL_CODE_FORMAT',
       severity: 'error',
       field: 'kodPocztowy',
       message: 'Podaj kod pocztowy.',
@@ -95,7 +95,7 @@ export function validateFormat(
   return {
     address: toCanonical(address),
     issues,
-    confidence: address.confidence ?? 'niezweryfikowany',
+    confidence: address.confidence ?? 'unverified',
   };
 }
 
@@ -131,7 +131,7 @@ export function validateAgainstRegistry(
 
   if (!ctx.localityExists) {
     issues.push({
-      code: 'MIEJSCOWOSC_SPOZA_REJESTRU',
+      code: 'LOCALITY_OUTSIDE_REGISTRY',
       severity: 'warning',
       field: 'miejscowosc',
       message: 'Nie znalazlem tej miejscowosci w rejestrze TERYT.',
@@ -140,18 +140,18 @@ export function validateAgainstRegistry(
 
   if (ctx.candidateCount !== undefined && ctx.candidateCount > 1) {
     issues.push({
-      code: 'WIELE_KANDYDATOW',
+      code: 'MULTIPLE_CANDIDATES',
       severity: 'info',
       field: 'miejscowosc',
       message: `Znalazlem ${ctx.candidateCount} miejscowosci o tej nazwie. Wskaz gmine lub powiat.`,
     });
   }
 
-  const hasStreet = Boolean(address.ulica?.trim());
+  const hasStreet = Boolean(address.street?.trim());
 
   if (hasStreet && ctx.localityExists && !ctx.localityHasStreets) {
     issues.push({
-      code: 'ULICA_W_MIEJSCOWOSCI_BEZ_ULIC',
+      code: 'STREET_IN_LOCALITY_WITHOUT_STREETS',
       severity: 'warning',
       field: 'ulica',
       message: 'W tej miejscowosci nie ma ulic - numer odnosi sie bezposrednio do miejscowosci.',
@@ -160,7 +160,7 @@ export function validateAgainstRegistry(
 
   if (!hasStreet && ctx.localityHasStreets) {
     issues.push({
-      code: 'BRAK_ULICY_W_MIEJSCOWOSCI_Z_ULICAMI',
+      code: 'MISSING_STREET_IN_LOCALITY_WITH_STREETS',
       severity: 'warning',
       field: 'ulica',
       message: 'W tej miejscowosci sa ulice - podanie ulicy zwykle jest konieczne.',
@@ -169,7 +169,7 @@ export function validateAgainstRegistry(
 
   if (hasStreet && ctx.streetExists === false) {
     issues.push({
-      code: 'ULICA_SPOZA_REJESTRU',
+      code: 'STREET_OUTSIDE_REGISTRY',
       severity: 'warning',
       field: 'ulica',
       message: 'Nie znalazlem tej ulicy w podanej miejscowosci.',
@@ -178,7 +178,7 @@ export function validateAgainstRegistry(
 
   if (ctx.numberExists === false) {
     issues.push({
-      code: 'NUMER_SPOZA_REJESTRU',
+      code: 'BUILDING_NUMBER_OUTSIDE_REGISTRY',
       severity: 'warning',
       field: 'nrBudynku',
       message: 'Tego numeru nie ma w rejestrze. Jesli to nowy budynek, mozesz go zapisac mimo to.',
@@ -187,17 +187,17 @@ export function validateAgainstRegistry(
 
   if (ctx.pointStatus && ctx.pointStatus !== 'istniejacy') {
     issues.push({
-      code: 'NUMER_PROGNOZOWANY',
+      code: 'BUILDING_NUMBER_PROJECTED',
       severity: 'info',
       field: 'nrBudynku',
       message: `Adres istnieje w rejestrze, ale budynek ma status "${ctx.pointStatus}".`,
     });
   }
 
-  const kod = address.kodPocztowy?.trim();
-  if (kod && ctx.registryPostalCode && kod !== ctx.registryPostalCode) {
+  const code = address.postalCode?.trim();
+  if (code && ctx.registryPostalCode && code !== ctx.registryPostalCode) {
     issues.push({
-      code: 'KOD_NIEZGODNY_Z_REJESTREM',
+      code: 'POSTAL_CODE_CONFLICTS_WITH_REGISTRY',
       severity: 'warning',
       field: 'kodPocztowy',
       message: `Rejestr podaje dla tego adresu ${ctx.registryPostalCode}. Zostawiam Twoj wpis.`,
@@ -217,35 +217,35 @@ function deriveConfidence(
   ctx: RegistryContext,
   issues: Issue[],
 ): Confidence {
-  if (address.confidence === 'nietypowy') return 'nietypowy';
-  if (issues.some((i) => i.severity === 'error')) return 'niezweryfikowany';
+  if (address.confidence === 'irregular') return 'irregular';
+  if (issues.some((i) => i.severity === 'error')) return 'unverified';
 
-  const hasStreet = Boolean(address.ulica?.trim());
+  const hasStreet = Boolean(address.street?.trim());
   const streetOk = !hasStreet || ctx.streetExists === true;
 
-  if (ctx.localityExists && streetOk && ctx.numberExists === true) return 'zweryfikowany_rejestr';
-  if (ctx.localityExists && streetOk && ctx.numberExists === false) return 'zweryfikowany_czesciowo';
-  if (ctx.localityExists) return 'zweryfikowany_czesciowo';
-  return 'niezweryfikowany';
+  if (ctx.localityExists && streetOk && ctx.numberExists === true) return 'verified_registry';
+  if (ctx.localityExists && streetOk && ctx.numberExists === false) return 'verified_partial';
+  if (ctx.localityExists) return 'verified_partial';
+  return 'unverified';
 }
 
 /** Doprowadza czesciowy adres do formy kanonicznej. */
 export function toCanonical(a: Partial<PlAddress>): PlAddress {
   return {
-    kraj: 'PL',
+    country: 'PL',
     simc: a.simc,
-    miejscowosc: a.miejscowosc ? cleanText(a.miejscowosc) : '',
+    locality: a.locality ? cleanText(a.locality) : '',
     symUl: a.symUl,
-    cecha: a.cecha,
-    ulica: a.ulica ? cleanText(a.ulica) : undefined,
-    nrBudynku: a.nrBudynku ? cleanText(a.nrBudynku) : '',
-    nrLokalu: a.nrLokalu ? cleanText(a.nrLokalu) : undefined,
-    kodPocztowy: a.kodPocztowy?.trim(),
-    tercGminy: a.tercGminy,
+    streetType: a.streetType,
+    street: a.street ? cleanText(a.street) : undefined,
+    buildingNumber: a.buildingNumber ? cleanText(a.buildingNumber) : '',
+    unitNumber: a.unitNumber ? cleanText(a.unitNumber) : undefined,
+    postalCode: a.postalCode?.trim(),
+    gminaTerc: a.gminaTerc,
     lat: a.lat,
     lon: a.lon,
     prgLocalId: a.prgLocalId,
-    confidence: a.confidence ?? 'niezweryfikowany',
+    confidence: a.confidence ?? 'unverified',
     raw: a.raw,
   };
 }
@@ -256,12 +256,12 @@ export function toCanonical(a: Partial<PlAddress>): PlAddress {
  */
 export function formatAddressLines(a: PlAddress): string[] {
   const lines: string[] = [];
-  const street = [a.cecha, a.ulica].filter(Boolean).join(' ');
-  const num = [a.nrBudynku, a.nrLokalu].filter(Boolean).join('/');
+  const street = [a.streetType, a.street].filter(Boolean).join(' ');
+  const num = [a.buildingNumber, a.unitNumber].filter(Boolean).join('/');
 
   if (street) lines.push(`${street} ${num}`.trim());
-  else lines.push(`${a.miejscowosc} ${num}`.trim());
+  else lines.push(`${a.locality} ${num}`.trim());
 
-  lines.push([a.kodPocztowy, a.miejscowosc].filter(Boolean).join(' '));
+  lines.push([a.postalCode, a.locality].filter(Boolean).join(' '));
   return lines.filter(Boolean);
 }

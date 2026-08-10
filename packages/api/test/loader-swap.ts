@@ -18,12 +18,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readHeader } from '@adres-pl/index-format';
 import { IndexHolder } from '../src/search/loader.ts';
-import { zbudujAtrapeIndeksu } from './atrapa-indeksu.ts';
+import { buildIndexStub } from './index-stub.ts';
 
-let bledy = 0;
-const zglos = (ok: boolean, opis: string) => {
-  console.log(`${ok ? 'OK  ' : 'BLAD'} ${opis}`);
-  if (!ok) bledy++;
+let errors = 0;
+const report = (ok: boolean, description: string) => {
+  console.log(`${ok ? 'OK  ' : 'ERROR'} ${description}`);
+  if (!ok) errors++;
 };
 
 const kat = await mkdtemp(join(tmpdir(), 'adres-loader-'));
@@ -31,7 +31,7 @@ const kat = await mkdtemp(join(tmpdir(), 'adres-loader-'));
 // Domyslnie atrapa - test sprawdza logike wskaznika, a nie jakosc danych,
 // wiec nie ma powodu, zeby wymagal artefaktu z pelnego przebiegu ETL.
 // ARTEFAKT pozwala puscic te sama mechanike na artefakcie produkcyjnym.
-const bin = process.env.ARTEFAKT ? readFileSync(process.env.ARTEFAKT) : zbudujAtrapeIndeksu();
+const bin = process.env.ARTIFACT ? readFileSync(process.env.ARTIFACT) : buildIndexStub();
 await writeFile(join(kat, 'idx-A.bin'), bin);
 await writeFile(join(kat, 'idx-B.bin'), bin);
 
@@ -43,45 +43,45 @@ await writeFile(join(kat, 'idx-B.bin'), bin);
 // i kontrola 1 czerwieni sie z powodu niezwiazanego z badana logika.
 // Stala robila z tego testu narzedzie dzialajace dla jednego pliku na jednej
 // maszynie - czyli dokladnie ten rodzaj zaleznosci, ktory ten test tropi.
-const WERSJA_DANYCH = readHeader(bin).dataVersion;
+const DATA_VERSION = readHeader(bin).dataVersion;
 
-const wskaznik = join(kat, 'current.json');
-const ustawWskaznik = (plik: string, wersja: string) =>
-  writeFile(wskaznik, JSON.stringify({ current: plik, dataVersion: wersja }));
+const pointer = join(kat, 'current.json');
+const setPointer = (file: string, version: string) =>
+  writeFile(pointer, JSON.stringify({ current: file, dataVersion: version }));
 
-let podmiany = 0;
-await ustawWskaznik('idx-A.bin', WERSJA_DANYCH);
+let swaps = 0;
+await setPointer('idx-A.bin', DATA_VERSION);
 
 const holder = new IndexHolder({
   source: join(kat, 'idx-A.bin'),
-  pointer: wskaznik,
+  pointer: pointer,
   pollIntervalMs: 0,                    // odpytujemy recznie, bez czekania
-  onSwap: () => { podmiany++; },
+  onSwap: () => { swaps++; },
   onError: (e) => { console.log('   blad loadera:', e.message); },
 });
 
 await holder.start();
-zglos(podmiany === 1, `start laduje artefakt (podmian: ${podmiany})`);
-zglos(holder.ready, 'indeks zgloszony jako gotowy');
+report(swaps === 1, `start laduje artefakt (podmian: ${swaps})`);
+report(holder.ready, 'indeks zgloszony jako gotowy');
 
 // checkPointer jest prywatne - siegamy po nie tak, jak robi to timer.
-const sprawdz = () => (holder as unknown as { checkPointer(): Promise<void> }).checkPointer();
+const check = () => (holder as unknown as { checkPointer(): Promise<void> }).checkPointer();
 
 // 1. Wskaznik bez zmian - piec odpytan nie moze nic przeladowac.
-for (let i = 0; i < 5; i++) await sprawdz();
-zglos(podmiany === 1, `piec odpytan bez zmiany wskaznika nie przeladowalo artefaktu (podmian: ${podmiany})`);
+for (let i = 0; i < 5; i++) await check();
+report(swaps === 1, `piec odpytan bez zmiany wskaznika nie przeladowalo artefaktu (podmian: ${swaps})`);
 
 // 2. Zmiana pliku przy tej samej wersji danych - przeladowanie MA nastapic.
-await ustawWskaznik('idx-B.bin', WERSJA_DANYCH);
-await sprawdz();
-zglos(podmiany === 2, `zmiana pliku we wskazniku przeladowala artefakt (podmian: ${podmiany})`);
+await setPointer('idx-B.bin', DATA_VERSION);
+await check();
+report(swaps === 2, `zmiana pliku we wskazniku przeladowala artefakt (podmian: ${swaps})`);
 
 // 3. Po podmianie znowu cisza.
-for (let i = 0; i < 3; i++) await sprawdz();
-zglos(podmiany === 2, `po podmianie kolejne odpytania sa bezczynne (podmian: ${podmiany})`);
+for (let i = 0; i < 3; i++) await check();
+report(swaps === 2, `po podmianie kolejne odpytania sa bezczynne (podmian: ${swaps})`);
 
 holder.stop();
 await rm(kat, { recursive: true, force: true });
 
-console.log(bledy === 0 ? '\nWszystkie kontrole przeszly.' : `\n${bledy} kontroli nie przeszlo.`);
-process.exit(bledy === 0 ? 0 : 1);
+console.log(errors === 0 ? '\nWszystkie kontrole przeszly.' : `\n${errors} kontroli nie przeszlo.`);
+process.exit(errors === 0 ? 0 : 1);

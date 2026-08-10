@@ -17,7 +17,7 @@ import { registerSearchRoutes } from './routes/search.ts';
 import { registerLookupRoutes } from './routes/lookup.ts';
 import { registerValidateRoutes } from './routes/validate.ts';
 import { registerMetricsRoutes, Metrics } from './routes/metrics.ts';
-import { registerAdminRoutes, sprawdzTokenOperatora } from './routes/admin.ts';
+import { registerAdminRoutes, checkOperatorToken } from './routes/admin.ts';
 import { registerAuth } from './keys/auth.ts';
 import { KeyRegistry } from './keys/registry.ts';
 import { Peppers } from './keys/pepper.ts';
@@ -81,20 +81,20 @@ export async function buildServer(
    * loadConfig zostaje czysta i nie rzuca - dzieki temu da sie zbadac sama
    * konfiguracje bez stawiania serwera.
    */
-  const pieprze = cfg.pieprze.length && cfg.pieprzAktywny !== null
-    ? new Peppers(new Map(cfg.pieprze), cfg.pieprzAktywny)
+  const peppers = cfg.peppers.length && cfg.activePepper !== null
+    ? new Peppers(new Map(cfg.peppers), cfg.activePepper)
     : null;
-  if (cfg.apiKeyMode !== 'wylaczony' && !pieprze) {
+  if (cfg.apiKeyMode !== 'disabled' && !peppers) {
     throw new Error(
       `API_KEY_MODE=${cfg.apiKeyMode} wymaga co najmniej jednego pieprza. ` +
       'Ustaw API_KEY_PEPPER_1 (nowy sekret: patrz .env.example).');
   }
 
-  const rejestr = new KeyRegistry({
+  const registry = new KeyRegistry({
     pool,
     connectionString: cfg.databaseUrl,
-    odswiezanieMs: cfg.kluczeOdswiezanieMs,
-    onError: (err, gdzie) => app.log.error({ err, gdzie }, 'rejestr kluczy'),
+    refreshMs: cfg.keysRefreshMs,
+    onError: (err, where) => app.log.error({ err, where }, 'rejestr kluczy'),
     onInfo: (msg) => app.log.info(msg),
   });
 
@@ -105,8 +105,8 @@ export async function buildServer(
    * istniejacy zestaw testow i kazde uruchomienie serwisu zaczelyby wymagac
    * zywej bazy z wgrana migracja 004_licencje.sql.
    */
-  if (cfg.apiKeyMode !== 'wylaczony') {
-    await rejestr.start();
+  if (cfg.apiKeyMode !== 'disabled') {
+    await registry.start();
   }
 
   /**
@@ -140,9 +140,9 @@ export async function buildServer(
      * Inaczej klient podnosilby sobie limit, wystawiajac dodatkowy klucz.
      */
     max: (req) => {
-      const k = req.klient;
+      const k = req.client;
       if (!k) return cfg.rateLimitMax;
-      return Math.min(k.limitKlientaNaMinute, k.limitKluczaNaMinute ?? Infinity);
+      return Math.min(k.clientRateLimitPerMin, k.keyRateLimitPerMin ?? Infinity);
     },
     timeWindow: '1 minute',
     /**
@@ -165,9 +165,9 @@ export async function buildServer(
      * Prefiksy 'k:' i 'ip:' sa konieczne - bez nich przestrzenie identyfikatorow
      * klientow i adresow moglyby sie zlac.
      */
-    keyGenerator: (req) => (req.klient ? `k:${req.klient.klientId}` : `ip:${req.ip}`),
+    keyGenerator: (req) => (req.client ? `k:${req.client.clientId}` : `ip:${req.ip}`),
     /**
-     * Domyslne 5000 wpisow to LRU wypychajace najstarsze liczniki - przy
+     * Domyslne 5000 wpisow to LRU wypychajace najstarsze counters - przy
      * wiekszej przestrzeni kluczy limit dalby sie obejsc samym rozproszeniem.
      * To druga, niezalezna od zadania 8.1 droga obejscia.
      */
@@ -178,32 +178,32 @@ export async function buildServer(
    * Licznik zuzycia rusza razem z uwierzytelnianiem: bez zweryfikowanego
    * klienta nie ma czego ksiegowac.
    */
-  const zuzycie = new UsageMeter({
+  const usage = new UsageMeter({
     pool,
-    flushMs: cfg.zuzycieFlushMs,
+    flushMs: cfg.usageFlushMs,
     onError: (err) => app.log.error({ err }, 'zrzut zuzycia'),
   });
 
-  if (cfg.apiKeyMode !== 'wylaczony') {
-    zuzycie.start();
+  if (cfg.apiKeyMode !== 'disabled') {
+    usage.start();
     registerAuth(app, {
-      rejestr,
-      pieprze: pieprze!,
-      zuzycie,
+      registry,
+      peppers: peppers!,
+      usage,
       cfg: {
         mode: cfg.apiKeyMode,
-        limitNieuwierzytelniony: cfg.rateLimitNieuwierzytelniony,
-        debugOpoznienieUs: cfg.debugOpoznienieUs,
+        unauthenticatedLimit: cfg.rateLimitUnauthenticated,
+        debugDelayUs: cfg.debugDelayUs,
       },
-      onWynik: (wynik) => metrics.uwierzytelnienie(wynik),
+      onResult: (result) => metrics.authentication(result),
     });
   }
 
-  if (cfg.debugOpoznienieUs > 0) {
+  if (cfg.debugDelayUs > 0) {
     // Furtka pomiarowa nie moze byc wlaczona po cichu - patrz komentarz
     // przy debugOpoznienieUs w config.ts.
     app.log.warn(
-      { opoznienieUs: cfg.debugOpoznienieUs },
+      { delayUs: cfg.debugDelayUs },
       "AUTH_DEBUG_OPOZNIENIE_US jest USTAWIONE - sciezka uwierzytelniania jest " +
       "sztucznie spowalniana. To furtka do walidacji przyrzadu pomiarowego; " +
       "na produkcji nie powinna byc wlaczona.");
@@ -226,12 +226,12 @@ export async function buildServer(
   app.decorate('index', holder);
   // Rejestr i licznik zuzycia wystawione tak samo jak pula i indeks: testy
   // musza moc wymusic odswiezenie albo zrzut, zamiast czekac na interwal.
-  app.decorate('rejestr', rejestr);
-  app.decorate('zuzycie', zuzycie);
+  app.decorate('registry', registry);
+  app.decorate('usage', usage);
 
   await holder.start();
 
-  registerMetricsRoutes(app, pool, holder, metrics, rejestr, pieprze ?? undefined);
+  registerMetricsRoutes(app, pool, holder, metrics, registry, peppers ?? undefined);
   registerSearchRoutes(app, holder);
   registerLookupRoutes(app, pool);
   registerValidateRoutes(app, pool, holder);
@@ -243,12 +243,12 @@ export async function buildServer(
    * bez niego endpoint bylby atrapa konczaca sie bledem przy pierwszym uzyciu.
    */
   if (cfg.adminToken) {
-    sprawdzTokenOperatora(cfg.adminToken);
-    if (!pieprze) {
+    checkOperatorToken(cfg.adminToken);
+    if (!peppers) {
       throw new Error('ADMIN_TOKEN ustawiony, ale brak pieprza - wystawienie klucza ' +
         'wymaga policzenia skrotu. Ustaw API_KEY_PEPPER_1.');
     }
-    registerAdminRoutes(app, { pool, pieprze, token: cfg.adminToken });
+    registerAdminRoutes(app, { pool, peppers, token: cfg.adminToken });
   }
 
   /**
@@ -259,32 +259,32 @@ export async function buildServer(
    */
   app.get('/v1/meta', async () => {
     const idx = holder.current;
-    const { rows } = await pool.query<{ zrodlo: string; wersja: string; pobrano: Date }>(
-      `SELECT zrodlo, wersja, max(pobrano) AS pobrano
-         FROM adres.zrzut GROUP BY zrodlo, wersja
-         ORDER BY max(pobrano) DESC LIMIT 10`,
+    const { rows } = await pool.query<{ source: string; version: string; fetchedAt: Date }>(
+      `SELECT source, version, max(fetched_at) AS fetched_at
+         FROM address.snapshot GROUP BY source, version
+         ORDER BY max(fetched_at) DESC LIMIT 10`,
     );
-    const newest = rows[0]?.pobrano;
-    const wiekDni = newest ? Math.floor((Date.now() - newest.getTime()) / 86_400_000) : null;
+    const newest = rows[0]?.fetchedAt;
+    const ageDays = newest ? Math.floor((Date.now() - newest.getTime()) / 86_400_000) : null;
     return {
-      indeks: {
-        wersjaDanych: idx.dataVersion,
-        zbudowano: idx.header.builtAt,
-        liczby: idx.header.counts,
+      index: {
+        dataVersion: idx.dataVersion,
+        builtAt: idx.header.builtAt,
+        counts: idx.header.counts,
       },
-      zrzuty: rows,
-      wiekNajnowszegoZrzutuDni: wiekDni,
+      snapshots: rows,
+      newestSnapshotAgeDays: ageDays,
       // Sygnal dla monitoringu: PRG aktualizuje sie na biezaco, wiec
       // brak nowego zrzutu przez 30 dni to anomalia, nie normalnosc.
-      ostrzezenie: wiekDni !== null && wiekDni > 30
-        ? `Najnowszy zrzut ma ${wiekDni} dni - sprawdz pipeline ETL i dostepnosc zrodla.`
+      warning: ageDays !== null && ageDays > 30
+        ? `Najnowszy zrzut ma ${ageDays} dni - sprawdz pipeline ETL i dostepnosc zrodla.`
         : undefined,
     };
   });
 
   app.get('/health', async (_req, reply) => {
     if (!holder.ready) return reply.code(503).send({ status: 'indeks nie zaladowany' });
-    return { status: 'ok', wersjaDanych: holder.current.dataVersion };
+    return { status: 'ok', dataVersion: holder.current.dataVersion };
   });
 
   /**
@@ -303,27 +303,27 @@ export async function buildServer(
    * zostaly juz raz zweryfikowane, a odrzucanie ich z powodu chwilowej awarii
    * Postgresa zamienialoby ja w awarie calego API. Ryzyko jest ograniczone
    * i mierzalne: przez czas awarii klucz uniewazniony pare minut temu nadal
-   * dziala. To okno, nie dziura - i zamyka je prog KLUCZE_MAX_WIEK_S.
+   * dziala. To okno, nie dziura - i zamyka je prog KEYS_MAX_AGE_S.
    *
    * Dostepnosc samej bazy nie znika z widoku: raportuje ja metryka
-   * adres_baza_dostepna (regula BazaNiedostepna w deploy/alerty.yaml)
+   * adres_db_up (regula BazaNiedostepna w deploy/alerty.yaml)
    * oraz podglad /status. To sygnal dla operatora, nie warunek kierowania ruchu.
    */
   app.get('/ready', async (_req, reply) => {
-    if (!holder.ready) return reply.code(503).send({ ready: false, powod: 'indeks niezaladowany' });
+    if (!holder.ready) return reply.code(503).send({ ready: false, reason: 'indeks niezaladowany' });
 
-    if (cfg.apiKeyMode !== 'wylaczony') {
+    if (cfg.apiKeyMode !== 'disabled') {
       // Instancja z niezaladowana replika odpowiada 401 na CALYM ruchu /v1,
       // bo zadnego klucza nie da sie odnalezc. Meldowanie gotowosci byloby
       // stanem gorszym niz jawna niedostepnosc, bo niewidocznym.
-      if (!rejestr.zaladowana) {
-        return reply.code(503).send({ ready: false, powod: 'rejestr kluczy niezaladowany' });
+      if (!registry.loaded) {
+        return reply.code(503).send({ ready: false, reason: 'rejestr kluczy niezaladowany' });
       }
-      const wiekS = Math.round(rejestr.wiekMs / 1000);
-      if (wiekS > cfg.kluczeMaxWiekS) {
+      const ageSeconds = Math.round(registry.ageMs / 1000);
+      if (ageSeconds > cfg.keysMaxAgeSeconds) {
         return reply.code(503).send({
           ready: false,
-          powod: `replika kluczy przeterminowana (${wiekS} s > ${cfg.kluczeMaxWiekS} s)`,
+          reason: `replika kluczy przeterminowana (${ageSeconds} s > ${cfg.keysMaxAgeSeconds} s)`,
         });
       }
     }
@@ -336,10 +336,10 @@ export async function buildServer(
     // Rejestr trzyma wlasne polaczenie nasluchujace i interwal odswiezania.
     // Bez tego wiersza app.close() konczy sie, ale PROCES NIE - petla zdarzen
     // ma wciaz zywe uchwyty. Objaw: test albo skrypt wisi po zakonczeniu pracy.
-    rejestr.stop();
+    registry.stop();
     // Ostatni zrzut PRZED zamknieciem puli - inaczej zuzycie z ostatniej minuty
     // pracy poda przepada przy kazdym wdrozeniu kroczacym.
-    await zuzycie.stop();
+    await usage.stop();
     await pool.end();
   });
 
@@ -350,8 +350,8 @@ declare module 'fastify' {
   interface FastifyInstance {
     pool: pg.Pool;
     index: IndexHolder;
-    rejestr: KeyRegistry;
-    zuzycie: UsageMeter;
+    registry: KeyRegistry;
+    usage: UsageMeter;
   }
 }
 

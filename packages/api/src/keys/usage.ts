@@ -35,10 +35,10 @@
  */
 import type pg from 'pg';
 
-interface Licznik {
-  klientId: number;
-  zapytan: number;
-  jednostek: number;
+interface Counter {
+  clientId: number;
+  requests: number;
+  units: number;
 }
 
 export interface UsageMeterConfig {
@@ -49,12 +49,12 @@ export interface UsageMeterConfig {
 }
 
 export class UsageMeter {
-  private liczniki = new Map<number, Licznik>();
+  private counters = new Map<number, Counter>();
   private cfg: UsageMeterConfig;
   private timer: NodeJS.Timeout | null = null;
 
-  liczbaZrzutow = 0;
-  liczbaBledow = 0;
+  snapshotCount = 0;
+  errorCount = 0;
 
   // Jawne przypisanie zamiast parameter property - tryb strip-only nie generuje
   // kodu przypisania (patrz komentarz przy konstruktorze IndexHolder).
@@ -62,11 +62,11 @@ export class UsageMeter {
     this.cfg = cfg;
   }
 
-  zlicz(kluczId: number, klientId: number, jednostek: number): void {
-    const l = this.liczniki.get(kluczId) ?? { klientId, zapytan: 0, jednostek: 0 };
-    l.zapytan += 1;
-    l.jednostek += jednostek;
-    this.liczniki.set(kluczId, l);
+  count(keyId: number, clientId: number, units: number): void {
+    const l = this.counters.get(keyId) ?? { clientId, requests: 0, units: 0 };
+    l.requests += 1;
+    l.units += units;
+    this.counters.set(keyId, l);
   }
 
   /**
@@ -77,16 +77,16 @@ export class UsageMeter {
    * 60 s i wsadzie po 1000 pozycji klient przekraczalby kwote kilkusetkrotnie,
    * zanim ktokolwiek by to zobaczyl.
    */
-  jednostkiKlienta(klientId: number): number {
-    let suma = 0;
-    for (const l of this.liczniki.values()) if (l.klientId === klientId) suma += l.jednostek;
-    return suma;
+  clientUnits(clientId: number): number {
+    let sum = 0;
+    for (const l of this.counters.values()) if (l.clientId === clientId) sum += l.units;
+    return sum;
   }
 
   start(): void {
-    const okres = this.cfg.flushMs ?? 60_000;
-    if (okres <= 0) return;
-    this.timer = setInterval(() => { void this.flush(); }, okres);
+    const period = this.cfg.flushMs ?? 60_000;
+    if (period <= 0) return;
+    this.timer = setInterval(() => { void this.flush(); }, period);
     this.timer.unref();
   }
 
@@ -105,32 +105,32 @@ export class UsageMeter {
    * chwilowa niedostepnosc bazy w "cale API padlo".
    */
   async flush(): Promise<void> {
-    if (this.liczniki.size === 0) return;
-    const doZrzutu = this.liczniki;
-    this.liczniki = new Map();
+    if (this.counters.size === 0) return;
+    const toFlush = this.counters;
+    this.counters = new Map();
     try {
-      const wpisy = [...doZrzutu.entries()];
+      const entries = [...toFlush.entries()];
       await this.cfg.pool.query(
-        `INSERT INTO licencje.zuzycie (klucz_id, okres, zapytan, jednostek)
+        `INSERT INTO licensing.usage (api_key_id, period, requests, units)
          SELECT * FROM unnest($1::bigint[], $2::date[], $3::bigint[], $4::bigint[])
-         ON CONFLICT (klucz_id, okres) DO UPDATE
-           SET zapytan   = licencje.zuzycie.zapytan   + EXCLUDED.zapytan,
-               jednostek = licencje.zuzycie.jednostek + EXCLUDED.jednostek,
-               zmieniony = now()`,
+         ON CONFLICT (api_key_id, period) DO UPDATE
+           SET requests   = licensing.usage.requests   + EXCLUDED.requests,
+               units = licensing.usage.units + EXCLUDED.units,
+               updated_at = now()`,
         [
-          wpisy.map(([id]) => id),
-          wpisy.map(() => okresRozliczeniowy()),
-          wpisy.map(([, l]) => l.zapytan),
-          wpisy.map(([, l]) => l.jednostek),
+          entries.map(([id]) => id),
+          entries.map(() => billingPeriod()),
+          entries.map(([, l]) => l.requests),
+          entries.map(([, l]) => l.units),
         ]);
-      this.liczbaZrzutow++;
+      this.snapshotCount++;
     } catch (e) {
-      this.liczbaBledow++;
-      // Oddajemy liczniki z powrotem, doliczajac to, co przybylo w miedzyczasie.
-      for (const [id, l] of doZrzutu) {
-        const biezacy = this.liczniki.get(id);
-        if (biezacy) { biezacy.zapytan += l.zapytan; biezacy.jednostek += l.jednostek; }
-        else this.liczniki.set(id, l);
+      this.errorCount++;
+      // Oddajemy counters z powrotem, doliczajac to, co przybylo w miedzyczasie.
+      for (const [id, l] of toFlush) {
+        const current = this.counters.get(id);
+        if (current) { current.requests += l.requests; current.units += l.units; }
+        else this.counters.set(id, l);
       }
       this.cfg.onError?.(e as Error);
     }
@@ -138,7 +138,7 @@ export class UsageMeter {
 }
 
 /** Pierwszy dzien biezacego miesiaca w postaci YYYY-MM-DD. */
-export function okresRozliczeniowy(teraz = new Date()): string {
+export function billingPeriod(teraz = new Date()): string {
   const rok = teraz.getUTCFullYear();
   const miesiac = String(teraz.getUTCMonth() + 1).padStart(2, '0');
   return `${rok}-${miesiac}-01`;
@@ -150,7 +150,7 @@ export function okresRozliczeniowy(teraz = new Date()): string {
  * Wsad liczy pozycje, kazda inna trasa jeden. Wartosc czytamy z ciala zadania
  * dopiero w onResponse, bo w onRequest cialo nie jest jeszcze sparsowane.
  */
-export function jednostkiZadania(trasa: string | undefined, cialo: unknown): number {
+export function requestUnits(trasa: string | undefined, cialo: unknown): number {
   if (trasa !== '/v1/batch') return 1;
   const items = (cialo as { items?: unknown[] } | undefined)?.items;
   return Array.isArray(items) && items.length > 0 ? items.length : 1;

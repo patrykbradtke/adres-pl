@@ -3,7 +3,7 @@
  *
  * CO WARTO MONITOROWAC I DLACZEGO
  *
- *  adres_dane_wiek_dni
+ *  adres_data_age_days
  *    Najwazniejsza metryka calego systemu. PRG aktualizuje sie na biezaco,
  *    wiec rosnacy wiek danych oznacza, ze albo pipeline stanal, albo zrodlo
  *    przestalo publikowac. Dokladnie tak wygladal incydent z czerwca 2024,
@@ -11,12 +11,12 @@
  *    zewnetrzna, a nie instytucja prowadzaca rejestr.
  *    Alarm: > 30 dni.
  *
- *  adres_etl_wstrzymane_total
+ *  adres_etl_halted_total
  *    Liczba cykli zatrzymanych przez kontrole jakosci. Wartosc niezerowa
  *    NIE jest awaria - to zadzialalo zabezpieczenie. Ale wymaga decyzji
  *    czlowieka, wiec musi byc widoczna.
  *
- *  adres_indeks_wersja_info
+ *  adres_index_version_info
  *    Pozwala wykryc rozjechanie sie wersji miedzy instancjami mikroserwisu
  *    po nieudanej podmianie artefaktu.
  */
@@ -39,10 +39,10 @@ export class Metrics {
    * identyfikatora klienta ani prefiksu klucza, bo to wysadziloby kardynalnosc
    * Prometheusa. Wymiar klienta to osobne zadanie (8.12).
    */
-  private uwierzytelnienia = new Map<string, number>();
+  private authCounters = new Map<string, number>();
 
-  uwierzytelnienie(wynik: string): void {
-    this.uwierzytelnienia.set(wynik, (this.uwierzytelnienia.get(wynik) ?? 0) + 1);
+  authentication(result: string): void {
+    this.authCounters.set(result, (this.authCounters.get(result) ?? 0) + 1);
   }
 
   observe(endpoint: string, ms: number): void {
@@ -57,29 +57,29 @@ export class Metrics {
 
   render(): string[] {
     const out: string[] = [];
-    out.push('# HELP adres_zapytania_total Liczba obsluzonych zapytan.');
-    out.push('# TYPE adres_zapytania_total counter');
-    for (const [ep, n] of this.counts) out.push(`adres_zapytania_total{endpoint="${ep}"} ${n}`);
+    out.push('# HELP adres_requests_total Liczba obsluzonych zapytan.');
+    out.push('# TYPE adres_requests_total counter');
+    for (const [ep, n] of this.counts) out.push(`adres_requests_total{endpoint="${ep}"} ${n}`);
 
-    out.push('# HELP adres_zapytanie_ms Czas obslugi zapytania w milisekundach.');
-    out.push('# TYPE adres_zapytanie_ms histogram');
+    out.push('# HELP adres_request_ms Czas obslugi zapytania w milisekundach.');
+    out.push('# TYPE adres_request_ms histogram');
     for (const [ep, h] of this.hist) {
       let cum = 0;
       for (let i = 0; i < this.buckets.length; i++) {
         cum += h[i];
-        out.push(`adres_zapytanie_ms_bucket{endpoint="${ep}",le="${this.buckets[i]}"} ${cum}`);
+        out.push(`adres_request_ms_bucket{endpoint="${ep}",le="${this.buckets[i]}"} ${cum}`);
       }
       cum += h[this.buckets.length];
-      out.push(`adres_zapytanie_ms_bucket{endpoint="${ep}",le="+Inf"} ${cum}`);
-      out.push(`adres_zapytanie_ms_sum{endpoint="${ep}"} ${(this.sumMs.get(ep) ?? 0).toFixed(3)}`);
-      out.push(`adres_zapytanie_ms_count{endpoint="${ep}"} ${cum}`);
+      out.push(`adres_request_ms_bucket{endpoint="${ep}",le="+Inf"} ${cum}`);
+      out.push(`adres_request_ms_sum{endpoint="${ep}"} ${(this.sumMs.get(ep) ?? 0).toFixed(3)}`);
+      out.push(`adres_request_ms_count{endpoint="${ep}"} ${cum}`);
     }
 
-    if (this.uwierzytelnienia.size > 0) {
-      out.push('# HELP adres_uwierzytelnienie_total Rozstrzygniecia uwierzytelnienia klucza API.');
-      out.push('# TYPE adres_uwierzytelnienie_total counter');
-      for (const [wynik, n] of this.uwierzytelnienia) {
-        out.push(`adres_uwierzytelnienie_total{wynik="${wynik}"} ${n}`);
+    if (this.authCounters.size > 0) {
+      out.push('# HELP adres_auth_total Rozstrzygniecia uwierzytelnienia klucza API.');
+      out.push('# TYPE adres_auth_total counter');
+      for (const [result, n] of this.authCounters) {
+        out.push(`adres_auth_total{result="${result}"} ${n}`);
       }
     }
     return out;
@@ -91,11 +91,11 @@ export function registerMetricsRoutes(
   pool: pg.Pool,
   holder: IndexHolder,
   metrics: Metrics,
-  rejestr?: {
-    rozmiar: number; wiekMs: number; zaladowana: boolean; liczbaPowiadomien: number;
+  registry?: {
+    size: number; ageMs: number; loaded: boolean; notificationCount: number;
   },
   /** Do odcisku zestawu pieprzy w /status - patrz komentarz przy uzyciu. */
-  pieprze?: { fingerprint(): Array<{ version: number; odcisk: string }> },
+  peppers?: { fingerprint(): Array<{ version: number; odcisk: string }> },
 ): void {
   /**
    * Pomiar czasu dla zapytan /v1/*.
@@ -125,9 +125,9 @@ export function registerMetricsRoutes(
    * Domyslnie 60 s: dane zmieniaja sie po publikacji, czyli raz w tygodniu,
    * a zbieranie metryk chodzi co 15 s.
    */
-  const STAN_DANYCH_TTL_MS = Number(process.env.METRICS_CACHE_MS ?? 60_000);
-  let stanDanych = { wiekDni: -1, punkty: 0, miejscowosci: 0, ulice: 0 };
-  let staneDanychTs = 0;
+  const DATA_STATE_TTL_MS = Number(process.env.METRICS_CACHE_MS ?? 60_000);
+  let dataState = { ageDays: -1, points: 0, localities: 0, streets: 0 };
+  let dataStateTs = 0;
 
   /**
    * Piec niezaleznych zrodel metryk, kazde w osobnej funkcji.
@@ -141,7 +141,7 @@ export function registerMetricsRoutes(
    * bazaOk, bo dostepnosc bazy jest sygnalem samym w sobie i sonduje sie ja
    * przy okazji zapytania, ktore i tak wykonujemy.
    */
-  async function metrykiStanuDanych(): Promise<{ linie: string[]; bazaOk: number }> {
+  async function dataStateMetrics(): Promise<{ lines: string[]; dbOk: number }> {
     const lines: string[] = [];
     // --- stan danych -------------------------------------------------
     //
@@ -156,187 +156,187 @@ export function registerMetricsRoutes(
     // Dostepnosci bazy cachowac nie wolno: to sygnal dla alertu
     // BazaNiedostepna z progiem 2 minut. Zamiast tego tania sonda SELECT 1
     // przy kazdym zbieraniu.
-    let bazaOk = 1;
+    let dbOk = 1;
     try {
       await pool.query('SELECT 1');
     } catch {
-      bazaOk = 0;
+      dbOk = 0;
     }
 
-    if (bazaOk === 1 && Date.now() - staneDanychTs > STAN_DANYCH_TTL_MS) {
+    if (dbOk === 1 && Date.now() - dataStateTs > DATA_STATE_TTL_MS) {
       try {
         const { rows: [d] } = await pool.query<{
-          wiek: string | null; punkty: string; miejscowosci: string; ulice: string;
+          age: string | null; points: string; localities: string; streets: string;
         }>(`
           SELECT
             EXTRACT(EPOCH FROM now() - (
-              SELECT max(pobrano) FROM adres.zrzut
-               WHERE zrodlo='prg' AND status='opublikowany'))::text AS wiek,
-            (SELECT count(*) FROM adres.punkt_adresowy WHERE wycofany_od IS NULL)::text AS punkty,
-            (SELECT count(*) FROM adres.miejscowosc  WHERE wycofany_od IS NULL)::text AS miejscowosci,
-            (SELECT count(*) FROM adres.ulica        WHERE wycofany_od IS NULL)::text AS ulice
+              SELECT max(fetched_at) FROM address.snapshot
+               WHERE source='prg' AND status='opublikowany'))::text AS age,
+            (SELECT count(*) FROM address.address_point WHERE withdrawn_at IS NULL)::text AS points,
+            (SELECT count(*) FROM address.locality  WHERE withdrawn_at IS NULL)::text AS localities,
+            (SELECT count(*) FROM address.street        WHERE withdrawn_at IS NULL)::text AS streets
         `);
-        stanDanych = {
-          wiekDni: d.wiek ? Number(d.wiek) / 86400 : -1,
-          punkty: Number(d.punkty),
-          miejscowosci: Number(d.miejscowosci),
-          ulice: Number(d.ulice),
+        dataState = {
+          ageDays: d.age ? Number(d.age) / 86400 : -1,
+          points: Number(d.points),
+          localities: Number(d.localities),
+          streets: Number(d.streets),
         };
-        staneDanychTs = Date.now();
+        dataStateTs = Date.now();
       } catch {
-        bazaOk = 0;   // sonda przeszla, ale odczyt nie - i tak zglaszamy problem
+        dbOk = 0;   // sonda przeszla, ale odczyt nie - i tak zglaszamy problem
       }
     }
-    const { wiekDni, punkty, miejscowosci, ulice } = stanDanych;
+    const { ageDays, points, localities, streets } = dataState;
 
-    lines.push('# HELP adres_baza_dostepna Czy baza danych odpowiada (1/0).');
-    lines.push('# TYPE adres_baza_dostepna gauge');
-    lines.push(`adres_baza_dostepna ${bazaOk}`);
+    lines.push('# HELP adres_db_up Czy baza danych odpowiada (1/0).');
+    lines.push('# TYPE adres_db_up gauge');
+    lines.push(`adres_db_up ${dbOk}`);
 
-    lines.push('# HELP adres_dane_wiek_dni Wiek najnowszego opublikowanego zrzutu w dniach. -1 = brak zrzutu.');
-    lines.push('# TYPE adres_dane_wiek_dni gauge');
-    lines.push(`adres_dane_wiek_dni ${wiekDni.toFixed(3)}`);
+    lines.push('# HELP adres_data_age_days Wiek najnowszego opublikowanego zrzutu w dniach. -1 = brak zrzutu.');
+    lines.push('# TYPE adres_data_age_days gauge');
+    lines.push(`adres_data_age_days ${ageDays.toFixed(3)}`);
 
-    lines.push('# HELP adres_punkty_total Liczba aktywnych punktow adresowych.');
-    lines.push('# TYPE adres_punkty_total gauge');
-    lines.push(`adres_punkty_total ${punkty}`);
-    lines.push('# HELP adres_miejscowosci_total Liczba aktywnych miejscowosci.');
-    lines.push('# TYPE adres_miejscowosci_total gauge');
-    lines.push(`adres_miejscowosci_total ${miejscowosci}`);
-    lines.push('# HELP adres_ulice_total Liczba aktywnych ulic.');
-    lines.push('# TYPE adres_ulice_total gauge');
-    lines.push(`adres_ulice_total ${ulice}`);
+    lines.push('# HELP adres_address_points_total Liczba aktywnych punktow adresowych.');
+    lines.push('# TYPE adres_address_points_total gauge');
+    lines.push(`adres_address_points_total ${points}`);
+    lines.push('# HELP adres_localities_total Liczba aktywnych miejscowosci.');
+    lines.push('# TYPE adres_localities_total gauge');
+    lines.push(`adres_localities_total ${localities}`);
+    lines.push('# HELP adres_streets_total Liczba aktywnych ulic.');
+    lines.push('# TYPE adres_streets_total gauge');
+    lines.push(`adres_streets_total ${streets}`);
 
-    return { linie: lines, bazaOk };
+    return { lines: lines, dbOk };
   }
 
-  async function metrykiEtl(): Promise<string[]> {
+  async function etlMetrics(): Promise<string[]> {
     const lines: string[] = [];
     // --- stan ETL ----------------------------------------------------
     try {
       const { rows } = await pool.query<{ status: string; n: string }>(
-        `SELECT status, count(*)::text n FROM adres.etl_run
-          WHERE rozpoczety > now() - interval '30 days' GROUP BY status`,
+        `SELECT status, count(*)::text n FROM address.etl_run
+          WHERE started_at > now() - interval '30 days' GROUP BY status`,
       );
-      lines.push('# HELP adres_etl_przebiegi_total Cykle ETL z ostatnich 30 dni wg statusu.');
-      lines.push('# TYPE adres_etl_przebiegi_total gauge');
-      for (const r of rows) lines.push(`adres_etl_przebiegi_total{status="${r.status}"} ${r.n}`);
+      lines.push('# HELP adres_etl_runs_total Cykle ETL z ostatnich 30 dni wg statusu.');
+      lines.push('# TYPE adres_etl_runs_total gauge');
+      for (const r of rows) lines.push(`adres_etl_runs_total{status="${r.status}"} ${r.n}`);
 
-      const { rows: [ost] } = await pool.query<{ status: string | null; sekund: string | null }>(
-        `SELECT status, EXTRACT(EPOCH FROM now() - rozpoczety)::text AS sekund
-           FROM adres.etl_run ORDER BY rozpoczety DESC LIMIT 1`,
+      const { rows: [last] } = await pool.query<{ status: string | null; seconds: string | null }>(
+        `SELECT status, EXTRACT(EPOCH FROM now() - started_at)::text AS seconds
+           FROM address.etl_run ORDER BY started_at DESC LIMIT 1`,
       );
-      lines.push('# HELP adres_etl_od_ostatniego_s Czas od rozpoczecia ostatniego cyklu ETL.');
-      lines.push('# TYPE adres_etl_od_ostatniego_s gauge');
-      lines.push(`adres_etl_od_ostatniego_s ${ost?.sekund ? Number(ost.sekund).toFixed(0) : -1}`);
-      if (ost?.status) {
-        lines.push('# HELP adres_etl_ostatni_status_info Status ostatniego cyklu ETL.');
-        lines.push('# TYPE adres_etl_ostatni_status_info gauge');
-        lines.push(`adres_etl_ostatni_status_info{status="${ost.status}"} 1`);
+      lines.push('# HELP adres_etl_since_last_seconds Czas od rozpoczecia ostatniego cyklu ETL.');
+      lines.push('# TYPE adres_etl_since_last_seconds gauge');
+      lines.push(`adres_etl_since_last_seconds ${last?.seconds ? Number(last.seconds).toFixed(0) : -1}`);
+      if (last?.status) {
+        lines.push('# HELP adres_etl_last_status_info Status ostatniego cyklu ETL.');
+        lines.push('# TYPE adres_etl_last_status_info gauge');
+        lines.push(`adres_etl_last_status_info{status="${last.status}"} 1`);
       }
     } catch { /* brak tabeli etl_run nie moze wywalic metryk */ }
 
     return lines;
   }
 
-  async function metrykiIndeksu(): Promise<string[]> {
+  async function indexMetrics(): Promise<string[]> {
     const lines: string[] = [];
     // --- stan indeksu -------------------------------------------------
-    lines.push('# HELP adres_indeks_zaladowany Czy artefakt indeksu jest w pamieci (1/0).');
-    lines.push('# TYPE adres_indeks_zaladowany gauge');
-    lines.push(`adres_indeks_zaladowany ${holder.ready ? 1 : 0}`);
+    lines.push('# HELP adres_index_loaded Czy artefakt indeksu jest w pamieci (1/0).');
+    lines.push('# TYPE adres_index_loaded gauge');
+    lines.push(`adres_index_loaded ${holder.ready ? 1 : 0}`);
 
     if (holder.ready) {
       const idx = holder.current;
-      lines.push('# HELP adres_indeks_wersja_info Wersja danych zaladowanego artefaktu.');
-      lines.push('# TYPE adres_indeks_wersja_info gauge');
-      lines.push(`adres_indeks_wersja_info{wersja="${idx.dataVersion}"} 1`);
-      lines.push('# HELP adres_indeks_dokumenty Liczba pozycji w indeksie wyszukiwania.');
-      lines.push('# TYPE adres_indeks_dokumenty gauge');
-      lines.push(`adres_indeks_dokumenty{typ="miejscowosc"} ${idx.header.counts.localities}`);
-      lines.push(`adres_indeks_dokumenty{typ="ulica"} ${idx.header.counts.streets}`);
-      lines.push('# HELP adres_indeks_klucze Liczba kluczy wyszukiwania.');
-      lines.push('# TYPE adres_indeks_klucze gauge');
-      lines.push(`adres_indeks_klucze ${idx.header.counts.keys}`);
+      lines.push('# HELP adres_index_version_info Wersja danych zaladowanego artefaktu.');
+      lines.push('# TYPE adres_index_version_info gauge');
+      lines.push(`adres_index_version_info{version="${idx.dataVersion}"} 1`);
+      lines.push('# HELP adres_index_documents Liczba pozycji w indeksie wyszukiwania.');
+      lines.push('# TYPE adres_index_documents gauge');
+      lines.push(`adres_index_documents{type="locality"} ${idx.header.counts.localities}`);
+      lines.push(`adres_index_documents{type="street"} ${idx.header.counts.streets}`);
+      lines.push('# HELP adres_index_keys Liczba kluczy wyszukiwania.');
+      lines.push('# TYPE adres_index_keys gauge');
+      lines.push(`adres_index_keys ${idx.header.counts.keys}`);
 
       // Rozjechanie sie wersji miedzy artefaktem a baza oznacza, ze indeks
       // jest starszy niz dane - podpowiedzi beda niespojne z walidacja.
-      lines.push('# HELP adres_indeks_niespojny Artefakt starszy niz opublikowany zrzut (1/0).');
-      lines.push('# TYPE adres_indeks_niespojny gauge');
-      let niespojny = 0;
+      lines.push('# HELP adres_index_inconsistent Artefakt starszy niz opublikowany zrzut (1/0).');
+      lines.push('# TYPE adres_index_inconsistent gauge');
+      let inconsistent = 0;
       try {
         // Porownanie po CZASIE PUBLIKACJI, nie po napisie wersji.
         // Wersja to dowolny ciag ("2026-08-06", ale tez "t2" przy testach),
         // a porownanie leksykalne dawalo falszywe alarmy: "t2" > "2026-08-06".
-        const { rows: [z] } = await pool.query<{ starsze: boolean | null }>(
-          `SELECT (max(pobrano) > $1::timestamptz) AS starsze
-             FROM adres.zrzut WHERE zrodlo='prg' AND status='opublikowany'`,
+        const { rows: [z] } = await pool.query<{ newer: boolean | null }>(
+          `SELECT (max(fetched_at) > $1::timestamptz) AS newer
+             FROM address.snapshot WHERE source='prg' AND status='opublikowany'`,
           [idx.header.builtAt.trim()],
         );
-        if (z?.starsze) niespojny = 1;
+        if (z?.newer) inconsistent = 1;
       } catch { /* brak danych albo niepoprawna data budowy */ }
-      lines.push(`adres_indeks_niespojny ${niespojny}`);
+      lines.push(`adres_index_inconsistent ${inconsistent}`);
     }
 
     return lines;
   }
 
-  function metrykiProcesu(): string[] {
+  function processMetrics(): string[] {
     const lines: string[] = [];
     // --- proces --------------------------------------------------------
     const mem = process.memoryUsage();
-    lines.push('# HELP adres_proces_rss_bajty Zuzycie pamieci procesu.');
-    lines.push('# TYPE adres_proces_rss_bajty gauge');
-    lines.push(`adres_proces_rss_bajty ${mem.rss}`);
-    lines.push('# HELP adres_proces_uptime_s Czas dzialania procesu.');
-    lines.push('# TYPE adres_proces_uptime_s gauge');
-    lines.push(`adres_proces_uptime_s ${Math.round(process.uptime())}`);
+    lines.push('# HELP adres_process_rss_bytes Zuzycie pamieci procesu.');
+    lines.push('# TYPE adres_process_rss_bytes gauge');
+    lines.push(`adres_process_rss_bytes ${mem.rss}`);
+    lines.push('# HELP adres_process_uptime_seconds Czas dzialania procesu.');
+    lines.push('# TYPE adres_process_uptime_seconds gauge');
+    lines.push(`adres_process_uptime_seconds ${Math.round(process.uptime())}`);
 
     return lines;
   }
 
-  function metrykiRejestruKluczy(): string[] {
+  function keyRegistryMetrics(): string[] {
     const lines: string[] = [];
     /**
      * Stan repliki rejestru kluczy.
      *
-     * adres_klucze_wiek_s jest tu metryka numer jeden: przy awarii bazy
+     * adres_keys_age_seconds jest tu metryka numer jeden: przy awarii bazy
      * uwierzytelnianie dziala dalej z repliki (fail-open), wiec JEDYNYM
      * widocznym objawem jest rosnacy wiek. Bez niej awaria kanalu
      * odswiezania wyglada identycznie jak stan zdrowy.
      *
-     * adres_klucze_powiadomienia_total pozwala odroznic "NOTIFY nie dziala,
+     * adres_keys_notifications_total pozwala odroznic "NOTIFY nie dziala,
      * ratuje odpytywanie" od "wszystko gra" - bez tego cicha awaria kanalu
      * jest niewidoczna.
      */
-    if (rejestr) {
-      lines.push('# HELP adres_klucze_w_replice Liczba kluczy API w replice w pamieci.');
-      lines.push('# TYPE adres_klucze_w_replice gauge');
-      lines.push(`adres_klucze_w_replice ${rejestr.rozmiar}`);
-      lines.push('# HELP adres_klucze_wiek_s Czas od ostatniego udanego odswiezenia repliki.');
-      lines.push('# TYPE adres_klucze_wiek_s gauge');
-      lines.push(`adres_klucze_wiek_s ${Number.isFinite(rejestr.wiekMs) ? Math.round(rejestr.wiekMs / 1000) : -1}`);
-      lines.push('# HELP adres_klucze_powiadomienia_total Powiadomienia NOTIFY o zmianie klucza.');
-      lines.push('# TYPE adres_klucze_powiadomienia_total counter');
-      lines.push(`adres_klucze_powiadomienia_total ${rejestr.liczbaPowiadomien}`);
+    if (registry) {
+      lines.push('# HELP adres_keys_in_replica Liczba kluczy API w replice w pamieci.');
+      lines.push('# TYPE adres_keys_in_replica gauge');
+      lines.push(`adres_keys_in_replica ${registry.size}`);
+      lines.push('# HELP adres_keys_age_seconds Czas od ostatniego udanego odswiezenia repliki.');
+      lines.push('# TYPE adres_keys_age_seconds gauge');
+      lines.push(`adres_keys_age_seconds ${Number.isFinite(registry.ageMs) ? Math.round(registry.ageMs / 1000) : -1}`);
+      lines.push('# HELP adres_keys_notifications_total Powiadomienia NOTIFY o zmianie klucza.');
+      lines.push('# TYPE adres_keys_notifications_total counter');
+      lines.push(`adres_keys_notifications_total ${registry.notificationCount}`);
       // Instancja z niezaladowanym rejestrem odrzuca CALY ruch /v1 kodem 401.
       // Bez tej metryki jedynym sygnalem byloby /ready, czyli fakt wypadniecia
       // poda z rotacji - widoczny, ale nie mowiacy dlaczego.
-      lines.push('# HELP adres_klucze_zaladowany Czy replika rejestru kluczy jest zaladowana.');
-      lines.push('# TYPE adres_klucze_zaladowany gauge');
-      lines.push(`adres_klucze_zaladowany ${rejestr.zaladowana ? 1 : 0}`);
+      lines.push('# HELP adres_keys_loaded Czy replika rejestru kluczy jest zaladowana.');
+      lines.push('# TYPE adres_keys_loaded gauge');
+      lines.push(`adres_keys_loaded ${registry.loaded ? 1 : 0}`);
     }
     return lines;
   }
 
   app.get('/metrics', async (_req, reply) => {
-    const stan = await metrykiStanuDanych();
+    const state = await dataStateMetrics();
     const lines: string[] = [
-      ...stan.linie,
-      ...await metrykiEtl(),
-      ...await metrykiIndeksu(),
-      ...metrykiProcesu(),
-      ...metrykiRejestruKluczy(),
+      ...state.lines,
+      ...await etlMetrics(),
+      ...await indexMetrics(),
+      ...processMetrics(),
+      ...keyRegistryMetrics(),
     ];
 
     lines.push(...metrics.render());
@@ -350,25 +350,25 @@ export function registerMetricsRoutes(
    * przechodzenia przez Prometheusa.
    */
   app.get('/status', async () => {
-    const { rows: [d] } = await pool.query<{ wiek: string | null; punkty: string }>(`
+    const { rows: [d] } = await pool.query<{ age: string | null; points: string }>(`
       SELECT
         EXTRACT(DAY FROM now() - (
-          SELECT max(pobrano) FROM adres.zrzut
-           WHERE zrodlo='prg' AND status='opublikowany'))::text AS wiek,
-        (SELECT count(*) FROM adres.punkt_adresowy WHERE wycofany_od IS NULL)::text AS punkty
+          SELECT max(fetched_at) FROM address.snapshot
+           WHERE source='prg' AND status='opublikowany'))::text AS age,
+        (SELECT count(*) FROM address.address_point WHERE withdrawn_at IS NULL)::text AS points
     `);
-    const { rows: przebiegi } = await pool.query(
-      `SELECT id, rozpoczety, zakonczony, status, powod, artefakt_wersja
-         FROM adres.etl_run ORDER BY rozpoczety DESC LIMIT 5`,
+    const { rows: runs } = await pool.query(
+      `SELECT id, started_at, finished_at, status, reason, artifact_version
+         FROM address.etl_run ORDER BY started_at DESC LIMIT 5`,
     );
-    const wiek = d.wiek ? Number(d.wiek) : null;
+    const age = d.age ? Number(d.age) : null;
 
     return {
-      indeks: holder.ready
-        ? { wersja: holder.current.dataVersion, zbudowano: holder.current.header.builtAt.trim(),
-            liczby: holder.current.header.counts }
-        : { zaladowany: false },
-      dane: { punktow: Number(d.punkty), wiekZrzutuDni: wiek },
+      index: holder.ready
+        ? { version: holder.current.dataVersion, builtAt: holder.current.header.builtAt.trim(),
+            counts: holder.current.header.counts }
+        : { loaded: false },
+      data: { points: Number(d.points), snapshotAgeDays: age },
       /**
        * Stan warstwy kluczy - to jest podglad dla CZLOWIEKA przy diagnozie,
        * osobny od metryk dla Prometheusa.
@@ -381,27 +381,27 @@ export function registerMetricsRoutes(
        * Odcisk NIE ujawnia sekretu: to HMAC ze stalej etykiety, obciety do
        * osmiu znakow.
        */
-      klucze: rejestr
+      keys: registry
         ? {
-            wReplice: rejestr.rozmiar,
-            zaladowana: rejestr.zaladowana,
-            wiekS: Number.isFinite(rejestr.wiekMs) ? Math.round(rejestr.wiekMs / 1000) : null,
-            powiadomien: rejestr.liczbaPowiadomien,
-            pieprze: pieprze?.fingerprint() ?? null,
+            inReplica: registry.size,
+            loaded: registry.loaded,
+            ageSeconds: Number.isFinite(registry.ageMs) ? Math.round(registry.ageMs / 1000) : null,
+            powiadomien: registry.notificationCount,
+            peppers: peppers?.fingerprint() ?? null,
           }
         : null,
-      ostrzezenia: [
-        wiek !== null && wiek > 30
-          ? `Najnowszy zrzut ma ${wiek} dni. PRG aktualizuje sie na biezaco - sprawdz pipeline i dostepnosc zrodla.`
+      warnings: [
+        age !== null && age > 30
+          ? `Najnowszy zrzut ma ${age} dni. PRG aktualizuje sie na biezaco - sprawdz pipeline i dostepnosc zrodla.`
           : null,
-        przebiegi[0]?.status === 'wstrzymany'
-          ? `Ostatni cykl ETL zostal wstrzymany przez kontrole jakosci: ${przebiegi[0].powod}. Wymaga decyzji.`
+        runs[0]?.status === 'wstrzymany'
+          ? `Ostatni cykl ETL zostal wstrzymany przez kontrole jakosci: ${runs[0].reason}. Wymaga decyzji.`
           : null,
-        przebiegi[0]?.status === 'blad'
-          ? `Ostatni cykl ETL zakonczyl sie bledem: ${przebiegi[0].powod}`
+        runs[0]?.status === 'blad'
+          ? `Ostatni cykl ETL zakonczyl sie bledem: ${runs[0].reason}`
           : null,
       ].filter(Boolean),
-      ostatnieCykle: przebiegi,
+      recentCycles: runs,
     };
   });
 }

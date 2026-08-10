@@ -5,13 +5,13 @@
  *
  * docs/STAN-PRAC.md i deploy/alerty.yaml podaja wiersz "pelna sciezka HTTP"
  * (p50 1,71 / p95 9,41 / p99 27,94 ms) i przypisuja go skryptowi
- * packages/etl/test/bench-realny.ts. Ten skrypt NIE MOZE tych liczb dac:
+ * packages/etl/test/bench-real.ts. Ten skrypt NIE MOZE tych liczb dac:
  * importuje SearchIndex i mierzy idx.search() bezposrednio, bez routingu,
  * bez hookow i bez serializacji odpowiedzi (grep po "fastify" w tamtym pliku
  * nie daje ani jednego trafienia).
  *
  * Konsekwencja jest praktyczna i grozna dla zadania 8.8: uwierzytelnianie
- * z etapu 8A siedzi w hooku onRequest, ktory w bench-realny.ts w ogole sie
+ * z etapu 8A siedzi w hooku onRequest, ktory w bench-real.ts w ogole sie
  * nie wykonuje. Ktos uruchomilby go przed zmiana i po niej, zobaczyl roznice
  * zero i uznal prog "+0,3 ms do p99" za spelniony, nie zmierzywszy niczego.
  *
@@ -66,14 +66,14 @@ import { buildServer, loadConfig, type ServerConfig } from '../src/server.ts';
 import pg from 'pg';
 import { generateApiKey } from '@adres-pl/core';
 import { Peppers } from '../src/keys/pepper.ts';
-import { zapiszAtrapeIndeksu } from './atrapa-indeksu.ts';
+import { writeIndexStub } from './index-stub.ts';
 
 const tu = dirname(fileURLToPath(import.meta.url));
-const PLIK_ODNIESIENIA = join(tu, 'odniesienie-wydajnosc.json');
+const BASELINE_FILE = join(tu, 'odniesienie-wydajnosc.json');
 
-function arg(nazwa: string, domyslnie: number): number {
-  const i = process.argv.indexOf(`--${nazwa}`);
-  return i >= 0 && process.argv[i + 1] ? Number(process.argv[i + 1]) : domyslnie;
+function arg(name: string, byDefault: number): number {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 && process.argv[i + 1] ? Number(process.argv[i + 1]) : byDefault;
 }
 /**
  * DOMYSLNA PROBA NIE JEST DOWOLNA - zmierzona krzywa czulosci na tej maszynie:
@@ -94,27 +94,27 @@ function arg(nazwa: string, domyslnie: number): number {
  * zadnej wartosci - i wlasnie dlatego domyslka jest kosztowna (okolo 7 minut).
  * p50 i p95 sa stabilne duzo wczesniej (szum odpowiednio 0,002 i 0,026 ms).
  */
-const ZADAN = arg('zadan', 360_000);
-const ROZGRZEWKA = arg('rozgrzewka', 8_000);
-const PROG_MS = arg('prog', 0.3);
-const ZAPISZ = process.argv.includes('--zapisz');
+const REQUESTS = arg('zadan', 360_000);
+const WARMUP = arg('rozgrzewka', 8_000);
+const THRESHOLD_MS = arg('prog', 0.3);
+const SAVE = process.argv.includes('--zapisz');
 
 /**
- * Zapytania z rozdzialu 8.6 raportu, te same co w bench-realny.ts - zeby dalo
+ * Zapytania z rozdzialu 8.6 raportu, te same co w bench-real.ts - zeby dalo
  * sie zestawiac wyniki miedzy przyrzadami i miedzy wydaniami.
  */
-const ZAPYTANIA = [
+const REQUESTS = [
   'grojecka', 'pulawska', 'polna', '3 maja',
   'krakowska', 'kosciuszki', 'mickievicza', 'nowa wies',
 ];
 
-interface Seria {
+interface Run {
   id: string;
-  opis: string;
+  description: string;
   env: Record<string, string>;
-  naglowki?: Record<string, string>;
+  headers?: Record<string, string>;
   /** Seria potrzebuje waznego klucza - zostanie wystawiony przed pomiarem. */
-  wymagaKlucza?: boolean;
+  requiresKey?: boolean;
 }
 
 /**
@@ -123,27 +123,27 @@ interface Seria {
  * dolozy serie z waznym kluczem oraz serie kontrolna z wstrzyknietym
  * opoznieniem, ktora ma dowiesc, ze przyrzad rzeczywiscie cokolwiek wykrywa.
  */
-const SERIE: Seria[] = [
+const SERIES: Run[] = [
   // Tryb przypiety JAWNIE. Bez tego seria A dziedziczy domyslke z zadania 8.9
-  // ('wymagany'), strzela bez klucza i mierzy koszt ODRZUCEN zamiast obslugi -
+  // ('required'), strzela bez klucza i mierzy koszt ODRZUCEN zamiast obslugi -
   // a odrzucenie jest rzedu 0,05 ms, wiec porownanie B-A traci sens.
-  { id: 'A', opis: 'bez uwierzytelniania (odniesienie)', env: { API_KEY_MODE: 'wylaczony' } },
-  { id: 'B', opis: 'z waznym kluczem', env: { API_KEY_MODE: 'wymagany' }, wymagaKlucza: true },
+  { id: 'A', description: 'bez uwierzytelniania (odniesienie)', env: { API_KEY_MODE: 'disabled' } },
+  { id: 'B', description: 'z waznym kluczem', env: { API_KEY_MODE: 'required' }, requiresKey: true },
   {
     id: 'C',
-    opis: 'kontrolna: uwierzytelnianie + wstrzykniete 500 us',
-    env: { API_KEY_MODE: 'wymagany', AUTH_DEBUG_OPOZNIENIE_US: '500' },
-    wymagaKlucza: true,
+    description: 'kontrolna: uwierzytelnianie + wstrzykniete 500 us',
+    env: { API_KEY_MODE: 'required', AUTH_DEBUG_DELAY_US: '500' },
+    requiresKey: true,
   },
 ];
 
-function percentyl(posortowane: number[], p: number): number {
-  if (posortowane.length === 0) return NaN;
-  const i = Math.min(posortowane.length - 1, Math.floor(posortowane.length * p));
-  return posortowane[i];
+function percentyl(sorted: number[], p: number): number {
+  if (sorted.length === 0) return NaN;
+  const i = Math.min(sorted.length - 1, Math.floor(sorted.length * p));
+  return sorted[i];
 }
 
-const artefakt = await zapiszAtrapeIndeksu(
+const artifact = await writeIndexStub(
   join(await mkdtemp(join(tmpdir(), 'adres-bench-')), 'current.bin'));
 
 /**
@@ -152,119 +152,119 @@ const artefakt = await zapiszAtrapeIndeksu(
  * Limit klienta jest podniesiony poza zasieg pomiaru: mierzymy koszt
  * WERYFIKACJI, a nie odrzucen limitem - te sa rzedu 0,05 ms i zanizylyby wynik.
  */
-const PIEPRZ = 'pieprz-bench-8.8b';
+const PEPPER = 'pieprz-bench-8.8b';
 const DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://adres:adres@localhost:5432/adres';
 const db = new pg.Client({ connectionString: DATABASE_URL });
 await db.connect();
-const { rows: [klientBench] } = await db.query(
-  `INSERT INTO licencje.klient (nazwa, pakiet, limit_zapytan_min)
-   VALUES ($1, 'test', 100000000) RETURNING id`, [`bench-8.8b-${ZADAN}-${ROZGRZEWKA}`]);
-const kluczBench = generateApiKey('live');
+const { rows: [benchClient] } = await db.query(
+  `INSERT INTO licensing.client (name, plan, rate_limit_per_min)
+   VALUES ($1, 'test', 100000000) RETURNING id`, [`bench-8.8b-${REQUESTS}-${WARMUP}`]);
+const benchKey = generateApiKey('live');
 await db.query(
-  `INSERT INTO licencje.klucz_api (klient_id, srodowisko, prefiks, hash)
+  `INSERT INTO licensing.api_key (client_id, environment, prefix, hash)
    VALUES ($1, 'live', 'adr_live_', $2)`,
-  [klientBench.id, Buffer.from(new Peppers(new Map([[1, PIEPRZ]]), 1).hash(kluczBench).hex, 'hex')]);
+  [benchClient.id, Buffer.from(new Peppers(new Map([[1, PEPPER]]), 1).hash(benchKey).hex, 'hex')]);
 await db.end();
 
-interface Wynik {
+interface Result {
   id: string;
-  opis: string;
+  description: string;
   n: number;
   p50: number;
   p95: number;
   p99: number;
-  kody: Record<string, number>;
+  codes: Record<string, number>;
 }
 
-const czasy = new Map<string, number[]>();
-const kody = new Map<string, Map<number, number>>();
+const times = new Map<string, number[]>();
+const codes = new Map<string, Map<number, number>>();
 const serwery = new Map<string, Awaited<ReturnType<typeof buildServer>>>();
 
-for (const s of SERIE) {
+for (const s of SERIES) {
   const cfg: ServerConfig = loadConfig({
     ...process.env, ...s.env,
     LOG_LEVEL: 'error',
-    INDEX_SOURCE: artefakt,
+    INDEX_SOURCE: artifact,
     INDEX_POLL_MS: '0',
     // Limit poza zasiegiem pomiaru - inaczej mierzylibysmy odrzucenia.
-    RATE_LIMIT_MAX: String(ZADAN * 10),
-    API_KEY_PEPPER_1: PIEPRZ,
-    API_KEY_PEPPER_AKTYWNY: '1',
+    RATE_LIMIT_MAX: String(REQUESTS * 10),
+    API_KEY_PEPPER_1: PEPPER,
+    API_KEY_PEPPER_ACTIVE: '1',
     // Zrzut zuzycia poza pomiarem - interesuje nas koszt weryfikacji.
-    ZUZYCIE_FLUSH_MS: '0',
+    USAGE_FLUSH_MS: '0',
   });
-  if (s.wymagaKlucza) s.naglowki = { 'x-api-key': kluczBench };
+  if (s.requiresKey) s.headers = { 'x-api-key': benchKey };
   serwery.set(s.id, await buildServer(cfg));
-  czasy.set(s.id, []);
-  kody.set(s.id, new Map());
+  times.set(s.id, []);
+  codes.set(s.id, new Map());
 }
 
 /** Rozgrzewka JEST odrzucana z pomiaru - patrz naglowek. */
-for (const s of SERIE) {
+for (const s of SERIES) {
   const app = serwery.get(s.id)!;
-  for (let i = 0; i < ROZGRZEWKA; i++) {
+  for (let i = 0; i < WARMUP; i++) {
     await app.inject({
       method: 'GET',
-      url: `/v1/suggest?q=${encodeURIComponent(ZAPYTANIA[i % ZAPYTANIA.length])}&limit=10`,
-      headers: s.naglowki,
+      url: `/v1/suggest?q=${encodeURIComponent(REQUESTS[i % REQUESTS.length])}&limit=10`,
+      headers: s.headers,
     });
   }
 }
 
 // Przeplot: w kazdej iteracji po jednym zadaniu na kazda serie.
-const naSerie = Math.floor(ZADAN / SERIE.length);
-for (let i = 0; i < naSerie; i++) {
-  const q = ZAPYTANIA[i % ZAPYTANIA.length];
-  for (const s of SERIE) {
+const perRun = Math.floor(REQUESTS / SERIES.length);
+for (let i = 0; i < perRun; i++) {
+  const q = REQUESTS[i % REQUESTS.length];
+  for (const s of SERIES) {
     const app = serwery.get(s.id)!;
     const t0 = process.hrtime.bigint();
     const r = await app.inject({
       method: 'GET',
       url: `/v1/suggest?q=${encodeURIComponent(q)}&limit=10`,
-      headers: s.naglowki,
+      headers: s.headers,
     });
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-    czasy.get(s.id)!.push(ms);
-    const k = kody.get(s.id)!;
+    times.get(s.id)!.push(ms);
+    const k = codes.get(s.id)!;
     k.set(r.statusCode, (k.get(r.statusCode) ?? 0) + 1);
   }
 }
 
-const wyniki: Wynik[] = SERIE.map((s) => {
-  const t = czasy.get(s.id)!.slice().sort((a, b) => a - b);
+const results: Result[] = SERIES.map((s) => {
+  const t = times.get(s.id)!.slice().sort((a, b) => a - b);
   return {
     id: s.id,
-    opis: s.opis,
+    description: s.description,
     n: t.length,
     p50: percentyl(t, 0.5),
     p95: percentyl(t, 0.95),
     p99: percentyl(t, 0.99),
-    kody: Object.fromEntries([...kody.get(s.id)!].map(([k, v]) => [String(k), v])),
+    codes: Object.fromEntries([...codes.get(s.id)!].map(([k, v]) => [String(k), v])),
   };
 });
 
 for (const app of serwery.values()) await app.close();
 
 // ------------------------------------------------------------------ wydruk
-console.log(`\nzadan na serie: ${naSerie}, rozgrzewka odrzucona: ${ROZGRZEWKA}`);
-console.log(`artefakt: atrapa (${SERIE.length} serie przeplotem)\n`);
+console.log(`\nzadan na serie: ${perRun}, rozgrzewka odrzucona: ${WARMUP}`);
+console.log(`artefakt: atrapa (${SERIES.length} serie przeplotem)\n`);
 console.log('seria           p50        p95        p99      kody');
-for (const w of wyniki) {
+for (const w of results) {
   console.log(
     `${w.id.padEnd(14)} ${w.p50.toFixed(3).padStart(7)} ms ${w.p95.toFixed(3).padStart(7)} ms ` +
-    `${w.p99.toFixed(3).padStart(7)} ms   ${JSON.stringify(w.kody)}`);
+    `${w.p99.toFixed(3).padStart(7)} ms   ${JSON.stringify(w.codes)}`);
 }
 
-const bazowa = wyniki.find((w) => w.id === 'A')!;
-const zKluczem = wyniki.find((w) => w.id === 'B');
-const kontrolna = wyniki.find((w) => w.id === 'C');
+const baseline = results.find((w) => w.id === 'A')!;
+const withKey = results.find((w) => w.id === 'B');
+const control = results.find((w) => w.id === 'C');
 
-const delta = (w: Wynik | undefined) => (w ? {
-  p50: w.p50 - bazowa.p50, p95: w.p95 - bazowa.p95, p99: w.p99 - bazowa.p99,
+const delta = (w: Result | undefined) => (w ? {
+  p50: w.p50 - baseline.p50, p95: w.p95 - baseline.p95, p99: w.p99 - baseline.p99,
 } : null);
 
-const dB = delta(zKluczem);
-const dC = delta(kontrolna);
+const dB = delta(withKey);
+const dC = delta(control);
 
 if (dB) {
   console.log(`\nKOSZT UWIERZYTELNIANIA (B - A): p50 ${dB.p50.toFixed(3)} ms, ` +
@@ -295,58 +295,58 @@ if (dC) {
  * za duzo", drugi "a gdyby kosztowalo, to bysmy to zobaczyli". Bez drugiego
  * zielony wynik znaczy tylko tyle, ze przyrzad niczego nie zmierzyl.
  */
-const wStawie = dB !== null && dB.p50 <= PROG_MS;
-const przyrzadWykrywa = dC !== null && dC.p50 > PROG_MS;
+const wStawie = dB !== null && dB.p50 <= THRESHOLD_MS;
+const instrumentDetects = dC !== null && dC.p50 > THRESHOLD_MS;
 
 if (dB && dC) {
-  const zawyzenie = dC.p99 / dC.p50;
+  const overhead = dC.p99 / dC.p50;
   console.log(`\nZAWYZENIE OGONA: seria kontrolna ze znanym kosztem 500 us daje ` +
-    `p50 ${dC.p50.toFixed(3)} ms, a p99 ${dC.p99.toFixed(1)} ms - ${zawyzenie.toFixed(0)}x.`);
+    `p50 ${dC.p50.toFixed(3)} ms, a p99 ${dC.p99.toFixed(1)} ms - ${overhead.toFixed(0)}x.`);
   console.log('Dlatego prog egzekwujemy na p50; p95 i p99 sa informacyjne.');
 }
 
 console.log();
 console.log(wStawie
-  ? `OK   koszt uwierzytelniania na p50: ${dB!.p50.toFixed(3)} ms (prog ${PROG_MS} ms)`
-  : `BLAD koszt uwierzytelniania na p50: ${dB ? dB.p50.toFixed(3) : '?'} ms > ${PROG_MS} ms`);
-console.log(przyrzadWykrywa
-  ? `OK   przyrzad wykrywa wstrzyknieta regresje (${dC!.p50.toFixed(3)} ms > ${PROG_MS} ms)`
+  ? `OK   koszt uwierzytelniania na p50: ${dB!.p50.toFixed(3)} ms (prog ${THRESHOLD_MS} ms)`
+  : `BLAD koszt uwierzytelniania na p50: ${dB ? dB.p50.toFixed(3) : '?'} ms > ${THRESHOLD_MS} ms`);
+console.log(instrumentDetects
+  ? `OK   przyrzad wykrywa wstrzyknieta regresje (${dC!.p50.toFixed(3)} ms > ${THRESHOLD_MS} ms)`
   : `BLAD przyrzad NIE wykryl wstrzyknietych 500 us - wynik serii B jest bez wartosci`);
 
-const mierzalny = wStawie && przyrzadWykrywa;
+const measurable = wStawie && instrumentDetects;
 
 // ------------------------------------------------------------- odniesienie
-if (ZAPISZ) {
-  const odniesienie = {
-    opis: 'Wartosci odniesienia dla progu z zadania 8.8. Mierzone app.inject, ' +
+if (SAVE) {
+  const baseline = {
+    description: 'Wartosci odniesienia dla progu z zadania 8.8. Mierzone app.inject, ' +
       'czyli pelny cykl zycia zadania w Fastify bez gniazda systemowego.',
-    zmierzono: new Date().toISOString(),
+    measured: new Date().toISOString(),
     etap: 'po 8A (uwierzytelnianie wlaczone)',
-    maszyna: `${process.platform}-${process.arch}, node ${process.version}`,
-    artefakt: 'atrapa testowa',
-    zadanNaSerie: naSerie,
-    rozgrzewka: ROZGRZEWKA,
-    progMs: PROG_MS,
-    kosztUwierzytelniania: dB,
-    seriaKontrolna: dC,
+    machine: `${process.platform}-${process.arch}, node ${process.version}`,
+    artifact: 'atrapa testowa',
+    requestsPerRun: perRun,
+    warmup: WARMUP,
+    progMs: THRESHOLD_MS,
+    authCost: dB,
+    controlRun: dC,
     /**
      * Ile razy p99 zawyza znany koszt wstrzykniety w serii kontrolnej.
      * To jest powod, dla ktorego prog egzekwujemy na p50 - patrz komentarz
      * przy werdykcie.
      */
-    zawyzenieOgona: dC ? dC.p99 / dC.p50 : null,
-    serie: wyniki,
+    tailOverhead: dC ? dC.p99 / dC.p50 : null,
+    series: results,
   };
-  writeFileSync(PLIK_ODNIESIENIA, JSON.stringify(odniesienie, null, 2) + '\n');
-  console.log(`\nZapisano odniesienie: ${PLIK_ODNIESIENIA}`);
-} else if (existsSync(PLIK_ODNIESIENIA)) {
-  const stare = JSON.parse(readFileSync(PLIK_ODNIESIENIA, 'utf8')) as {
-    etap: string; serie: Wynik[];
+  writeFileSync(BASELINE_FILE, JSON.stringify(baseline, null, 2) + '\n');
+  console.log(`\nZapisano odniesienie: ${BASELINE_FILE}`);
+} else if (existsSync(BASELINE_FILE)) {
+  const stare = JSON.parse(readFileSync(BASELINE_FILE, 'utf8')) as {
+    etap: string; series: Result[];
   };
-  const bazoweStare = stare.serie[0];
-  const delta = bazowa.p99 - bazoweStare.p99;
-  console.log(`\nWobec odniesienia (${stare.etap}): p99 ${bazoweStare.p99.toFixed(3)} ms ` +
-    `-> ${bazowa.p99.toFixed(3)} ms, delta ${delta >= 0 ? '+' : ''}${delta.toFixed(3)} ms`);
+  const baselineOld = stare.series[0];
+  const delta = baseline.p99 - baselineOld.p99;
+  console.log(`\nWobec odniesienia (${stare.etap}): p99 ${baselineOld.p99.toFixed(3)} ms ` +
+    `-> ${baseline.p99.toFixed(3)} ms, delta ${delta >= 0 ? '+' : ''}${delta.toFixed(3)} ms`);
 }
 
-process.exit(mierzalny ? 0 : 1);
+process.exit(measurable ? 0 : 1);

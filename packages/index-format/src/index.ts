@@ -37,10 +37,10 @@ export const DOC = {
   TYPE: 0,          // 0 = miejscowosc, 1 = ulica
   SIMC: 1,          // SIMC jako liczba (wiodace zera odtwarzane przy odczycie)
   ULIC_ID: 2,       // -1 dla miejscowosci
-  PUNKTOW: 3,       // liczba punktow adresowych - proxy popularnosci w rankingu
+  POINTS: 3,       // liczba punktow adresowych - proxy popularnosci w rankingu
   GMINA_IDX: 4,     // indeks w slowniku nazw
   POWIAT_IDX: 5,
-  WOJ_IDX: 6,
+  VOIVODESHIP_IDX: 6,
   FLAGS: 7,         // bit0 = ma_ulice
   LAT_E6: 8,        // lat * 1e6, zaokraglone
   LON_E6: 9,
@@ -55,10 +55,10 @@ export const DOC = {
    *
    * Dla miejscowosci rowne PUNKTOW.
    */
-  PUNKTOW_MIEJSCOWOSCI: 10,
+  LOCALITY_POINTS: 10,
 } as const;
 
-export const FLAG_MA_ULICE = 1;
+export const FLAG_HAS_STREETS = 1;
 
 export interface ArtifactHeader {
   format: number;

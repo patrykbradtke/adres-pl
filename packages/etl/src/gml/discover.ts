@@ -9,7 +9,7 @@
  *     npm run etl -- discover <plik.gml|plik.zip>
  *
  * i dostajecie faktyczna liste elementow, namespace'ow i przykladowych
- * wartosci. Na tej podstawie w 5 minut dopisujecie/poprawiacie profil
+ * wartosci. Na tej podstawie w 5 minut dopisujecie/poprawiacie profile
  * w profiles.ts.
  *
  * Ten sam tryb sluzy jako TEST REGRESJI po kazdej zmianie formatu przez

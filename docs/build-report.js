@@ -1,7 +1,7 @@
 /**
  * Generator raportu dla Klienta i analityków.
  *
- * Numer wydania trzyma stala WERSJA nizej i tylko ona - w komentarzu
+ * Numer wydania trzyma stala VERSION nizej i tylko ona - w komentarzu
  * zdazyl sie juz zdezaktualizowac.
  *
  * Ten plik jest zrodlem prawdy dla dokumentu — plik .docx
@@ -10,7 +10,7 @@
  *
  *   node docs/build-report.js
  *
- * Wynik: docs/raport/raport-baza-mikroserwis-v<WERSJA>.docx
+ * Wynik: docs/raport/raport-baza-mikroserwis-v<VERSION>.docx
  */
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType,
@@ -24,8 +24,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const WERSJA = '1.8';
-const DATA = '10 sierpnia 2026';
+const VERSION = '1.8';
+const DATE = '10 sierpnia 2026';
 
 const W = 9026;                 // szerokosc kolumny tekstu A4 przy marginesach 1"
 const C = {
@@ -143,7 +143,7 @@ children.push(
   P([new TextRun({ text: 'Raport z analizy i realizacji', size: 26 })], { align: AlignmentType.CENTER, after: 120 }),
   P([new TextRun({ text: 'Stan prac, ocena ryzyk, warianty rozwiązania', size: 22, color: C.muted })], { align: AlignmentType.CENTER, after: 1400 }),
   P([new TextRun({ text: 'Odbiorcy: Klient, Analityk biznesowy, Zespół wdrożeniowy', size: 21 })], { align: AlignmentType.CENTER, after: 80 }),
-  P([new TextRun({ text: `Wersja ${WERSJA}  ·  ${DATA}`, size: 21, color: C.muted })], { align: AlignmentType.CENTER }),
+  P([new TextRun({ text: `Wersja ${VERSION}  ·  ${DATE}`, size: 21, color: C.muted })], { align: AlignmentType.CENTER }),
   new Paragraph({ children: [new PageBreak()] }),
 );
 
@@ -1456,7 +1456,7 @@ const doc = new Document({
           border: { top: { style: BorderStyle.SINGLE, size: 4, color: 'D5DBE0' } },
           spacing: { before: 120 },
           children: [
-            new TextRun({ text: `Komponent walidacji danych adresowych  ·  wersja ${WERSJA}`, size: 16, color: C.muted }),
+            new TextRun({ text: `Komponent walidacji danych adresowych  ·  wersja ${VERSION}`, size: 16, color: C.muted }),
             new TextRun({ text: '\t', size: 16 }),
             new TextRun({ children: ['Strona ', PageNumber.CURRENT, ' z ', PageNumber.TOTAL_PAGES], size: 16, color: C.muted }),
           ],
@@ -1470,7 +1470,7 @@ const doc = new Document({
 Packer.toBuffer(doc).then((buf) => {
   const dir = path.join(__dirname, 'raport');
   fs.mkdirSync(dir, { recursive: true });
-  const out = path.join(dir, `raport-baza-mikroserwis-v${WERSJA}.docx`);
+  const out = path.join(dir, `raport-baza-mikroserwis-v${VERSION}.docx`);
   fs.writeFileSync(out, buf);
   console.log('OK', (buf.length / 1024).toFixed(0), 'KB ->', out);
 });

@@ -38,7 +38,7 @@ import type { Peppers } from '../keys/pepper.ts';
 
 export interface AdminDeps {
   pool: pg.Pool;
-  pieprze: Peppers;
+  peppers: Peppers;
   token: string;
 }
 
@@ -50,9 +50,9 @@ export interface AdminDeps {
  * surowych wartosci dawaloby klientowi mozliwosc wywolania kodu 500 samym
  * podaniem krotszego tokenu.
  */
-function tokenZgodny(podany: string, oczekiwany: string): boolean {
-  const a = createHash('sha256').update(podany).digest();
-  const b = createHash('sha256').update(oczekiwany).digest();
+function tokenZgodny(provided: string, expected: string): boolean {
+  const a = createHash('sha256').update(provided).digest();
+  const b = createHash('sha256').update(expected).digest();
   return timingSafeEqual(a, b);
 }
 
@@ -67,7 +67,7 @@ const OCZYWISTE_TOKENY = new Set([
   'admin', 'password', 'secret', 'token', 'changeme', 'test', 'adres',
 ]);
 
-export function sprawdzTokenOperatora(token: string): void {
+export function checkOperatorToken(token: string): void {
   if (token.length < 32) {
     throw new Error(
       `ADMIN_TOKEN ma ${token.length} znakow, wymagane co najmniej 32. ` +
@@ -79,14 +79,14 @@ export function sprawdzTokenOperatora(token: string): void {
 }
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps): void {
-  const { pool, pieprze, token } = deps;
+  const { pool, peppers, token } = deps;
 
-  const straz = async (req: FastifyRequest, reply: FastifyReply) => {
-    const naglowek = req.headers.authorization;
-    const podany = typeof naglowek === 'string' && naglowek.startsWith('Bearer ')
-      ? naglowek.slice(7)
+  const guard = async (req: FastifyRequest, reply: FastifyReply) => {
+    const header = req.headers.authorization;
+    const provided = typeof header === 'string' && header.startsWith('Bearer ')
+      ? header.slice(7)
       : null;
-    if (!podany || !tokenZgodny(podany, token)) {
+    if (!provided || !tokenZgodny(provided, token)) {
       return reply.code(401).send({ error: 'Wymagany token operatora.', code: 'BRAK_TOKENU' });
     }
   };
@@ -98,32 +98,32 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps): void
    * konfiguracja NIE dziedziczy ustawienia globalnego.
    */
   const opcje = {
-    preHandler: straz,
+    preHandler: guard,
     config: { rateLimit: { max: 30, timeWindow: '1 minute', ban: 5, cache: 20_000 } },
   };
 
   // --- klienci ---------------------------------------------------------
 
-  app.post<{ Body: { nazwa: string; nip?: string; email?: string; pakiet?: string;
-    limitNaMinute?: number; kwotaMiesieczna?: number } }>(
+  app.post<{ Body: { name: string; nip?: string; email?: string; pakiet?: string;
+    limitNaMinute?: number; monthlyQuota?: number } }>(
     '/admin/clients', opcje, async (req, reply) => {
       const b = req.body;
       const { rows: [r] } = await pool.query(
-        `INSERT INTO licencje.klient
-           (nazwa, nip, email_kontakt, pakiet, limit_zapytan_min, kwota_miesieczna, utworzony_przez)
+        `INSERT INTO licensing.client
+           (name, nip, contact_email, plan, rate_limit_per_min, monthly_quota, created_by)
          VALUES ($1, $2, $3, coalesce($4, 'test'), coalesce($5, 600), $6, 'admin-api')
-         RETURNING id, nazwa, pakiet, limit_zapytan_min, kwota_miesieczna`,
-        [b.nazwa, b.nip ?? null, b.email ?? null, b.pakiet ?? null,
-          b.limitNaMinute ?? null, b.kwotaMiesieczna ?? null]);
+         RETURNING id, name, plan, rate_limit_per_min, monthly_quota`,
+        [b.name, b.nip ?? null, b.email ?? null, b.pakiet ?? null,
+          b.limitNaMinute ?? null, b.monthlyQuota ?? null]);
       return reply.code(201).send(r);
     });
 
   app.get('/admin/clients', opcje, async () => {
     const { rows } = await pool.query(
-      `SELECT id, nazwa, nip, email_kontakt, pakiet, limit_zapytan_min,
-              kwota_miesieczna, licencja, zawieszony_od, utworzony
-         FROM licencje.klient ORDER BY id`);
-    return { klienci: rows };
+      `SELECT id, name, nip, contact_email, plan, rate_limit_per_min,
+              monthly_quota, license, suspended_at, created_at
+         FROM licensing.client ORDER BY id`);
+    return { clients: rows };
   });
 
   // --- klucze ----------------------------------------------------------
@@ -133,25 +133,25 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps): void
    * Raz, w polu `klucz`, z naglowkiem zabraniajacym cachowania - odpowiedz
    * przechodzi przez proxy i przegladarki, a jej tresc jest poswiadczeniem.
    */
-  app.post<{ Body: { klientId: number; srodowisko?: ApiKeyEnvironment;
-    nazwa?: string; zastepujeId?: number } }>(
+  app.post<{ Body: { clientId: number; environment?: ApiKeyEnvironment;
+    name?: string; replacesId?: number } }>(
     '/admin/keys', opcje, async (req, reply) => {
       const b = req.body;
-      const srodowisko: ApiKeyEnvironment = b.srodowisko === 'test' ? 'test' : 'live';
-      const jawny = generateApiKey(srodowisko);
-      const { version, hex } = pieprze.hash(jawny);
-      const prefiks = srodowisko === 'live' ? 'adr_live_' : 'adr_test_';
+      const environment: ApiKeyEnvironment = b.environment === 'test' ? 'test' : 'live';
+      const plaintext = generateApiKey(environment);
+      const { version, hex } = peppers.hash(plaintext);
+      const prefix = environment === 'live' ? 'adr_live_' : 'adr_test_';
 
       const { rows: [r] } = await pool.query<{ id: string }>(
-        `INSERT INTO licencje.klucz_api
-           (klient_id, srodowisko, prefiks, hash, pieprz_wersja, nazwa, zastepuje_id, utworzony_przez)
+        `INSERT INTO licensing.api_key
+           (client_id, environment, prefix, hash, pepper_version, name, replaces_id, created_by)
          VALUES ($1, $2, $3, decode($4, 'hex'), $5, $6, $7, 'admin-api')
          RETURNING id`,
-        [b.klientId, srodowisko, prefiks, hex, version, b.nazwa ?? null, b.zastepujeId ?? null]);
+        [b.clientId, environment, prefix, hex, version, b.name ?? null, b.replacesId ?? null]);
 
       return reply.code(201).header('cache-control', 'no-store').send({
         id: Number(r.id),
-        klucz: jawny,
+        key: plaintext,
         uwaga: 'Ta wartosc nie zostanie pokazana ponownie - w bazie lezy wylacznie skrot.',
       });
     });
@@ -159,62 +159,62 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps): void
   /** Nigdy nie zwraca klucza jawnego ani skrotu - takze w zadnej postaci. */
   app.get('/admin/keys', opcje, async () => {
     const { rows } = await pool.query(
-      `SELECT k.id, k.klient_id, c.nazwa AS klient, k.srodowisko, k.prefiks,
-              k.pieprz_wersja, k.nazwa, k.wazny_od, k.wazny_do, k.uniewazniony_od,
-              k.zastepuje_id, k.limit_zapytan_min,
-              coalesce(z.jednostek, 0) AS jednostek_w_okresie
-         FROM licencje.klucz_api k
-         JOIN licencje.klient c ON c.id = k.klient_id
-         LEFT JOIN licencje.zuzycie z
-           ON z.klucz_id = k.id AND z.okres = date_trunc('month', now() AT TIME ZONE 'UTC')::date
+      `SELECT k.id, k.client_id, c.name AS client, k.environment, k.prefix,
+              k.pepper_version, k.name, k.valid_from, k.valid_to, k.revoked_at,
+              k.replaces_id, k.rate_limit_per_min,
+              coalesce(z.units, 0) AS jednostek_w_okresie
+         FROM licensing.api_key k
+         JOIN licensing.client c ON c.id = k.client_id
+         LEFT JOIN licensing.usage z
+           ON z.api_key_id = k.id AND z.period = date_trunc('month', now() AT TIME ZONE 'UTC')::date
         ORDER BY k.id`);
-    return { klucze: rows };
+    return { keys: rows };
   });
 
   /**
    * Rotacja bezprzerwowa: nastepca powstaje obok, a poprzednik dostaje TERMIN,
    * nie natychmiastowe uniewaznienie. Przez okres przejsciowy dzialaja oba.
    */
-  app.post<{ Body: { kluczId: number; okresDni?: number } }>(
+  app.post<{ Body: { keyId: number; periodDays?: number } }>(
     '/admin/keys/rotate', opcje, async (req, reply) => {
-      const { kluczId, okresDni = 7 } = req.body;
-      const { rows: [stary] } = await pool.query<{ klient_id: string; srodowisko: ApiKeyEnvironment }>(
-        `SELECT klient_id, srodowisko FROM licencje.klucz_api WHERE id = $1`, [kluczId]);
+      const { keyId, periodDays = 7 } = req.body;
+      const { rows: [stary] } = await pool.query<{ client_id: string; environment: ApiKeyEnvironment }>(
+        `SELECT client_id, environment FROM licensing.api_key WHERE id = $1`, [keyId]);
       if (!stary) return reply.code(404).send({ error: 'Nie ma takiego klucza.' });
 
-      const jawny = generateApiKey(stary.srodowisko);
-      const { version, hex } = pieprze.hash(jawny);
-      const prefiks = stary.srodowisko === 'live' ? 'adr_live_' : 'adr_test_';
+      const plaintext = generateApiKey(stary.environment);
+      const { version, hex } = peppers.hash(plaintext);
+      const prefix = stary.environment === 'live' ? 'adr_live_' : 'adr_test_';
 
-      const { rows: [nowy] } = await pool.query<{ id: string }>(
-        `INSERT INTO licencje.klucz_api
-           (klient_id, srodowisko, prefiks, hash, pieprz_wersja, zastepuje_id, utworzony_przez)
+      const { rows: [created] } = await pool.query<{ id: string }>(
+        `INSERT INTO licensing.api_key
+           (client_id, environment, prefix, hash, pepper_version, replaces_id, created_by)
          VALUES ($1, $2, $3, decode($4, 'hex'), $5, $6, 'admin-api') RETURNING id`,
-        [stary.klient_id, stary.srodowisko, prefiks, hex, version, kluczId]);
+        [stary.client_id, stary.environment, prefix, hex, version, keyId]);
 
       await pool.query(
-        `UPDATE licencje.klucz_api SET wazny_do = now() + ($2 || ' days')::interval
-          WHERE id = $1 AND wazny_do IS NULL`, [kluczId, String(okresDni)]);
+        `UPDATE licensing.api_key SET valid_to = now() + ($2 || ' days')::interval
+          WHERE id = $1 AND valid_to IS NULL`, [keyId, String(periodDays)]);
 
       return reply.code(201).header('cache-control', 'no-store').send({
-        id: Number(nowy.id),
-        klucz: jawny,
-        poprzedniDziala: `${okresDni} dni`,
+        id: Number(created.id),
+        key: plaintext,
+        previousWorks: `${periodDays} dni`,
         uwaga: 'Powiadom klienta PRZED koncem okresu przejsciowego - patrz docs/runbook-klucze.md.',
       });
     });
 
-  app.post<{ Body: { kluczId: number; powod?: string } }>(
+  app.post<{ Body: { keyId: number; reason?: string } }>(
     '/admin/keys/revoke', opcje, async (req, reply) => {
       const { rowCount } = await pool.query(
-        `UPDATE licencje.klucz_api
-            SET uniewazniony_od = now(), powod_uniewaznienia = $2
-          WHERE id = $1 AND uniewazniony_od IS NULL`,
-        [req.body.kluczId, req.body.powod ?? 'przez API administracyjne']);
+        `UPDATE licensing.api_key
+            SET revoked_at = now(), revocation_reason = $2
+          WHERE id = $1 AND revoked_at IS NULL`,
+        [req.body.keyId, req.body.reason ?? 'przez API administracyjne']);
       if (rowCount === 0) {
         return reply.code(404).send({ error: 'Nie ma takiego klucza albo jest juz uniewazniony.' });
       }
       // Zbieznosc idzie kanalem NOTIFY z wyzwalacza - typowo ponizej 100 ms.
-      return { uniewazniony: req.body.kluczId };
+      return { revoked: req.body.keyId };
     });
 }

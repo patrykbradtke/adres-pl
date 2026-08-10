@@ -4,9 +4,9 @@
  *
  *   npm run etl -- discover <plik.gml|zip>      rozpoznaj strukture nieznanego pliku
  *   npm run etl -- probe                        sprawdz, czy zrodlo sie zmienilo (HEAD)
- *   npm run etl -- download [--woj 14] [--all]  pobierz do archiwum
+ *   npm run etl -- download [--voivodeship 14] [--all]  pobierz do archiwum
  *   npm run etl -- parse <plik> [--limit N]     sparsuj i wypisz statystyki
- *   npm run etl -- load <plik> --woj 14         zaladuj do staging
+ *   npm run etl -- load <plik> --voivodeship 14         zaladuj do staging
  *   npm run etl -- check                        uruchom sanity checks
  *   npm run etl -- publish                      atomowa podmiana + build artefaktu
  *   npm run etl -- build-index [--out plik]     zbuduj artefakt z biezacej bazy
@@ -24,14 +24,14 @@ import { mapFeature } from './gml/mapper.ts';
 import { runSanityChecks, formatSanityReport } from './db/sanity.ts';
 import { loadGmlToStaging, publish, clearStaging } from './db/load.ts';
 import { loadTeryt } from './db/load-teryt.ts';
-import { pobierzKatalog, archiveTeryt, testConnection, configFromEnv } from './sources/teryt/soap.ts';
+import { fetchCatalog, archiveTeryt, testConnection, configFromEnv } from './sources/teryt/soap.ts';
 import { runCycle, notify, formatCycleSummary } from './orchestrate.ts';
 import { discoverTabular, formatTabularDiscovery } from './sources/tabular.ts';
 import { IMPA_ADRUNI } from './sources/impa.ts';
 import { loadTabularSource, diffAgainstPrg, formatDiffReport } from './db/load-impa.ts';
 import { buildIndex, SQL_INDEX_DOCS, type IndexDoc } from './index-builder/build.ts';
 import {
-  WOJEWODZTWA, WOJ_NAZWY, wojewodztwoUrl, probe, download,
+  VOIVODESHIPS, VOIVODESHIP_NAMES, voivodeshipUrl, probe, download,
   listZipEntries, pickGmlEntry, archivePath,
 } from './sources/prg.ts';
 
@@ -52,7 +52,7 @@ const DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://adres:adres@localho
  *
  * Sprawdzone i odrzucone: wpiecie PassThrough z progiem 8 MB miedzy
  * rozpakowywanie a parser, w nadziei na wykorzystanie 19% czasu, ktore
- * profil CPU pokazuje jako bezczynnosc. Nie dalo poprawy (467 -> 436 rek/s,
+ * profile CPU pokazuje jako bezczynnosc. Nie dalo poprawy (467 -> 436 rek/s,
  * czyli w granicach szumu) - bezczynnosc nie bierze sie z braku odczytu
  * z wyprzedzeniem. Nie warto placic za to pamiecia.
  */
@@ -81,18 +81,18 @@ async function main(): Promise<void> {
 
     // -----------------------------------------------------------------
     case 'probe': {
-      const kody = flag('woj') ? [flag('woj')!] : WOJEWODZTWA;
+      const codes = flag('voivodeship') ? [flag('voivodeship')!] : VOIVODESHIPS;
       let useless = 0;
-      for (const kod of kody) {
-        const r = await probe(wojewodztwoUrl(kod));
+      for (const code of codes) {
+        const r = await probe(voivodeshipUrl(code));
         if (r.headersUseless) useless++;
         console.log(
-          `${kod} ${WOJ_NAZWY[kod].padEnd(20)} HTTP ${r.status}` +
+          `${code} ${VOIVODESHIP_NAMES[code].padEnd(20)} HTTP ${r.status}` +
           `  ${r.contentLength ? (r.contentLength / 1048576).toFixed(1) + ' MB' : '?'.padEnd(8)}` +
           `  etag=${r.etag ?? '-'}  last-mod=${r.lastModified ?? '-'}`,
         );
       }
-      if (useless === kody.length) {
+      if (useless === codes.length) {
         console.error(
           '\n# UWAGA: serwer nie zwraca ani ETag, ani Last-Modified.\n' +
           '# Sondaz HEAD jest bezuzyteczny - przejdz na harmonogram tygodniowy\n' +
@@ -104,12 +104,12 @@ async function main(): Promise<void> {
 
     // -----------------------------------------------------------------
     case 'download': {
-      const wersja = flag('wersja') ?? new Date().toISOString().slice(0, 10);
-      const kody = has('all') ? WOJEWODZTWA : [flag('woj') ?? '14'];
-      for (const kod of kody) {
-        const url = wojewodztwoUrl(kod);
-        const dest = archivePath(ARCHIVE_ROOT, kod, wersja);
-        process.stderr.write(`${kod} ${WOJ_NAZWY[kod]} ... `);
+      const version = flag('version') ?? new Date().toISOString().slice(0, 10);
+      const codes = has('all') ? VOIVODESHIPS : [flag('voivodeship') ?? '14'];
+      for (const code of codes) {
+        const url = voivodeshipUrl(code);
+        const dest = archivePath(ARCHIVE_ROOT, code, version);
+        process.stderr.write(`${code} ${VOIVODESHIP_NAMES[code]} ... `);
         const r = await download(url, dest);
         console.error(`${(r.bytes / 1048576).toFixed(1)} MB  sha256=${r.sha256.slice(0, 16)}`);
       }
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
       const stats = await parseGmlStream(await openSource(path), {
         limit,
         onProfileDetected: (p, ns) =>
-          console.error(`# profil: ${p.name}\n# namespace: ${ns || '(brak)'}`),
+          console.error(`# profile: ${p.name}\n# namespace: ${ns || '(brak)'}`),
         onFeature: (f) => {
           const r = mapFeature(f);
           if (r.kind === 'skipped') {
@@ -144,16 +144,16 @@ async function main(): Promise<void> {
       const sec = (Date.now() - t0) / 1000;
 
       console.log(JSON.stringify({
-        czasS: Math.round(sec),
+        durationSeconds: Math.round(sec),
         rekordowNaSekunde: Math.round(stats.features / Math.max(sec, 0.001)),
         ...counts,
-        geometria: {
+        geometry: {
           brak: stats.geometryMissing,
-          blad: stats.geometryFailed,
-          osieOdwrocone: stats.axisSwapped,
-          pozaPolska: stats.outsidePoland,
+          error: stats.geometryFailed,
+          axisSwapped: stats.axisSwapped,
+          outsidePoland: stats.outsidePoland,
         },
-        nierozpoznaneFeaturey: Object.fromEntries(stats.unknownFeatures),
+        unrecognizedFeatures: Object.fromEntries(stats.unknownFeatures),
         namespaces: [...stats.namespaces],
       }, null, 2));
 
@@ -167,7 +167,7 @@ async function main(): Promise<void> {
       // niz zaladowac pusta baze.
       if (stats.features === 0) {
         console.error('\n# BLAD: nie rozpoznano ZADNEGO feature\'a.');
-        console.error('# Uruchom `discover` na tym pliku i popraw profil w gml/profiles.ts.');
+        console.error('# Uruchom `discover` na tym pliku i popraw profile w gml/profiles.ts.');
         process.exitCode = 2;
       }
       break;
@@ -176,13 +176,13 @@ async function main(): Promise<void> {
     // -----------------------------------------------------------------
     case 'teryt': {
       const sub = args[1];
-      const stanNa = flag('stan') ?? new Date().toISOString().slice(0, 10);
+      const asOf = flag('as-of') ?? new Date().toISOString().slice(0, 10);
 
       if (sub === 'test') {
         const cfg = configFromEnv();
         console.error(`# endpoint: ${cfg.endpoint}`);
-        console.error(`# uzytkownik: ${cfg.username}${cfg.username === 'TestPubliczny' ? ' (konto testowe GUS)' : ''}`);
-        const r = await testConnection(cfg, stanNa);
+        console.error(`# uzytkownik: ${cfg.username}${cfg.username === 'PublicTest' ? ' (konto testowe GUS)' : ''}`);
+        const r = await testConnection(cfg, asOf);
         console.log(r.ok ? `OK. ${r.message}` : `BLAD. ${r.message}`);
         if (!r.ok) process.exitCode = 4;
         break;
@@ -191,19 +191,19 @@ async function main(): Promise<void> {
       if (sub === 'pobierz') {
         // Pobranie przez usluge sieciowa GUS do archiwum lokalnego.
         const cfg = configFromEnv();
-        const katalogi = (flag('katalog')?.split(',') ?? ['WMRODZ', 'TERC', 'SIMC', 'ULIC']) as any[];
-        for (const k of katalogi) {
+        const directories = (flag('catalog')?.split(',') ?? ['WMRODZ', 'TERC', 'SIMC', 'ULIC']) as any[];
+        for (const k of directories) {
           process.stderr.write(`${k} ... `);
-          const f = await pobierzKatalog(k, stanNa, cfg);
+          const f = await fetchCatalog(k, asOf, cfg);
           const path = await archiveTeryt(f, ARCHIVE_ROOT);
-          const wierszy = f.csv.split(/\r?\n/).filter((l) => l.trim()).length - 1;
-          console.error(`${wierszy} wierszy -> ${path}`);
+          const rows = f.csv.split(/\r?\n/).filter((l) => l.trim()).length - 1;
+          console.error(`${rows} wierszy -> ${path}`);
         }
         break;
       }
 
       // domyslnie: zaladuj z katalogu plikow
-      const dir = args[1] ?? `${ARCHIVE_ROOT}/teryt/${stanNa}`;
+      const dir = args[1] ?? `${ARCHIVE_ROOT}/teryt/${asOf}`;
       const read = async (name: string): Promise<string | undefined> => {
         for (const ext of ['.csv', '.xml', '.CSV', '.XML']) {
           try { return await readFile(`${dir}/${name}${ext}`, 'utf8'); } catch { /* nastepny */ }
@@ -219,14 +219,14 @@ async function main(): Promise<void> {
       if (!input.terc && !input.simc && !input.ulic && !input.wmrodz) {
         throw new Error(
           `Brak plikow TERYT w katalogu ${dir}.\n` +
-          `Pobierz je przez: npm run etl -- teryt pobierz --stan ${stanNa}\n` +
+          `Pobierz je przez: npm run etl -- teryt pobierz --as-of ${asOf}\n` +
           `albo recznie z eteryt.stat.gov.pl i umiesc jako TERC.csv, SIMC.csv, ULIC.csv, WMRODZ.csv`,
         );
       }
 
       const pool = new pg.Pool({ connectionString: DATABASE_URL });
       const st = await loadTeryt(pool, input, {
-        stanNa,
+        asOf,
         onProgress: (m) => console.error(`# ${m}`),
       });
       console.log(JSON.stringify(st, null, 2));
@@ -238,8 +238,8 @@ async function main(): Promise<void> {
     case 'load': {
       const path = args[1];
       if (!path) throw new Error('Podaj sciezke do pliku.');
-      const woj = flag('woj');
-      const wersja = flag('wersja') ?? new Date().toISOString().slice(0, 10);
+      const woj = flag('voivodeship');
+      const version = flag('version') ?? new Date().toISOString().slice(0, 10);
       const pool = new pg.Pool({ connectionString: DATABASE_URL });
 
       if (!has('append')) {
@@ -248,23 +248,23 @@ async function main(): Promise<void> {
       }
 
       const stats = await loadGmlToStaging(() => openSource(path), {
-        pool, zrodlo: 'prg', zrodloWersja: wersja, wojewodztwo: woj,
+        pool, source: 'prg', sourceVersion: version, voivodeship: woj,
         onProgress: (n) => process.stderr.write(`\r# punktow: ${n.toLocaleString('pl')}   `),
       });
       process.stderr.write('\n');
       console.log(JSON.stringify(stats, null, 2));
 
       await pool.query(
-        `INSERT INTO adres.zrzut (zrodlo, wersja, wojewodztwo, profil, namespace_uri, statystyki, status)
+        `INSERT INTO address.snapshot (source, version, voivodeship, profile, namespace_uri, stats, status)
          VALUES ('prg', $1, $2, $3, $4, $5, 'zaladowany')
-         ON CONFLICT (zrodlo, wersja, wojewodztwo) DO UPDATE
-           SET profil = EXCLUDED.profil, namespace_uri = EXCLUDED.namespace_uri,
-               statystyki = EXCLUDED.statystyki, status = 'zaladowany', pobrano = now()`,
-        [wersja, woj ?? null, stats.profil ?? null, stats.namespaceUri ?? null, JSON.stringify(stats)],
+         ON CONFLICT (source, version, voivodeship) DO UPDATE
+           SET profile = EXCLUDED.profile, namespace_uri = EXCLUDED.namespace_uri,
+               stats = EXCLUDED.stats, status = 'zaladowany', fetched_at = now()`,
+        [version, woj ?? null, stats.profile ?? null, stats.namespaceUri ?? null, JSON.stringify(stats)],
       );
       await pool.end();
-      if (stats.punkty === 0) {
-        console.error('# BLAD: zaladowano 0 punktow. Uruchom `discover` i popraw profil.');
+      if (stats.points === 0) {
+        console.error('# BLAD: zaladowano 0 punktow. Uruchom `discover` i popraw profile.');
         process.exitCode = 2;
       }
       break;
@@ -272,8 +272,8 @@ async function main(): Promise<void> {
 
     // -----------------------------------------------------------------
     case 'publish': {
-      const wersja = flag('wersja') ?? new Date().toISOString().slice(0, 10);
-      const woj = flag('woj') ? [flag('woj')!] : undefined;
+      const version = flag('version') ?? new Date().toISOString().slice(0, 10);
+      const woj = flag('voivodeship') ? [flag('voivodeship')!] : undefined;
       const pool = new pg.Pool({ connectionString: DATABASE_URL });
 
       // Publikacja BEZ sanity checkow jest mozliwa tylko jawnie.
@@ -291,7 +291,7 @@ async function main(): Promise<void> {
         console.log('');
       }
 
-      const r = await publish(pool, 'prg', wersja, woj);
+      const r = await publish(pool, 'prg', version, woj);
       console.log(JSON.stringify(r, null, 2));
       await pool.end();
       break;
@@ -309,15 +309,15 @@ async function main(): Promise<void> {
 
     // -----------------------------------------------------------------
     case 'impa': {
-      // Uwaga na kolejnosc argumentow: `impa <plik> --wersja W` ma plik na
+      // Uwaga na kolejnosc argumentow: `impa <plik> --version W` ma plik na
       // pozycji 1, a `impa discover <plik>` na pozycji 2. Bez rozroznienia
       // podkomendy sciezka lapie flage.
       const SUBS = new Set(['discover', 'diff']);
       const sub = SUBS.has(args[1]) ? args[1] : undefined;
-      const pozycyjne = args.slice(1).filter((a, i, arr) =>
+      const positional = args.slice(1).filter((a, i, arr) =>
         !a.startsWith('--') && !(i > 0 && arr[i - 1].startsWith('--')));
-      const path = sub ? pozycyjne[1] : pozycyjne[0];
-      const wersja = flag('wersja') ?? new Date().toISOString().slice(0, 10);
+      const path = sub ? positional[1] : positional[0];
+      const version = flag('version') ?? new Date().toISOString().slice(0, 10);
 
       if (sub === 'discover') {
         if (!path) throw new Error('Podaj sciezke do pliku.');
@@ -328,7 +328,7 @@ async function main(): Promise<void> {
 
       if (sub === 'diff') {
         const pool = new pg.Pool({ connectionString: DATABASE_URL });
-        const r = await diffAgainstPrg(pool, 'impa', wersja);
+        const r = await diffAgainstPrg(pool, 'impa', version);
         console.log(formatDiffReport(r));
         await pool.end();
         break;
@@ -340,28 +340,28 @@ async function main(): Promise<void> {
       const st = await loadTabularSource(() => openSource(path), {
         pool,
         profile: IMPA_ADRUNI,
-        zrodlo: 'impa',
-        zrodloWersja: wersja,
+        source: 'impa',
+        sourceVersion: version,
         onProgress: (n) => process.stderr.write(`\r# wierszy: ${n.toLocaleString('pl')}   `),
       });
       process.stderr.write('\n');
       console.log(JSON.stringify({
         ...st,
         tabular: {
-          wierszy: st.tabular.wierszy,
+          rows: st.tabular.rows,
           separator: st.tabular.separator,
           brakujacePola: st.tabular.brakujace,
-          nieuzyteKolumny: st.tabular.nieuzyte,
+          unusedColumns: st.tabular.unused,
         },
       }, null, 2));
 
-      if (st.zaladowane === 0) {
-        console.error('\n# BLAD: zero rekordow. Uruchom `impa discover <plik>` i popraw profil.');
+      if (st.loaded === 0) {
+        console.error('\n# BLAD: zero rekordow. Uruchom `impa discover <plik>` i popraw profile.');
         process.exitCode = 2;
       } else if (st.tabular.brakujace.length) {
         console.error(`\n# UWAGA: brak kolumn dla pol: ${st.tabular.brakujace.join(', ')}`);
         console.error('# Uruchom `impa discover`, zeby sprawdzic, czy zrodlo ich nie ma,');
-        console.error('# czy tylko nazywa je inaczej niz profil w sources/impa.ts');
+        console.error('# czy tylko nazywa je inaczej niz profile w sources/impa.ts');
       }
       await pool.end();
       break;
@@ -375,13 +375,13 @@ async function main(): Promise<void> {
         pool,
         archiveRoot: ARCHIVE_ROOT,
         indexRoot: INDEX_ROOT,
-        wojewodztwa: flag('woj')?.split(','),
+        voivodeships: flag('voivodeship')?.split(','),
         force: has('force'),
         dryRun: has('dry-run'),
-        fromArchive: flag('z-archiwum'),
+        fromArchive: flag('from-archive'),
         keepArtifacts: flag('keep') ? Number(flag('keep')) : undefined,
-        rownolegle: flag('rownolegle')
-          ? Number(flag('rownolegle'))
+        parallel: flag('parallel')
+          ? Number(flag('parallel'))
           : (process.env.ETL_ROWNOLEGLE ? Number(process.env.ETL_ROWNOLEGLE) : undefined),
         log: (m) => console.error(`# ${m}`),
       });
@@ -395,10 +395,10 @@ async function main(): Promise<void> {
     // -----------------------------------------------------------------
     case 'build-index': {
       const pool = new pg.Pool({ connectionString: DATABASE_URL });
-      const { rows: [meta] } = await pool.query<{ wersja: string; punktow: string }>(`
-        SELECT COALESCE(max(wersja), to_char(now(),'YYYY-MM-DD')) AS wersja,
-               (SELECT count(*) FROM adres.punkt_adresowy WHERE wycofany_od IS NULL)::text AS punktow
-          FROM adres.zrzut WHERE zrodlo='prg'
+      const { rows: [meta] } = await pool.query<{ version: string; points: string }>(`
+        SELECT COALESCE(max(version), to_char(now(),'YYYY-MM-DD')) AS version,
+               (SELECT count(*) FROM address.address_point WHERE withdrawn_at IS NULL)::text AS points
+          FROM address.snapshot WHERE source='prg'
       `);
       const { rows } = await pool.query(SQL_INDEX_DOCS);
       const docs: IndexDoc[] = rows.map((r: any) => ({
@@ -406,30 +406,30 @@ async function main(): Promise<void> {
         label: r.label,
         simc: r.simc,
         ulicId: r.ulic_id ? Number(r.ulic_id) : undefined,
-        liczbaPunktow: Number(r.liczba_punktow ?? 0),
-        liczbaPunktowMiejscowosci: Number(r.liczba_punktow_miejscowosci ?? r.liczba_punktow ?? 0),
-        gmina: r.gmina, powiat: r.powiat, wojewodztwo: r.wojewodztwo,
-        maUlice: r.ma_ulice,
+        addressPointCount: Number(r.point_count ?? 0),
+        localityPointCount: Number(r.locality_point_count ?? r.point_count ?? 0),
+        gmina: r.gmina, powiat: r.powiat, voivodeship: r.voivodeship,
+        hasStreets: r.has_streets,
         lat: r.lat ?? undefined, lon: r.lon ?? undefined,
         aliases: r.aliases ?? undefined,
       }));
 
-      const built = buildIndex(docs, meta.wersja);
-      const out = flag('out') ?? join(INDEX_ROOT, `idx-${meta.wersja}.bin`);
+      const built = buildIndex(docs, meta.version);
+      const out = flag('out') ?? join(INDEX_ROOT, `idx-${meta.version}.bin`);
       await mkdir(dirname(out), { recursive: true });
       await writeFile(out, built.buffer);
       // Nazwa z `out`, nie sklejana z wersji - przy --out jedno i drugie
       // sie rozjezdza i wskaznik pokazuje na nieistniejacy plik.
       await writeFile(join(dirname(out), 'current.json'),
-        JSON.stringify({ current: basename(out), dataVersion: meta.wersja }, null, 2));
-      const stabilna = await ustawStabilnaNazwe(out);
+        JSON.stringify({ current: basename(out), dataVersion: meta.version }, null, 2));
+      const stabilna = await setStableName(out);
 
       console.log(JSON.stringify({
-        plik: out,
+        file: out,
         stabilna,
         ...built.stats,
         rozmiarMB: +(built.stats.totalBytes / 1048576).toFixed(1),
-        punktowAdresowych: Number(meta.punktow),
+        addressPoints: Number(meta.points),
       }, null, 2));
       await pool.end();
       break;
@@ -441,24 +441,24 @@ async function main(): Promise<void> {
 
   discover <plik>              rozpoznaj strukture nieznanego GML
                                (uzyj PRZED pierwszym importem nowej struktury)
-  teryt test [--stan D]        sprawdz polaczenie z usluga GUS
-  teryt pobierz [--stan D]     pobierz katalogi TERYT do archiwum
-  teryt [<katalog>] [--stan D] zaladuj katalogi TERYT do bazy
-  probe [--woj 14]             sprawdz naglowki HTTP zrodla
-  download [--woj 14|--all]    pobierz do archiwum
+  teryt test [--as-of D]        sprawdz polaczenie z usluga GUS
+  teryt pobierz [--as-of D]     pobierz katalogi TERYT do archiwum
+  teryt [<katalog>] [--as-of D] zaladuj katalogi TERYT do bazy
+  probe [--voivodeship 14]             sprawdz naglowki HTTP zrodla
+  download [--voivodeship 14|--all]    pobierz do archiwum
   parse <plik> [--limit N]     sparsuj i wypisz statystyki
-  load <plik> [--woj 14]       zaladuj do staging (--append dla kolejnych wojewodztw)
+  load <plik> [--voivodeship 14]       zaladuj do staging (--append dla kolejnych wojewodztw)
   check                        sanity checks przed publikacja
-  publish [--woj 14] [--force] sanity checks + atomowa podmiana
+  publish [--voivodeship 14] [--force] sanity checks + atomowa podmiana
   cycle [--force] [--dry-run]  PELNY CYKL bez nadzoru (dla CronJob)
-        [--rownolegle N]       ile wojewodztw ladowac naraz (domyslnie 1;
+        [--parallel N]       ile wojewodztw ladowac naraz (domyslnie 1;
                                4 daje ok. 3,6x, kosztem ~400 MB RAM na proces)
-        [--z-archiwum WERSJA]  przetworz ponownie z archiwum, bez pobierania
+        [--from-archive WERSJA]  przetworz ponownie z archiwum, bez pobierania
                                kody wyjscia: 0 ok, 5 brak zmian,
                                3 wstrzymane przez kontrole, 1 blad
   impa discover <plik>         rozpoznaj uklad kolumn zrodla zapasowego
-  impa <plik> [--wersja W]     zaladuj zrodlo zapasowe do tabeli porownawczej
-  impa diff [--wersja W]       raport: czego PRG nie ma
+  impa <plik> [--version W]     zaladuj zrodlo zapasowe do tabeli porownawczej
+  impa diff [--version W]       raport: czego PRG nie ma
   build-index [--out plik]     zbuduj artefakt indeksu z bazy
 
 Flagi: --stara-struktura wybiera z archiwum plik sprzed 1.09.2026.`);
@@ -473,7 +473,7 @@ Flagi: --stara-struktura wybiera z archiwum plik sprzed 1.09.2026.`);
  * Dowiazanie, bo kopia dublowalaby artefakt (przy pelnym PRG ~500 MB);
  * gdy system plikow nie wspiera dowiazan - kopiujemy.
  */
-async function ustawStabilnaNazwe(out: string): Promise<string | undefined> {
+async function setStableName(out: string): Promise<string | undefined> {
   const link = join(dirname(out), 'current.bin');
   if (basename(out) === 'current.bin') return undefined;
   await unlink(link).catch(() => {});

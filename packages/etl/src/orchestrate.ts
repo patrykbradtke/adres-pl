@@ -33,7 +33,7 @@ import type { Readable } from 'node:stream';
 import type { LoadStats } from './db/load.ts';
 
 import {
-  WOJEWODZTWA, WOJ_NAZWY, wojewodztwoUrl, probe, download,
+  VOIVODESHIPS, VOIVODESHIP_NAMES, voivodeshipUrl, probe, download,
   listZipEntries, pickGmlEntry, archivePath, fileExists,
 } from './sources/prg.ts';
 import { loadGmlToStaging, publish, clearStaging, beforeBulkLoad, afterBulkLoad } from './db/load.ts';
@@ -45,7 +45,7 @@ export interface CycleOptions {
   archiveRoot: string;
   indexRoot: string;
   /** Ktore wojewodztwa. Domyslnie wszystkie. */
-  wojewodztwa?: string[];
+  voivodeships?: string[];
   /** Pomija sondaz i pobiera zawsze - do wymuszonego odswiezenia. */
   force?: boolean;
   /**
@@ -55,7 +55,7 @@ export interface CycleOptions {
    * jest zwiazane procesorem i jeden watek JavaScriptu go nie rozlozy.
    * Kosztuje ~400 MB RSS na proces.
    */
-  rownolegle?: number;
+  parallel?: number;
   /** Przechodzi caly cykl bez publikacji - do weryfikacji przed wdrozeniem. */
   dryRun?: boolean;
   /**
@@ -78,101 +78,101 @@ export interface CycleResult {
   outcome: CycleOutcome;
   exitCode: number;
   runId?: number;
-  wersja: string;
-  pobrane: string[];
-  pominiete: string[];
-  bledy: Array<{ wojewodztwo: string; blad: string }>;
-  delta?: { dodane: number; zmienione: number; wycofane: number; przywrocone: number };
+  version: string;
+  fetched: string[];
+  skipped: string[];
+  errors: Array<{ voivodeship: string; error: string }>;
+  delta?: { added: number; changed: number; withdrawn: number; restored: number };
   sanity?: string;
-  artefakt?: { plik: string; rozmiarMB: number; dokumentow: number };
-  czasS: number;
+  artifact?: { file: string; rozmiarMB: number; dokumentow: number };
+  durationSeconds: number;
   /** Ostrzezenia niewstrzymujace publikacji, ale wymagajace uwagi. */
-  ostrzezenia: string[];
+  warnings: string[];
 }
 
 export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
   const t0 = Date.now();
   const log = opts.log ?? (() => {});
-  const kody = opts.wojewodztwa ?? WOJEWODZTWA;
-  const wersja = opts.fromArchive ?? new Date().toISOString().slice(0, 10);
+  const codes = opts.voivodeships ?? VOIVODESHIPS;
+  const version = opts.fromArchive ?? new Date().toISOString().slice(0, 10);
 
   const result: CycleResult = {
     outcome: 'blad',
     exitCode: 1,
-    wersja,
-    pobrane: [],
-    pominiete: [],
-    bledy: [],
-    ostrzezenia: [],
-    czasS: 0,
+    version,
+    fetched: [],
+    skipped: [],
+    errors: [],
+    warnings: [],
+    durationSeconds: 0,
   };
 
   const { rows: [run] } = await opts.pool.query<{ id: string }>(
-    `INSERT INTO adres.etl_run (status) VALUES ('running') RETURNING id`,
+    `INSERT INTO address.etl_run (status) VALUES ('running') RETURNING id`,
   );
   result.runId = Number(run.id);
 
   try {
     // --- 1. sondaz ---------------------------------------------------
-    const doPobrania: string[] = [];
-    let bezNaglowkow = 0;
+    const toFetch: string[] = [];
+    let withoutHeaders = 0;
 
     if (opts.fromArchive) {
       log(`tryb archiwalny: przetwarzam wersje ${opts.fromArchive} bez pobierania`);
-      for (const kod of kody) {
-        if (await fileExists(archivePath(opts.archiveRoot, kod, opts.fromArchive))) doPobrania.push(kod);
-        else result.pominiete.push(kod);
+      for (const code of codes) {
+        if (await fileExists(archivePath(opts.archiveRoot, code, opts.fromArchive))) toFetch.push(code);
+        else result.skipped.push(code);
       }
-      if (doPobrania.length === 0) {
+      if (toFetch.length === 0) {
         throw new Error(
           `Brak plikow wersji ${opts.fromArchive} w archiwum ${opts.archiveRoot}. ` +
-          `Sprawdz katalog albo pobierz dane: etl download --all --wersja ${opts.fromArchive}`,
+          `Sprawdz katalog albo pobierz dane: etl download --all --version ${opts.fromArchive}`,
         );
       }
     } else {
     log('sondaz naglowkow HTTP');
 
-    for (const kod of kody) {
-      const url = wojewodztwoUrl(kod);
-      const poprzedni = await lastSnapshot(opts.pool, kod);
+    for (const code of codes) {
+      const url = voivodeshipUrl(code);
+      const previous = await lastSnapshot(opts.pool, code);
       try {
-        const p = await probe(url, poprzedni);
-        if (p.headersUseless) bezNaglowkow++;
+        const p = await probe(url, previous);
+        if (p.headersUseless) withoutHeaders++;
         if (!p.ok) {
-          result.bledy.push({ wojewodztwo: kod, blad: `HTTP ${p.status}` });
+          result.errors.push({ voivodeship: code, error: `HTTP ${p.status}` });
           continue;
         }
-        // Brak nagłowkow => nie da sie stwierdzic zmiany => pobieramy.
-        if (opts.force || p.changed || p.headersUseless) doPobrania.push(kod);
-        else result.pominiete.push(kod);
+        // Brak naglowkow => nie da sie stwierdzic zmiany => pobieramy.
+        if (opts.force || p.changed || p.headersUseless) toFetch.push(code);
+        else result.skipped.push(code);
       } catch (e) {
-        result.bledy.push({ wojewodztwo: kod, blad: e instanceof Error ? e.message : String(e) });
+        result.errors.push({ voivodeship: code, error: e instanceof Error ? e.message : String(e) });
       }
     }
 
     } // koniec galezi z sondazem
 
-    if (!opts.fromArchive && bezNaglowkow === kody.length) {
-      result.ostrzezenia.push(
+    if (!opts.fromArchive && withoutHeaders === codes.length) {
+      result.warnings.push(
         'Serwer nie zwraca ETag ani Last-Modified - sondaz nie oszczedza transferu. ' +
         'Rozwaz przejscie na harmonogram tygodniowy i porownywanie sumy kontrolnej.',
       );
     }
 
     // Awaria wszystkich wojewodztw to problem po stronie zrodla, nie nasz.
-    if (!opts.fromArchive && result.bledy.length === kody.length) {
+    if (!opts.fromArchive && result.errors.length === codes.length) {
       throw new Error(
-        `Zadne z ${kody.length} wojewodztw nie odpowiedzialo poprawnie. ` +
-        `Zrodlo prawdopodobnie jest niedostepne. Pierwszy blad: ${result.bledy[0].blad}`,
+        `Zadne z ${codes.length} wojewodztw nie odpowiedzialo poprawnie. ` +
+        `Zrodlo prawdopodobnie jest niedostepne. Pierwszy blad: ${result.errors[0].error}`,
       );
     }
 
-    if (doPobrania.length === 0) {
+    if (toFetch.length === 0) {
       log('brak zmian w zrodle');
       result.outcome = 'brak-zmian';
       result.exitCode = 5;
       await finishRun(opts.pool, result, 'brak-zmian');
-      result.czasS = Math.round((Date.now() - t0) / 1000);
+      result.durationSeconds = Math.round((Date.now() - t0) / 1000);
       return result;
     }
 
@@ -181,28 +181,28 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
       await clearStaging(opts.pool);
       await beforeBulkLoad(opts.pool);
     }
-    log(`do pobrania: ${doPobrania.length} z ${kody.length}`);
+    log(`do pobrania: ${toFetch.length} z ${codes.length}`);
 
     // Pobranie idzie sekwencyjnie - ograniczeniem jest lacze, nie procesor,
     // a rownolegle ciagniecie 16 plikow po ~100 MB niczego nie przyspiesza.
-    for (const kod of doPobrania) {
-      const url = wojewodztwoUrl(kod);
-      const dest = archivePath(opts.archiveRoot, kod, wersja);
+    for (const code of toFetch) {
+      const url = voivodeshipUrl(code);
+      const dest = archivePath(opts.archiveRoot, code, version);
       try {
         if (!(await fileExists(dest))) {
-          log(`${kod} ${WOJ_NAZWY[kod]}: pobieranie`);
+          log(`${code} ${VOIVODESHIP_NAMES[code]}: pobieranie`);
           const d = await download(url, dest);
-          await recordSnapshot(opts.pool, kod, wersja, url, d.bytes, d.sha256);
+          await recordSnapshot(opts.pool, code, version, url, d.bytes, d.sha256);
         } else {
-          log(`${kod} ${WOJ_NAZWY[kod]}: juz w archiwum`);
+          log(`${code} ${VOIVODESHIP_NAMES[code]}: juz w archiwum`);
         }
       } catch (e) {
-        result.bledy.push({ wojewodztwo: kod, blad: e instanceof Error ? e.message : String(e) });
+        result.errors.push({ voivodeship: code, error: e instanceof Error ? e.message : String(e) });
       }
     }
 
-    const doZaladowania = doPobrania.filter(
-      (k) => !result.bledy.some((b) => b.wojewodztwo === k),
+    const toLoad = toFetch.filter(
+      (k) => !result.errors.some((b) => b.voivodeship === k),
     );
 
     // Ladowanie jest zwiazane procesorem: parsowanie XML zajmuje jeden watek
@@ -213,57 +213,57 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
     // gardla nie ma - ani dysk, ani baza nie wysycaja sie przy czterech.
     //
     // Domyslnie 1, czyli zachowanie bez zmian. Wlaczenie kosztuje pamiec:
-    // kazdy proces to ~400 MB RSS, wiec `--rownolegle 4` to ~1,6 GB.
-    const rownolegle = Math.max(1, Math.min(opts.rownolegle ?? 1, doZaladowania.length));
-    if (rownolegle > 1) log(`ladowanie ${doZaladowania.length} wojewodztw, po ${rownolegle} naraz`);
+    // kazdy proces to ~400 MB RSS, wiec `--parallel 4` to ~1,6 GB.
+    const parallel = Math.max(1, Math.min(opts.parallel ?? 1, toLoad.length));
+    if (parallel > 1) log(`ladowanie ${toLoad.length} wojewodztw, po ${parallel} naraz`);
 
-    const zaladuj = async (kod: string): Promise<void> => {
-      const dest = archivePath(opts.archiveRoot, kod, wersja);
+    const load = async (code: string): Promise<void> => {
+      const dest = archivePath(opts.archiveRoot, code, version);
       try {
-        const st = rownolegle > 1
-          ? await zaladujPodprocesem(opts.pool, dest, kod, wersja)
+        const st = parallel > 1
+          ? await loadInSubprocess(opts.pool, dest, code, version)
           : await loadGmlToStaging(() => openZip(dest), {
               pool: opts.pool,
-              zrodlo: 'prg',
-              zrodloWersja: wersja,
-              wojewodztwo: kod,
+              source: 'prg',
+              sourceVersion: version,
+              voivodeship: code,
             });
-        log(`${kod} ${WOJ_NAZWY[kod]}: ${st.punkty.toLocaleString('pl')} punktow`);
-        result.pobrane.push(kod);
+        log(`${code} ${VOIVODESHIP_NAMES[code]}: ${st.points.toLocaleString('pl')} punktow`);
+        result.fetched.push(code);
 
-        if (st.punkty === 0) {
-          result.ostrzezenia.push(
-            `${kod} ${WOJ_NAZWY[kod]}: zero punktow. Prawdopodobna zmiana struktury pliku - ` +
+        if (st.points === 0) {
+          result.warnings.push(
+            `${code} ${VOIVODESHIP_NAMES[code]}: zero punktow. Prawdopodobna zmiana struktury pliku - ` +
             `uruchom "etl discover" na tym archiwum.`,
           );
         }
-        if (st.osieOdwrocone > 0) {
-          result.ostrzezenia.push(
-            `${kod}: ${st.osieOdwrocone} punktow z odwrocona kolejnoscia osi wbrew deklaracji srsName.`,
+        if (st.axisSwapped > 0) {
+          result.warnings.push(
+            `${code}: ${st.axisSwapped} punktow z odwrocona kolejnoscia osi wbrew deklaracji srsName.`,
           );
         }
-        if (st.pozaPolska > 0) {
-          result.ostrzezenia.push(`${kod}: ${st.pozaPolska} punktow poza granicami Polski.`);
+        if (st.outsidePoland > 0) {
+          result.warnings.push(`${code}: ${st.outsidePoland} punktow poza granicami Polski.`);
         }
       } catch (e) {
-        result.bledy.push({ wojewodztwo: kod, blad: e instanceof Error ? e.message : String(e) });
+        result.errors.push({ voivodeship: code, error: e instanceof Error ? e.message : String(e) });
       }
     };
 
-    const kolejka = [...doZaladowania];
+    const kolejka = [...toLoad];
     await Promise.all(
-      Array.from({ length: rownolegle }, async () => {
-        for (let kod = kolejka.shift(); kod; kod = kolejka.shift()) await zaladuj(kod);
+      Array.from({ length: parallel }, async () => {
+        for (let code = kolejka.shift(); code; code = kolejka.shift()) await load(code);
       }),
     );
 
-    if (result.pobrane.length === 0) {
+    if (result.fetched.length === 0) {
       throw new Error('Nie udalo sie zaladowac zadnego wojewodztwa.');
     }
 
     // Indeksy i statystyki dopiero teraz - kontrole jakosci ich potrzebuja,
     // COPY nie.
-    if (!opts.dryRun) await czasLog(log, 'odtwarzanie indeksow staging',
+    if (!opts.dryRun) await logTime(log, 'odtwarzanie indeksow staging',
       () => afterBulkLoad(opts.pool));
 
     // --- 3. kontrole jakosci ------------------------------------------
@@ -271,7 +271,7 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
     const sanity = await runSanityChecks(opts.pool, thresholdsFromEnv());
     result.sanity = formatSanityReport(sanity);
     for (const c of sanity.checks) {
-      if (!c.ok && c.poziom === 'ostrzezenie') result.ostrzezenia.push(`${c.nazwa}: ${c.komunikat}`);
+      if (!c.ok && c.level === 'ostrzezenie') result.warnings.push(`${c.name}: ${c.message}`);
     }
 
     if (!sanity.passed) {
@@ -279,8 +279,8 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
       result.outcome = 'wstrzymano';
       result.exitCode = 3;
       await finishRun(opts.pool, result, 'wstrzymany',
-        sanity.checks.filter((c) => !c.ok && c.poziom === 'blokujacy').map((c) => c.nazwa).join(', '));
-      result.czasS = Math.round((Date.now() - t0) / 1000);
+        sanity.checks.filter((c) => !c.ok && c.level === 'blokujacy').map((c) => c.name).join(', '));
+      result.durationSeconds = Math.round((Date.now() - t0) / 1000);
       return result;
     }
 
@@ -289,19 +289,19 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
       result.outcome = 'brak-zmian';
       result.exitCode = 0;
       await finishRun(opts.pool, result, 'ok', 'tryb probny');
-      result.czasS = Math.round((Date.now() - t0) / 1000);
+      result.durationSeconds = Math.round((Date.now() - t0) / 1000);
       return result;
     }
 
     // --- 4. publikacja -------------------------------------------------
     log('publikacja');
-    result.delta = await publish(opts.pool, 'prg', wersja, result.pobrane);
-    log(`+${result.delta.dodane} / ~${result.delta.zmienione} / -${result.delta.wycofane}`);
+    result.delta = await publish(opts.pool, 'prg', version, result.fetched);
+    log(`+${result.delta.added} / ~${result.delta.changed} / -${result.delta.withdrawn}`);
 
     // --- 5. artefakt indeksu -------------------------------------------
     log('budowa artefaktu indeksu');
-    result.artefakt = await buildAndPublishIndex(opts.pool, opts.indexRoot, wersja);
-    log(`artefakt: ${result.artefakt.plik} (${result.artefakt.rozmiarMB} MB)`);
+    result.artifact = await buildAndPublishIndex(opts.pool, opts.indexRoot, version);
+    log(`artefakt: ${result.artifact.file} (${result.artifact.rozmiarMB} MB)`);
 
     await pruneArtifacts(opts.indexRoot, opts.keepArtifacts ?? 5, log);
 
@@ -310,19 +310,19 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
     await finishRun(opts.pool, result, 'ok');
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    result.bledy.push({ wojewodztwo: '-', blad: msg });
+    result.errors.push({ voivodeship: '-', error: msg });
     result.outcome = 'blad';
     result.exitCode = 1;
     await finishRun(opts.pool, result, 'blad', msg).catch(() => {});
   }
 
-  result.czasS = Math.round((Date.now() - t0) / 1000);
+  result.durationSeconds = Math.round((Date.now() - t0) / 1000);
   return result;
 }
 
 // --- pomocnicze ----------------------------------------------------------
 
-async function czasLog<T>(log: (m: string) => void, etykieta: string, fn: () => Promise<T>): Promise<T> {
+async function logTime<T>(log: (m: string) => void, etykieta: string, fn: () => Promise<T>): Promise<T> {
   const t = Date.now();
   const r = await fn();
   log(`${etykieta}: ${((Date.now() - t) / 1000).toFixed(1)} s`);
@@ -337,24 +337,24 @@ async function czasLog<T>(log: (m: string) => void, etykieta: string, fn: () => 
  * niczego przepinac miedzy watkami. `--append` jest tu obowiazkowy -
  * obszar przejsciowy czysci raz proces nadrzedny, przed rozdaniem pracy.
  */
-async function zaladujPodprocesem(
+async function loadInSubprocess(
   pool: pg.Pool,
-  plik: string,
-  kod: string,
-  wersja: string,
+  file: string,
+  code: string,
+  version: string,
 ): Promise<LoadStats> {
   const cli = fileURLToPath(new URL('./cli.ts', import.meta.url));
   await new Promise<void>((resolve, reject) => {
     execFile(
       process.execPath,
-      ['--experimental-strip-types', cli, 'load', plik,
-       '--woj', kod, '--wersja', wersja, '--append'],
+      ['--experimental-strip-types', cli, 'load', file,
+       '--voivodeship', code, '--version', version, '--append'],
       { maxBuffer: 64 * 1024 * 1024 },
       (err) => {
         // Kod 2 to "zaladowano zero punktow" - sygnal, ktory obsluguje
         // wyzej ostrzezeniem, a nie wywroceniem calego cyklu.
         if (err && (err as NodeJS.ErrnoException).code !== 2) {
-          reject(new Error(`load ${kod}: ${err.message.split('\n')[0]}`));
+          reject(new Error(`load ${code}: ${err.message.split('\n')[0]}`));
         } else resolve();
       },
     );
@@ -362,13 +362,13 @@ async function zaladujPodprocesem(
 
   // Statystyki czytamy z adres.zrzut - `load` sam je tam zapisuje, wiec nie
   // ma potrzeby parsowac wyjscia podprocesu.
-  const { rows } = await pool.query<{ statystyki: LoadStats }>(
-    `SELECT statystyki FROM adres.zrzut
-      WHERE zrodlo = 'prg' AND wersja = $1 AND wojewodztwo = $2`,
-    [wersja, kod],
+  const { rows } = await pool.query<{ stats: LoadStats }>(
+    `SELECT stats FROM address.snapshot
+      WHERE source = 'prg' AND version = $1 AND voivodeship = $2`,
+    [version, code],
   );
-  const st = rows[0]?.statystyki;
-  if (!st) throw new Error(`load ${kod}: proces zakonczyl sie bez zapisania statystyk`);
+  const st = rows[0]?.stats;
+  if (!st) throw new Error(`load ${code}: proces zakonczyl sie bez zapisania statystyk`);
   return st;
 }
 
@@ -384,37 +384,37 @@ async function openZip(path: string): Promise<Readable> {
 
 async function lastSnapshot(
   pool: pg.Pool,
-  wojewodztwo: string,
+  voivodeship: string,
 ): Promise<{ etag?: string; lastModified?: string; contentLength?: number } | undefined> {
-  const { rows } = await pool.query<{ etag: string | null; last_modified: Date | null; bajtow: string | null }>(
-    `SELECT etag, last_modified, bajtow FROM adres.zrzut
-      WHERE zrodlo = 'prg' AND wojewodztwo = $1
-      ORDER BY pobrano DESC LIMIT 1`,
-    [wojewodztwo],
+  const { rows } = await pool.query<{ etag: string | null; last_modified: Date | null; bytes: string | null }>(
+    `SELECT etag, last_modified, bytes FROM address.snapshot
+      WHERE source = 'prg' AND voivodeship = $1
+      ORDER BY fetched_at DESC LIMIT 1`,
+    [voivodeship],
   );
   if (rows.length === 0) return undefined;
   return {
     etag: rows[0].etag ?? undefined,
     lastModified: rows[0].last_modified?.toUTCString(),
-    contentLength: rows[0].bajtow ? Number(rows[0].bajtow) : undefined,
+    contentLength: rows[0].bytes ? Number(rows[0].bytes) : undefined,
   };
 }
 
 async function recordSnapshot(
   pool: pg.Pool,
-  wojewodztwo: string,
-  wersja: string,
+  voivodeship: string,
+  version: string,
   url: string,
-  bajtow: number,
+  bytes: number,
   sha256: string,
 ): Promise<void> {
   await pool.query(
-    `INSERT INTO adres.zrzut (zrodlo, wersja, wojewodztwo, url, bajtow, sha256, status)
+    `INSERT INTO address.snapshot (source, version, voivodeship, url, bytes, sha256, status)
        VALUES ('prg', $1, $2, $3, $4, decode($5,'hex'), 'pobrany')
-     ON CONFLICT (zrodlo, wersja, wojewodztwo) DO UPDATE
-       SET url = EXCLUDED.url, bajtow = EXCLUDED.bajtow,
-           sha256 = EXCLUDED.sha256, pobrano = now()`,
-    [wersja, wojewodztwo, url, bajtow, sha256],
+     ON CONFLICT (source, version, voivodeship) DO UPDATE
+       SET url = EXCLUDED.url, bytes = EXCLUDED.bytes,
+           sha256 = EXCLUDED.sha256, fetched_at = now()`,
+    [version, voivodeship, url, bytes, sha256],
   );
 }
 
@@ -422,20 +422,20 @@ async function finishRun(
   pool: pg.Pool,
   r: CycleResult,
   status: string,
-  powod?: string,
+  reason?: string,
 ): Promise<void> {
   await pool.query(
-    `UPDATE adres.etl_run
-        SET zakonczony = now(), status = $2, powod = $3,
-            delta = $4, artefakt_wersja = $5
+    `UPDATE address.etl_run
+        SET finished_at = now(), status = $2, reason = $3,
+            delta = $4, artifact_version = $5
       WHERE id = $1`,
     [
-      r.runId, status, powod ?? null,
+      r.runId, status, reason ?? null,
       JSON.stringify({
-        pobrane: r.pobrane, pominiete: r.pominiete,
-        bledy: r.bledy, ostrzezenia: r.ostrzezenia, delta: r.delta,
+        fetched: r.fetched, skipped: r.skipped,
+        errors: r.errors, warnings: r.warnings, delta: r.delta,
       }),
-      r.artefakt?.plik ?? null,
+      r.artifact?.file ?? null,
     ],
   );
 }
@@ -449,34 +449,34 @@ async function finishRun(
 async function buildAndPublishIndex(
   pool: pg.Pool,
   indexRoot: string,
-  wersja: string,
-): Promise<{ plik: string; rozmiarMB: number; dokumentow: number }> {
+  version: string,
+): Promise<{ file: string; rozmiarMB: number; dokumentow: number }> {
   const { rows } = await pool.query(SQL_INDEX_DOCS);
   const docs: IndexDoc[] = rows.map((r: any) => ({
     type: r.type,
     label: r.label,
     simc: r.simc,
     ulicId: r.ulic_id ? Number(r.ulic_id) : undefined,
-    liczbaPunktow: Number(r.liczba_punktow ?? 0),
-    gmina: r.gmina, powiat: r.powiat, wojewodztwo: r.wojewodztwo,
-    maUlice: r.ma_ulice,
+    addressPointCount: Number(r.point_count ?? 0),
+    gmina: r.gmina, powiat: r.powiat, voivodeship: r.voivodeship,
+    hasStreets: r.has_streets,
     lat: r.lat ?? undefined, lon: r.lon ?? undefined,
     aliases: r.aliases ?? undefined,
   }));
 
-  const built = buildIndex(docs, wersja);
-  const nazwa = `idx-${wersja}.bin`;
-  const plik = join(indexRoot, nazwa);
-  await mkdir(dirname(plik), { recursive: true });
-  await writeFile(plik, built.buffer);
+  const built = buildIndex(docs, version);
+  const name = `idx-${version}.bin`;
+  const file = join(indexRoot, name);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, built.buffer);
   // dopiero teraz wskaznik
   await writeFile(
     join(indexRoot, 'current.json'),
-    JSON.stringify({ current: nazwa, dataVersion: wersja, builtAt: new Date().toISOString() }, null, 2),
+    JSON.stringify({ current: name, dataVersion: version, builtAt: new Date().toISOString() }, null, 2),
   );
 
   return {
-    plik: nazwa,
+    file: name,
     rozmiarMB: +(built.stats.totalBytes / 1048576).toFixed(1),
     dokumentow: built.stats.docs,
   };
@@ -485,17 +485,17 @@ async function buildAndPublishIndex(
 /** Usuwa stare artefakty, zostawiajac N najnowszych plus biezacy. */
 async function pruneArtifacts(indexRoot: string, keep: number, log: (m: string) => void): Promise<void> {
   const { readdir, readFile } = await import('node:fs/promises');
-  let pliki: string[];
-  try { pliki = await readdir(indexRoot); } catch { return; }
+  let files: string[];
+  try { files = await readdir(indexRoot); } catch { return; }
 
-  let biezacy = '';
+  let current = '';
   try {
-    biezacy = JSON.parse(await readFile(join(indexRoot, 'current.json'), 'utf8')).current ?? '';
+    current = JSON.parse(await readFile(join(indexRoot, 'current.json'), 'utf8')).current ?? '';
   } catch { /* brak wskaznika */ }
 
-  const artefakty = pliki.filter((f) => /^idx-.*\.bin$/.test(f)).sort().reverse();
-  const doUsuniecia = artefakty.slice(keep).filter((f) => f !== biezacy);
-  for (const f of doUsuniecia) {
+  const artifacts = files.filter((f) => /^idx-.*\.bin$/.test(f)).sort().reverse();
+  const toRemove = artifacts.slice(keep).filter((f) => f !== current);
+  for (const f of toRemove) {
     await rm(join(indexRoot, f), { force: true });
     log(`usunieto stary artefakt: ${f}`);
   }
@@ -513,24 +513,24 @@ async function pruneArtifacts(indexRoot: string, keep: number, log: (m: string) 
 export async function notify(r: CycleResult, webhook = process.env.NOTIFY_WEBHOOK): Promise<void> {
   if (!webhook) return;
 
-  const ikona = { opublikowano: 'OK', 'brak-zmian': '--', wstrzymano: 'STOP', blad: 'BLAD' }[r.outcome];
-  const naglowek = `[${ikona}] Aktualizacja bazy adresowej: ${r.outcome}`;
-  const linie = [
-    `wersja: ${r.wersja}`,
-    `czas: ${r.czasS}s`,
-    `wojewodztwa: pobrane ${r.pobrane.length}, pominiete ${r.pominiete.length}`,
+  const ikona = { publishedAt: 'OK', 'brak-zmian': '--', halted: 'STOP', error: 'BLAD' }[r.outcome];
+  const header = `[${ikona}] Aktualizacja bazy adresowej: ${r.outcome}`;
+  const lines = [
+    `wersja: ${r.version}`,
+    `czas: ${r.durationSeconds}s`,
+    `wojewodztwa: pobrane ${r.fetched.length}, pominiete ${r.skipped.length}`,
   ];
-  if (r.delta) linie.push(`zmiany: +${r.delta.dodane} / ~${r.delta.zmienione} / -${r.delta.wycofane}`);
-  if (r.artefakt) linie.push(`artefakt: ${r.artefakt.plik} (${r.artefakt.rozmiarMB} MB, ${r.artefakt.dokumentow} pozycji)`);
-  if (r.ostrzezenia.length) linie.push('', 'Ostrzezenia:', ...r.ostrzezenia.map((o) => `  - ${o}`));
-  if (r.bledy.length) linie.push('', 'Bledy:', ...r.bledy.map((b) => `  - ${b.wojewodztwo}: ${b.blad}`));
-  if (r.outcome === 'wstrzymano' && r.sanity) linie.push('', r.sanity);
+  if (r.delta) lines.push(`zmiany: +${r.delta.added} / ~${r.delta.changed} / -${r.delta.withdrawn}`);
+  if (r.artifact) lines.push(`artefakt: ${r.artifact.file} (${r.artifact.rozmiarMB} MB, ${r.artifact.dokumentow} pozycji)`);
+  if (r.warnings.length) lines.push('', 'Ostrzezenia:', ...r.warnings.map((o) => `  - ${o}`));
+  if (r.errors.length) lines.push('', 'Bledy:', ...r.errors.map((b) => `  - ${b.voivodeship}: ${b.error}`));
+  if (r.outcome === 'wstrzymano' && r.sanity) lines.push('', r.sanity);
 
   try {
     await fetch(webhook, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: `${naglowek}\n${linie.join('\n')}`, outcome: r.outcome, detale: r }),
+      body: JSON.stringify({ text: `${header}\n${lines.join('\n')}`, outcome: r.outcome, detale: r }),
     });
   } catch {
     // Nieudane powiadomienie nie moze wywrocic cyklu, ktory sie powiodl.
@@ -540,14 +540,14 @@ export async function notify(r: CycleResult, webhook = process.env.NOTIFY_WEBHOO
 export function formatCycleSummary(r: CycleResult): string {
   const l: string[] = [];
   l.push(`Wynik:      ${r.outcome}  (kod wyjscia ${r.exitCode})`);
-  l.push(`Wersja:     ${r.wersja}`);
-  l.push(`Czas:       ${r.czasS} s`);
-  l.push(`Pobrane:    ${r.pobrane.length ? r.pobrane.join(' ') : '-'}`);
-  l.push(`Pominiete:  ${r.pominiete.length ? r.pominiete.join(' ') : '-'}`);
-  if (r.delta) l.push(`Zmiany:     +${r.delta.dodane} / ~${r.delta.zmienione} / -${r.delta.wycofane} / przywrocone ${r.delta.przywrocone}`);
-  if (r.artefakt) l.push(`Artefakt:   ${r.artefakt.plik}  ${r.artefakt.rozmiarMB} MB  ${r.artefakt.dokumentow} pozycji`);
-  if (r.ostrzezenia.length) { l.push('', 'Ostrzezenia:'); r.ostrzezenia.forEach((o) => l.push(`  ! ${o}`)); }
-  if (r.bledy.length) { l.push('', 'Bledy:'); r.bledy.forEach((b) => l.push(`  x ${b.wojewodztwo}: ${b.blad}`)); }
+  l.push(`Wersja:     ${r.version}`);
+  l.push(`Czas:       ${r.durationSeconds} s`);
+  l.push(`Pobrane:    ${r.fetched.length ? r.fetched.join(' ') : '-'}`);
+  l.push(`Pominiete:  ${r.skipped.length ? r.skipped.join(' ') : '-'}`);
+  if (r.delta) l.push(`Zmiany:     +${r.delta.added} / ~${r.delta.changed} / -${r.delta.withdrawn} / przywrocone ${r.delta.restored}`);
+  if (r.artifact) l.push(`Artefakt:   ${r.artifact.file}  ${r.artifact.rozmiarMB} MB  ${r.artifact.dokumentow} pozycji`);
+  if (r.warnings.length) { l.push('', 'Ostrzezenia:'); r.warnings.forEach((o) => l.push(`  ! ${o}`)); }
+  if (r.errors.length) { l.push('', 'Bledy:'); r.errors.forEach((b) => l.push(`  x ${b.voivodeship}: ${b.error}`)); }
   if (r.sanity) { l.push('', r.sanity); }
   return l.join('\n');
 }

@@ -24,14 +24,14 @@ export interface TercRow {
   woj: string;
   pow?: string;
   gmi?: string;
-  rodz?: string;
-  nazwa: string;
-  nazwaDod: string;
-  stanNa: string;
+  kind?: string;
+  name: string;
+  nameAdded: string;
+  asOf: string;
   /** Zlozony identyfikator 7-znakowy: WOJ(2) + POW(2) + GMI(2) + RODZ(1). */
   terc: string;
   /** 1 = wojewodztwo, 2 = powiat, 3 = gmina. */
-  poziom: 1 | 2 | 3;
+  level: 1 | 2 | 3;
   parentTerc?: string;
 }
 
@@ -40,18 +40,18 @@ export interface SimcRow {
   woj: string;
   pow: string;
   gmi: string;
-  rodzGmi: string;
+  gminaKind: string;
   /** Rodzaj miejscowosci - kod ze slownika WMRODZ. */
   rm: string;
   /** Czy nazwa jest zwyczajowa (1) czy urzedowa (0). */
   mz: string;
-  nazwa: string;
+  name: string;
   /** Identyfikator miejscowosci - to jest SIMC. */
   sym: string;
   /** Identyfikator miejscowosci nadrzednej. Rowny `sym` dla miejscowosci samodzielnych. */
   sympod: string;
-  stanNa: string;
-  tercGminy: string;
+  asOf: string;
+  gminaTerc: string;
 }
 
 /** Wiersz ULIC - Centralny Katalog Ulic. */
@@ -59,32 +59,32 @@ export interface UlicRow {
   woj: string;
   pow: string;
   gmi: string;
-  rodzGmi: string;
+  gminaKind: string;
   /** SIMC miejscowosci, w ktorej lezy ulica. */
   sym: string;
   /** Identyfikator ulicy w katalogu. */
   symUl: string;
   /** Cecha: ul., al., pl., os., rondo... */
-  cecha: string;
+  streetType: string;
   /** Czlon glowny nazwy, np. "Kosciuszki". */
-  nazwa1: string;
+  name1: string;
   /** Czlon poprzedzajacy, np. "Tadeusza". Czesto pusty. */
-  nazwa2: string;
-  stanNa: string;
-  tercGminy: string;
+  name2: string;
+  asOf: string;
+  gminaTerc: string;
   /**
    * Pelna nazwa zlozona z czlonow.
    * UWAGA na kolejnosc: w ULIC `NAZWA_2` to czlon POPRZEDZAJACY
    * (imie, tytul), a `NAZWA_1` to czlon glowny (nazwisko).
    * "Tadeusza Kosciuszki" = NAZWA_2 + NAZWA_1, nie odwrotnie.
    */
-  nazwaPelna: string;
+  fullName: string;
 }
 
 export interface WmrodzRow {
   rm: string;
-  nazwaRm: string;
-  stanNa: string;
+  nameRemoved: string;
+  asOf: string;
 }
 
 /**
@@ -146,13 +146,13 @@ function pick(cols: string[], m: Map<string, number>, ...names: string[]): strin
  * WOJ(2) + POW(2) + GMI(2) + RODZ(1), dopelniony spacjami do 7 znakow
  * w postaci uzywanej przez GUS. My normalizujemy do zer wiodacych.
  */
-export function buildTerc(woj: string, pow?: string, gmi?: string, rodz?: string): string {
+export function buildTerc(woj: string, pow?: string, gmi?: string, kind?: string): string {
   const w = woj.padStart(2, '0');
   if (!pow) return (w + '00000');
   const p = pow.padStart(2, '0');
   if (!gmi) return (w + p + '000');
   const g = gmi.padStart(2, '0');
-  const r = (rodz ?? '0').padStart(1, '0');
+  const r = (kind ?? '0').padStart(1, '0');
   return w + p + g + r;
 }
 
@@ -169,17 +169,17 @@ export function parseTerc(text: string): TercRow[] {
     if (!woj) continue;
     const pow = pick(c, m, 'POW') || undefined;
     const gmi = pick(c, m, 'GMI') || undefined;
-    const rodz = pick(c, m, 'RODZ') || undefined;
-    const poziom: 1 | 2 | 3 = gmi ? 3 : pow ? 2 : 1;
+    const kind = pick(c, m, 'RODZ') || undefined;
+    const level: 1 | 2 | 3 = gmi ? 3 : pow ? 2 : 1;
 
     out.push({
-      woj, pow, gmi, rodz,
-      nazwa: pick(c, m, 'NAZWA'),
-      nazwaDod: pick(c, m, 'NAZWA_DOD', 'NAZWADOD'),
-      stanNa: pick(c, m, 'STAN_NA', 'STANNA'),
-      terc: buildTerc(woj, pow, gmi, rodz),
-      poziom,
-      parentTerc: poziom === 3 ? buildTerc(woj, pow) : poziom === 2 ? buildTerc(woj) : undefined,
+      woj, pow, gmi, kind,
+      name: pick(c, m, 'NAZWA'),
+      nameAdded: pick(c, m, 'NAZWA_DOD', 'NAZWADOD'),
+      asOf: pick(c, m, 'STAN_NA', 'STANNA'),
+      terc: buildTerc(woj, pow, gmi, kind),
+      level,
+      parentTerc: level === 3 ? buildTerc(woj, pow) : level === 2 ? buildTerc(woj) : undefined,
     });
   }
   return out;
@@ -199,18 +199,18 @@ export function parseSimc(text: string): SimcRow[] {
     const woj = pick(c, m, 'WOJ');
     const pow = pick(c, m, 'POW');
     const gmi = pick(c, m, 'GMI');
-    const rodzGmi = pick(c, m, 'RODZ_GMI', 'RODZGMI');
+    const gminaKind = pick(c, m, 'RODZ_GMI', 'RODZGMI');
 
     out.push({
-      woj, pow, gmi, rodzGmi,
+      woj, pow, gmi, gminaKind,
       rm: pick(c, m, 'RM'),
       mz: pick(c, m, 'MZ'),
-      nazwa: pick(c, m, 'NAZWA'),
+      name: pick(c, m, 'NAZWA'),
       // SIMC to CharacterString z wiodacymi zerami - NIE parsowac do liczby
       sym: sym.padStart(7, '0'),
       sympod: (pick(c, m, 'SYMPOD') || sym).padStart(7, '0'),
-      stanNa: pick(c, m, 'STAN_NA', 'STANNA'),
-      tercGminy: buildTerc(woj, pow, gmi, rodzGmi),
+      asOf: pick(c, m, 'STAN_NA', 'STANNA'),
+      gminaTerc: buildTerc(woj, pow, gmi, gminaKind),
     });
   }
   return out;
@@ -230,20 +230,20 @@ export function parseUlic(text: string): UlicRow[] {
     const woj = pick(c, m, 'WOJ');
     const pow = pick(c, m, 'POW');
     const gmi = pick(c, m, 'GMI');
-    const rodzGmi = pick(c, m, 'RODZ_GMI', 'RODZGMI');
-    const nazwa1 = pick(c, m, 'NAZWA_1', 'NAZWA1');
-    const nazwa2 = pick(c, m, 'NAZWA_2', 'NAZWA2');
+    const gminaKind = pick(c, m, 'RODZ_GMI', 'RODZGMI');
+    const name1 = pick(c, m, 'NAZWA_1', 'NAZWA1');
+    const name2 = pick(c, m, 'NAZWA_2', 'NAZWA2');
 
     out.push({
-      woj, pow, gmi, rodzGmi,
+      woj, pow, gmi, gminaKind,
       sym: pick(c, m, 'SYM').padStart(7, '0'),
       symUl: symUl.padStart(5, '0'),
-      cecha: normalizeCecha(pick(c, m, 'CECHA')),
-      nazwa1, nazwa2,
-      stanNa: pick(c, m, 'STAN_NA', 'STANNA'),
-      tercGminy: buildTerc(woj, pow, gmi, rodzGmi),
+      streetType: normalizeStreetType(pick(c, m, 'CECHA')),
+      name1, name2,
+      asOf: pick(c, m, 'STAN_NA', 'STANNA'),
+      gminaTerc: buildTerc(woj, pow, gmi, gminaKind),
       // NAZWA_2 poprzedza NAZWA_1: "Tadeusza" + "Kosciuszki"
-      nazwaPelna: [nazwa2, nazwa1].filter(Boolean).join(' ').trim(),
+      fullName: [name2, name1].filter(Boolean).join(' ').trim(),
     });
   }
   return out;
@@ -259,7 +259,7 @@ export function parseWmrodz(text: string): WmrodzRow[] {
     const c = parseCsvLine(lines[i], sep);
     const rm = pick(c, m, 'RM');
     if (!rm) continue;
-    out.push({ rm, nazwaRm: pick(c, m, 'NAZWA_RM', 'NAZWARM'), stanNa: pick(c, m, 'STAN_NA', 'STANNA') });
+    out.push({ rm, nameRemoved: pick(c, m, 'NAZWA_RM', 'NAZWARM'), asOf: pick(c, m, 'STAN_NA', 'STANNA') });
   }
   return out;
 }
@@ -268,8 +268,8 @@ export function parseWmrodz(text: string): WmrodzRow[] {
  * Ujednolicenie cechy ulicy do formy kanonicznej.
  * GUS zapisuje "ul.", "ULICA", "Ul." - wszystkie oznaczaja to samo.
  */
-const CECHA_MAP: Record<string, string> = {
-  UL: 'ul.', ULICA: 'ul.',
+const STREET_TYPE_MAP: Record<string, string> = {
+  UL: 'ul.', STREET: 'ul.',
   AL: 'al.', ALEJA: 'al.', ALEJE: 'al.',
   PL: 'pl.', PLAC: 'pl.',
   OS: 'os.', OSIEDLE: 'os.',
@@ -280,10 +280,10 @@ const CECHA_MAP: Record<string, string> = {
   WYSPA: 'wyspa', SZOSA: 'szosa', DROGA: 'droga', WAWOZ: 'wawoz',
 };
 
-export function normalizeCecha(raw: string): string {
+export function normalizeStreetType(raw: string): string {
   const key = raw.trim().replace(/\.$/, '').toUpperCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/Ł/g, 'L');
-  return CECHA_MAP[key] ?? raw.trim();
+  return STREET_TYPE_MAP[key] ?? raw.trim();
 }
 
 /**

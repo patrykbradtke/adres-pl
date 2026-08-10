@@ -46,45 +46,45 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildServer, loadConfig, parseTrustProxy } from '../src/server.ts';
-import { zapiszAtrapeIndeksu } from './atrapa-indeksu.ts';
+import { writeIndexStub } from './index-stub.ts';
 
 const LIMIT = 5;
 const NADMIAR = 4;
 
-const artefakt = await zapiszAtrapeIndeksu(
+const artifact = await writeIndexStub(
   join(await mkdtemp(join(tmpdir(), 'adres-limit-')), 'current.bin'));
 
 const app = await buildServer(loadConfig({
   ...process.env,
   RATE_LIMIT_MAX: String(LIMIT),
-  INDEX_SOURCE: artefakt,
+  INDEX_SOURCE: artifact,
   INDEX_POLL_MS: '0',
   LOG_LEVEL: 'error',
   // Jawnie, mimo ze to domyslka: przypina intencje przed zmiana domyslki
   // w zadaniu 8.9 i jest widoczne dla czytajacego.
-  API_KEY_MODE: 'wylaczony',
+  API_KEY_MODE: 'disabled',
 }));
 
-let bledy = 0;
-const zglos = (ok: boolean, opis: string) => {
-  console.log(`${ok ? 'OK  ' : 'BLAD'} ${opis}`);
-  if (!ok) bledy++;
+let errors = 0;
+const report = (ok: boolean, description: string) => {
+  console.log(`${ok ? 'OK  ' : 'ERROR'} ${description}`);
+  if (!ok) errors++;
 };
 
-const strzel = (naglowki: Record<string, string>) =>
-  app.inject({ method: 'GET', url: '/v1/suggest?q=marszalkowska', headers: naglowki });
+const hit = (headers: Record<string, string>) =>
+  app.inject({ method: 'GET', url: '/v1/suggest?q=marszalkowska', headers: headers });
 
 // --- 1. Losowany naglowek nie resetuje licznika ------------------------
 //
 // To jest oryginalna asercja z zadania 8.1, nietknieta.
-const kody: number[] = [];
+const codes: number[] = [];
 for (let i = 0; i < LIMIT + NADMIAR; i++) {
-  kody.push((await strzel({ 'x-api-key': `losowy-${i}-${'x'.repeat(i)}` })).statusCode);
+  codes.push((await hit({ 'x-api-key': `losowy-${i}-${'x'.repeat(i)}` })).statusCode);
 }
-const odrzucone = kody.filter((s) => s === 429).length;
-console.log('   kody przy losowanym naglowku:', kody.join(' '));
-zglos(odrzucone === NADMIAR,
-  `limit odrzucil ${odrzucone} z ${NADMIAR} zadan ponad limit mimo zmiany naglowka`);
+const rejected = codes.filter((s) => s === 429).length;
+console.log('   kody przy losowanym naglowku:', codes.join(' '));
+report(rejected === NADMIAR,
+  `limit odrzucil ${rejected} z ${NADMIAR} zadan ponad limit mimo zmiany naglowka`);
 
 // --- 2. Losowany X-Forwarded-For tez nie resetuje licznika -------------
 //
@@ -98,28 +98,28 @@ zglos(odrzucone === NADMIAR,
 const app2 = await buildServer(loadConfig({
   ...process.env,
   RATE_LIMIT_MAX: String(LIMIT),
-  INDEX_SOURCE: artefakt,
+  INDEX_SOURCE: artifact,
   INDEX_POLL_MS: '0',
   LOG_LEVEL: 'error',
-  API_KEY_MODE: 'wylaczony',
+  API_KEY_MODE: 'disabled',
 }));
-const kodyProxy: number[] = [];
+const proxyCodes: number[] = [];
 for (let i = 0; i < LIMIT + NADMIAR; i++) {
-  kodyProxy.push((await app2.inject({
+  proxyCodes.push((await app2.inject({
     method: 'GET', url: '/v1/suggest?q=marszalkowska',
     headers: { 'x-forwarded-for': `10.9.${i}.${i}` },
   })).statusCode);
 }
 await app2.close();
-const odrzuconeProxy = kodyProxy.filter((s) => s === 429).length;
-const przepuszczoneProxy = kodyProxy.filter((s) => s === 200).length;
-console.log('   kody przy losowanym x-forwarded-for:', kodyProxy.join(' '));
-zglos(przepuszczoneProxy === LIMIT && odrzuconeProxy === NADMIAR,
-  `zmiana x-forwarded-for nie zalozyla nowych kubelkow: ${przepuszczoneProxy} przeszlo ` +
-  `(limit ${LIMIT}), ${odrzuconeProxy} odrzuconych (oczekiwano ${NADMIAR})`);
+const rejectedProxy = proxyCodes.filter((s) => s === 429).length;
+const passedProxy = proxyCodes.filter((s) => s === 200).length;
+console.log('   kody przy losowanym x-forwarded-for:', proxyCodes.join(' '));
+report(passedProxy === LIMIT && rejectedProxy === NADMIAR,
+  `zmiana x-forwarded-for nie zalozyla nowych kubelkow: ${passedProxy} przeszlo ` +
+  `(limit ${LIMIT}), ${rejectedProxy} odrzuconych (oczekiwano ${NADMIAR})`);
 
 // --- 3. Zaufanie do proxy domyslnie wylaczone --------------------------
-const przypadki: Array<[string | undefined, boolean | number | string]> = [
+const cases: Array<[string | undefined, boolean | number | string]> = [
   [undefined, false],
   ['false', false],
   ['true', true],
@@ -127,11 +127,11 @@ const przypadki: Array<[string | undefined, boolean | number | string]> = [
   ['0', 0],
   ['10.0.0.0/8', '10.0.0.0/8'],
 ];
-for (const [wejscie, oczekiwane] of przypadki) {
+for (const [wejscie, expected] of cases) {
   const got = parseTrustProxy(wejscie);
-  zglos(got === oczekiwane, `parseTrustProxy(${wejscie}) = ${JSON.stringify(got)}`);
+  report(got === expected, `parseTrustProxy(${wejscie}) = ${JSON.stringify(got)}`);
 }
 
 await app.close();
-console.log(bledy === 0 ? '\nWszystkie kontrole przeszly.' : `\n${bledy} kontroli nie przeszlo.`);
-process.exit(bledy === 0 ? 0 : 1);
+console.log(errors === 0 ? '\nWszystkie kontrole przeszly.' : `\n${errors} kontroli nie przeszlo.`);
+process.exit(errors === 0 ? 0 : 1);

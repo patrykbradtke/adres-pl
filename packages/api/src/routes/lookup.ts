@@ -53,9 +53,9 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
       params.push(limit);
 
       const { rows } = await pool.query(
-        `SELECT p.id, p.prg_local_id, p.nr_budynku, p.kod_pocztowy, p.status,
+        `SELECT p.id, p.prg_local_id, p.building_number, p.postal_code, p.status,
                 ST_Y(p.geom::geometry) AS lat, ST_X(p.geom::geometry) AS lon
-           FROM adres.punkt_adresowy p
+           FROM address.address_point p
           WHERE ${where} AND p.wycofany_od IS NULL
           ORDER BY p.nr_sort
           LIMIT $${params.length}`,
@@ -92,34 +92,34 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
       if (!ulicId && !simc) return reply.code(400).send({ error: 'Podaj ulicId albo simc.' });
 
       const key = buildingNumberKey(nr);
-      const { rows } = await pool.query<{ kod_pocztowy: string | null }>(
+      const { rows } = await pool.query<{ postal_code: string | null }>(
         ulicId
-          ? `SELECT kod_pocztowy FROM adres.punkt_adresowy
-              WHERE ulic_id = $1 AND nr_key = $2 AND wycofany_od IS NULL LIMIT 1`
-          : `SELECT kod_pocztowy FROM adres.punkt_adresowy
-              WHERE simc = $1 AND ulic_id IS NULL AND nr_key = $2 AND wycofany_od IS NULL LIMIT 1`,
+          ? `SELECT postal_code FROM address.address_point
+              WHERE ulic_id = $1 AND building_number_key = $2 AND withdrawn_at IS NULL LIMIT 1`
+          : `SELECT postal_code FROM address.address_point
+              WHERE simc = $1 AND ulic_id IS NULL AND building_number_key = $2 AND withdrawn_at IS NULL LIMIT 1`,
         [ulicId ?? simc, key],
       );
 
       if (rows.length === 0) {
         // Numeru nie ma - probujemy kodu dominujacego na ulicy jako podpowiedzi
-        const { rows: fallback } = await pool.query<{ kod_pocztowy: string; n: string }>(
+        const { rows: fallback } = await pool.query<{ postal_code: string; n: string }>(
           ulicId
-            ? `SELECT kod_pocztowy, count(*) n FROM adres.punkt_adresowy
-                WHERE ulic_id = $1 AND kod_pocztowy IS NOT NULL AND wycofany_od IS NULL
-                GROUP BY kod_pocztowy ORDER BY n DESC LIMIT 1`
-            : `SELECT kod_pocztowy, count(*) n FROM adres.punkt_adresowy
-                WHERE simc = $1 AND kod_pocztowy IS NOT NULL AND wycofany_od IS NULL
-                GROUP BY kod_pocztowy ORDER BY n DESC LIMIT 1`,
+            ? `SELECT postal_code, count(*) n FROM address.address_point
+                WHERE ulic_id = $1 AND postal_code IS NOT NULL AND withdrawn_at IS NULL
+                GROUP BY postal_code ORDER BY n DESC LIMIT 1`
+            : `SELECT postal_code, count(*) n FROM address.address_point
+                WHERE simc = $1 AND postal_code IS NOT NULL AND withdrawn_at IS NULL
+                GROUP BY postal_code ORDER BY n DESC LIMIT 1`,
           [ulicId ?? simc],
         );
         return {
-          kodPocztowy: fallback[0]?.kod_pocztowy ?? null,
-          zrodlo: fallback.length ? 'dominujacy_na_ulicy' : 'brak',
+          postalCode: fallback[0]?.postal_code ?? null,
+          source: fallback.length ? 'dominujacy_na_ulicy' : 'brak',
           uwaga: 'Numeru nie ma w rejestrze. Kod jest przyblizeniem - zweryfikuj przed wysylka.',
         };
       }
-      return { kodPocztowy: rows[0].kod_pocztowy, zrodlo: 'rejestr_prg' };
+      return { postalCode: rows[0].postal_code, source: 'rejestr_prg' };
     },
   );
 
@@ -143,9 +143,9 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
       const { lat, lon, maxM = 500 } = req.query;
       const { rows } = await pool.query(
         `SELECT a.*, ST_Distance(p.geom, $3::geography) AS odleglosc_m
-           FROM adres.punkt_adresowy p
-           JOIN adres.adres_pelny a ON a.id = p.id
-          WHERE p.wycofany_od IS NULL
+           FROM address.address_point p
+           JOIN address.full_address a ON a.id = p.id
+          WHERE p.withdrawn_at IS NULL
             AND ST_DWithin(p.geom, $3::geography, $4)
           ORDER BY p.geom <-> $3::geography
           LIMIT 5`,
@@ -161,16 +161,16 @@ export function registerLookupRoutes(app: FastifyInstance, pool: pg.Pool): void 
     { schema: { params: { type: 'object', properties: { simc: { type: 'string', pattern: '^[0-9]{7}$' } } } } },
     async (req, reply) => {
       const { rows } = await pool.query(
-        `SELECT m.simc, m.nazwa, m.rodzaj, w.nazwa AS rodzaj_nazwa, m.ma_ulice,
-                m.liczba_punktow, m.terc_gminy,
-                g.nazwa AS gmina, pw.nazwa AS powiat, woj.nazwa AS wojewodztwo,
+        `SELECT m.simc, m.name, m.kind, w.name AS rodzaj_nazwa, m.has_streets,
+                m.point_count, m.gmina_terc,
+                g.name AS gmina, pw.name AS powiat, woj.name AS voivodeship,
                 ST_Y(m.centroid::geometry) AS lat, ST_X(m.centroid::geometry) AS lon
-           FROM adres.miejscowosc m
-           LEFT JOIN adres.wmrodz w ON w.kod = m.rodzaj
-           JOIN adres.teryt_jednostka g ON g.terc = m.terc_gminy
-           LEFT JOIN adres.teryt_jednostka pw ON pw.terc = g.parent_terc
-           LEFT JOIN adres.teryt_jednostka woj ON woj.terc = pw.parent_terc
-          WHERE m.simc = $1 AND m.wycofany_od IS NULL`,
+           FROM address.locality m
+           LEFT JOIN address.wmrodz w ON w.kod = m.kind
+           JOIN address.teryt_unit g ON g.terc = m.gmina_terc
+           LEFT JOIN address.teryt_unit pw ON pw.terc = g.parent_terc
+           LEFT JOIN address.teryt_unit woj ON woj.terc = pw.parent_terc
+          WHERE m.simc = $1 AND m.withdrawn_at IS NULL`,
         [req.params.simc],
       );
       if (rows.length === 0) return reply.code(404).send({ error: 'Nie znaleziono miejscowosci.' });

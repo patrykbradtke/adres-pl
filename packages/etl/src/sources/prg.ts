@@ -29,17 +29,17 @@ import yauzl from 'yauzl';
 export const PRG_BASE = 'https://opendata.geoportal.gov.pl/prg/adresy/';
 
 /** Kody TERYT wojewodztw: 02, 04, ... 32. */
-export const WOJEWODZTWA = Array.from({ length: 16 }, (_, i) => String((i + 1) * 2).padStart(2, '0'));
+export const VOIVODESHIPS = Array.from({ length: 16 }, (_, i) => String((i + 1) * 2).padStart(2, '0'));
 
-export const WOJ_NAZWY: Record<string, string> = {
+export const VOIVODESHIP_NAMES: Record<string, string> = {
   '02': 'dolnoslaskie', '04': 'kujawsko-pomorskie', '06': 'lubelskie', '08': 'lubuskie',
   '10': 'lodzkie', '12': 'malopolskie', '14': 'mazowieckie', '16': 'opolskie',
   '18': 'podkarpackie', '20': 'podlaskie', '22': 'pomorskie', '24': 'slaskie',
   '26': 'swietokrzyskie', '28': 'warminsko-mazurskie', '30': 'wielkopolskie', '32': 'zachodniopomorskie',
 };
 
-export function wojewodztwoUrl(kod: string): string {
-  return `${PRG_BASE}${kod}_Punkty_Adresowe.zip`;
+export function voivodeshipUrl(code: string): string {
+  return `${PRG_BASE}${code}_Punkty_Adresowe.zip`;
 }
 
 export interface ProbeResult {
@@ -49,7 +49,7 @@ export interface ProbeResult {
   etag?: string;
   lastModified?: string;
   contentLength?: number;
-  /** true, gdy nagłowki roznia sie od zapisanych - warto pobrac. */
+  /** true, gdy naglowki roznia sie od zapisanych - warto pobrac. */
   changed: boolean;
   /** Serwer nie zwrocil ani ETag, ani Last-Modified - probe bezuzyteczny. */
   headersUseless: boolean;
@@ -91,7 +91,7 @@ export interface DownloadResult {
   sha256: string;
 }
 
-/** Pobiera plik do archiwum lokalnego, licząc sha256 w locie. */
+/** Pobiera plik do archiwum lokalnego, liczac sha256 w locie. */
 export async function download(url: string, destPath: string): Promise<DownloadResult> {
   await mkdir(dirname(destPath), { recursive: true });
   const res = await fetch(url, { redirect: 'follow' });
@@ -162,8 +162,8 @@ export function pickGmlEntry(entries: ZipEntry[], preferNew = true): ZipEntry | 
   return pool.sort((a, b) => b.size - a.size)[0];
 }
 
-export function archivePath(root: string, wojewodztwo: string, wersja: string): string {
-  return join(root, 'prg', wersja, `${wojewodztwo}_Punkty_Adresowe.zip`);
+export function archivePath(root: string, voivodeship: string, version: string): string {
+  return join(root, 'prg', version, `${voivodeship}_Punkty_Adresowe.zip`);
 }
 
 export async function fileExists(p: string): Promise<boolean> {

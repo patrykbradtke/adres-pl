@@ -22,7 +22,7 @@
  * dalej, a nic tego nie sygnalizuje. Dlatego ten modul jest wylacznie
  * PRZYSPIESZACZEM, a gwarancje daje odpytywanie po stronie rejestru.
  *
- * Po kazdym PRZYWROCENIU nasluchu wolamy onPrzywrocenie: powiadomienia z czasu
+ * Po kazdym PRZYWROCENIU nasluchu wolamy onReconnect: powiadomienia z czasu
  * przerwy przepadly bezpowrotnie, wiec jedynym poprawnym zachowaniem jest pelne
  * przeladowanie stanu.
  */
@@ -30,23 +30,23 @@ import pg from 'pg';
 
 export interface NotifyListenerConfig {
   connectionString: string;
-  kanal: string;
+  channel: string;
   /** Wolane przy kazdym powiadomieniu. */
-  onPowiadomienie: () => void;
+  onNotification: () => void;
   /** Wolane po PRZYWROCENIU nasluchu - stan trzeba przeladowac w calosci. */
-  onPrzywrocenie: () => void;
-  onError?: (err: Error, gdzie: string) => void;
+  onReconnect: () => void;
+  onError?: (err: Error, where: string) => void;
   onInfo?: (msg: string) => void;
 }
 
 export class NotifyListener {
   private cfg: NotifyListenerConfig;
-  private klient: pg.Client | null = null;
-  private ponowienie: NodeJS.Timeout | null = null;
-  private zatrzymany = false;
+  private client: pg.Client | null = null;
+  private retryTimer: NodeJS.Timeout | null = null;
+  private stopped = false;
 
-  liczbaPowiadomien = 0;
-  liczbaPonowien = 0;
+  notificationCount = 0;
+  retryCount = 0;
 
   // Jawne przypisanie zamiast parameter property - tryb strip-only nie generuje
   // kodu przypisania (patrz komentarz przy konstruktorze IndexHolder).
@@ -54,57 +54,57 @@ export class NotifyListener {
     this.cfg = cfg;
   }
 
-  get podlaczony(): boolean {
-    return this.klient !== null;
+  get connected(): boolean {
+    return this.client !== null;
   }
 
-  /** Niepowodzenie NIE jest bledem krytycznym - planuje ponowienie i wraca. */
+  /** Niepowodzenie NIE jest bledem krytycznym - planuje retryTimer i wraca. */
   async start(): Promise<void> {
-    await this.podlacz(0);
+    await this.connect(0);
   }
 
   stop(): void {
-    this.zatrzymany = true;
-    if (this.ponowienie) { clearTimeout(this.ponowienie); this.ponowienie = null; }
-    const k = this.klient;
-    this.klient = null;
+    this.stopped = true;
+    if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
+    const k = this.client;
+    this.client = null;
     if (k) void k.end().catch(() => { /* zamykamy, blad bez znaczenia */ });
   }
 
-  private async podlacz(proba: number): Promise<void> {
-    if (this.zatrzymany) return;
-    const klient = new pg.Client({ connectionString: this.cfg.connectionString });
+  private async connect(attempt: number): Promise<void> {
+    if (this.stopped) return;
+    const client = new pg.Client({ connectionString: this.cfg.connectionString });
     try {
-      await klient.connect();
-      klient.on('notification', () => {
-        this.liczbaPowiadomien++;
-        this.cfg.onPowiadomienie();
+      await client.connect();
+      client.on('notification', () => {
+        this.notificationCount++;
+        this.cfg.onNotification();
       });
-      klient.on('error', (e) => {
-        this.cfg.onError?.(e, 'nasluch');
-        void this.zerwij();
+      client.on('error', (e) => {
+        this.cfg.onError?.(e, 'listener');
+        void this.drop();
       });
-      await klient.query(`LISTEN ${this.cfg.kanal}`);
-      this.klient = klient;
+      await client.query(`LISTEN ${this.cfg.channel}`);
+      this.client = client;
 
-      if (proba > 0) {
+      if (attempt > 0) {
         this.cfg.onInfo?.('Nasluch przywrocony - pelne przeladowanie stanu');
-        this.cfg.onPrzywrocenie();
+        this.cfg.onReconnect();
       }
     } catch (e) {
-      await klient.end().catch(() => { /* i tak nie wstalo */ });
-      if (this.zatrzymany) return;
+      await client.end().catch(() => { /* i tak nie wstalo */ });
+      if (this.stopped) return;
       this.cfg.onError?.(e as Error, 'podlaczenie nasluchu');
-      this.zaplanujPonowienie(proba);
+      this.scheduleRetry(attempt);
     }
   }
 
-  private async zerwij(): Promise<void> {
-    if (this.zatrzymany || this.klient === null) return;
-    const k = this.klient;
-    this.klient = null;
+  private async drop(): Promise<void> {
+    if (this.stopped || this.client === null) return;
+    const k = this.client;
+    this.client = null;
     await k.end().catch(() => { /* juz zerwane */ });
-    this.zaplanujPonowienie(0);
+    this.scheduleRetry(0);
   }
 
   /**
@@ -114,12 +114,12 @@ export class NotifyListener {
    * polaczenie w tej samej chwili (bo baza sie restartowala), wracaja do niej
    * rownoczesnie i dokladaja szczyt obciazenia dokladnie wtedy, gdy wstaje.
    */
-  private zaplanujPonowienie(proba: number): void {
-    if (this.zatrzymany) return;
-    this.liczbaPonowien++;
-    const podstawa = Math.min(30_000, 1_000 * 2 ** Math.min(proba, 5));
-    const odstep = Math.round(podstawa * (0.75 + Math.random() * 0.5));
-    this.ponowienie = setTimeout(() => { void this.podlacz(proba + 1); }, odstep);
-    this.ponowienie.unref();
+  private scheduleRetry(attempt: number): void {
+    if (this.stopped) return;
+    this.retryCount++;
+    const basis = Math.min(30_000, 1_000 * 2 ** Math.min(attempt, 5));
+    const delay = Math.round(basis * (0.75 + Math.random() * 0.5));
+    this.retryTimer = setTimeout(() => { void this.connect(attempt + 1); }, delay);
+    this.retryTimer.unref();
   }
 }

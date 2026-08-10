@@ -64,8 +64,8 @@ export function parseNumber(input: string): ParsedNumber | null {
     const b = explicit.groups.b.trim();
     if (isBuildingLike(b)) {
       return {
-        nrBudynku: normalizeBuildingNumber(b),
-        nrLokalu: normalizeFlatNumber(explicit.groups.l),
+        buildingNumber: normalizeBuildingNumber(b),
+        unitNumber: normalizeUnitNumber(explicit.groups.l),
         ambiguous: false,
       };
     }
@@ -73,15 +73,15 @@ export function parseNumber(input: string): ParsedNumber | null {
 
   // 2. zakres - zawsze budynek
   if (RE_RANGE.test(s)) {
-    return { nrBudynku: normalizeBuildingNumber(s), ambiguous: false };
+    return { buildingNumber: normalizeBuildingNumber(s), ambiguous: false };
   }
 
   // 3. potrojny - budynek narozny + lokal
   const triple = RE_TRIPLE.exec(s);
   if (triple) {
     return {
-      nrBudynku: normalizeBuildingNumber(triple[1]),
-      nrLokalu: normalizeFlatNumber(triple[2]),
+      buildingNumber: normalizeBuildingNumber(triple[1]),
+      unitNumber: normalizeUnitNumber(triple[2]),
       ambiguous: false,
     };
   }
@@ -94,20 +94,20 @@ export function parseNumber(input: string): ParsedNumber | null {
     const bothNumeric = /^\d+$/.test(left) && /^\d+$/.test(right);
 
     return {
-      nrBudynku: normalizeBuildingNumber(left),
-      nrLokalu: normalizeFlatNumber(right),
+      buildingNumber: normalizeBuildingNumber(left),
+      unitNumber: normalizeUnitNumber(right),
       // Litera po lewej ("12A/5") praktycznie przesadza o odczycie
       // budynek+lokal. Dwie czyste liczby - trzeba zapytac rejestr.
       ambiguous: bothNumeric,
       alternatives: bothNumeric
-        ? [{ nrBudynku: normalizeBuildingNumber(s) }]
+        ? [{ buildingNumber: normalizeBuildingNumber(s) }]
         : undefined,
     };
   }
 
   // 5. sam numer budynku
   if (PART.test(s)) {
-    return { nrBudynku: normalizeBuildingNumber(s), ambiguous: false };
+    return { buildingNumber: normalizeBuildingNumber(s), ambiguous: false };
   }
 
   return null;
@@ -130,7 +130,7 @@ export function normalizeBuildingNumber(input: string): string {
 }
 
 /** Numer lokalu - wolny tekst, tylko przyciety i z wielka litera. */
-export function normalizeFlatNumber(input: string): string {
+export function normalizeUnitNumber(input: string): string {
   return input.trim().replace(/\s+/g, '').toUpperCase();
 }
 

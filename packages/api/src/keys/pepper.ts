@@ -36,7 +36,7 @@ export interface KeyHash {
 
 export class Peppers {
   private readonly secrets: ReadonlyMap<number, string>;
-  private readonly posortowaneWersje: readonly number[];
+  private readonly sortedVersions: readonly number[];
   readonly activeVersion: number;
 
   constructor(secrets: ReadonlyMap<number, string>, activeVersion: number) {
@@ -45,7 +45,7 @@ export class Peppers {
       throw new Error(`Wersja aktywna ${activeVersion} nie ma sekretu w zestawie`);
     }
     this.secrets = secrets;
-    this.posortowaneWersje = [...secrets.keys()].sort((a, b) => a - b);
+    this.sortedVersions = [...secrets.keys()].sort((a, b) => a - b);
     this.activeVersion = activeVersion;
   }
 
@@ -58,7 +58,7 @@ export class Peppers {
    * niezmienny od chwili utworzenia, wiec nie ma czego przeliczac.
    */
   get versions(): readonly number[] {
-    return this.posortowaneWersje;
+    return this.sortedVersions;
   }
 
   /**
@@ -114,7 +114,7 @@ export function hashesEqual(a: string, b: string): boolean {
 
 /**
  * Odczyt zestawu pieprzy ze zmiennych srodowiskowych: API_KEY_PEPPER_<n>
- * oraz API_KEY_PEPPER_AKTYWNY (domyslnie najwyzszy numer).
+ * oraz API_KEY_PEPPER_ACTIVE (domyslnie najwyzszy numer).
  *
  * Zwraca null, gdy nie ma ani jednego pieprza - decyzja, czy to blad, nalezy
  * do wolajacego. loadConfig zostaje CZYSTA i nie rzuca; kontrola spojnosci
@@ -139,17 +139,17 @@ export function pepperEntriesFromEnv(env: NodeJS.ProcessEnv = process.env): {
   aktywna: number | null;
 } {
   const sekrety: Array<[number, string]> = [];
-  for (const [nazwa, wartosc] of Object.entries(env)) {
-    const m = /^API_KEY_PEPPER_(\d+)$/.exec(nazwa);
-    if (m && wartosc) sekrety.push([Number(m[1]), wartosc]);
+  for (const [name, value] of Object.entries(env)) {
+    const m = /^API_KEY_PEPPER_(\d+)$/.exec(name);
+    if (m && value) sekrety.push([Number(m[1]), value]);
   }
   sekrety.sort((a, b) => a[0] - b[0]);
   if (sekrety.length === 0) return { sekrety, aktywna: null };
 
-  const numery = sekrety.map(([n]) => n);
-  const zEnv = Number(env.API_KEY_PEPPER_AKTYWNY);
-  const aktywna = Number.isInteger(zEnv) && numery.includes(zEnv)
+  const numbers = sekrety.map(([n]) => n);
+  const zEnv = Number(env.API_KEY_PEPPER_ACTIVE);
+  const aktywna = Number.isInteger(zEnv) && numbers.includes(zEnv)
     ? zEnv
-    : Math.max(...numery);
+    : Math.max(...numbers);
   return { sekrety, aktywna };
 }

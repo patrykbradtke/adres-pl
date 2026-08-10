@@ -3,7 +3,7 @@
 // odtwarzamy formularz: GET po __VIEWSTATE -> POST z __EVENTTARGET.
 import { writeFile, mkdir } from 'node:fs/promises';
 
-const URL_PLIKI = 'https://eteryt.stat.gov.pl/eTeryt/rejestr_teryt/udostepnianie_danych/'
+const URL_FILES = 'https://eteryt.stat.gov.pl/eTeryt/rejestr_teryt/udostepnianie_danych/'
   + 'baza_teryt/uzytkownicy_indywidualni/pobieranie/pliki_pelne.aspx';
 const OUT = process.argv[2] ?? '.';
 
@@ -16,7 +16,7 @@ const PRZYCISKI = {
   WMRODZ: 'ctl00$body$BRodzMiejPobierz',
 };
 
-function poleFormularza(html) {
+function formField(html) {
   const pola = {};
   for (const m of html.matchAll(/<input\b[^>]*>/g)) {
     const tag = m[0];
@@ -31,24 +31,24 @@ function poleFormularza(html) {
   return pola;
 }
 
-const res0 = await fetch(URL_PLIKI);
+const res0 = await fetch(URL_FILES);
 const html = await res0.text();
-const ciasteczka = (res0.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ');
-const bazowe = poleFormularza(html);
-console.log('pola formularza:', Object.keys(bazowe).join(', '));
-console.log('stan danych   :', Object.entries(bazowe).find(([k]) => /Data|Stan/i.test(k))?.[1] ?? '(brak pola daty)');
+const cookies = (res0.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ');
+const baseline = formField(html);
+console.log('pola formularza:', Object.keys(baseline).join(', '));
+console.log('stan danych   :', Object.entries(baseline).find(([k]) => /Data|Stan/i.test(k))?.[1] ?? '(brak pola daty)');
 
 await mkdir(OUT, { recursive: true });
 
-for (const [katalog, target] of Object.entries(PRZYCISKI)) {
-  const body = new URLSearchParams({ ...bazowe, __EVENTTARGET: target, __EVENTARGUMENT: '' });
+for (const [catalog, target] of Object.entries(PRZYCISKI)) {
+  const body = new URLSearchParams({ ...baseline, __EVENTTARGET: target, __EVENTARGUMENT: '' });
   const t0 = Date.now();
-  const r = await fetch(URL_PLIKI, {
+  const r = await fetch(URL_FILES, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Referer': URL_PLIKI,
-      ...(ciasteczka ? { Cookie: ciasteczka } : {}),
+      'Referer': URL_FILES,
+      ...(cookies ? { Cookie: cookies } : {}),
     },
     body,
     redirect: 'follow',
@@ -57,13 +57,13 @@ for (const [katalog, target] of Object.entries(PRZYCISKI)) {
   const ctype = r.headers.get('content-type') ?? '';
   const cdisp = r.headers.get('content-disposition') ?? '';
   const buf = Buffer.from(await r.arrayBuffer());
-  const nazwaZSerwera = cdisp.match(/filename="?([^";]+)"?/i)?.[1];
+  const serverFileName = cdisp.match(/filename="?([^";]+)"?/i)?.[1];
 
   if (/text\/html/i.test(ctype)) {
-    console.log(`${katalog.padEnd(7)} ZWROCONO HTML (${buf.length} B) - postback nie dal pliku`);
+    console.log(`${catalog.padEnd(7)} ZWROCONO HTML (${buf.length} B) - postback nie dal pliku`);
     continue;
   }
-  const plik = `${OUT}/${katalog}.zip`;
-  await writeFile(plik, buf);
-  console.log(`${katalog.padEnd(7)} OK ${(buf.length / 1024).toFixed(0)} KB | ${ctype} | serwer: ${nazwaZSerwera ?? '-'} | ${Date.now() - t0} ms`);
+  const file = `${OUT}/${catalog}.zip`;
+  await writeFile(file, buf);
+  console.log(`${catalog.padEnd(7)} OK ${(buf.length / 1024).toFixed(0)} KB | ${ctype} | serwer: ${serverFileName ?? '-'} | ${Date.now() - t0} ms`);
 }

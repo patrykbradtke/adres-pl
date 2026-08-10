@@ -24,7 +24,7 @@
  *   p99       <= 6,7 ms
  */
 import {
-  DOC, DOC_STRIDE, FLAG_MA_ULICE,
+  DOC, DOC_STRIDE, FLAG_HAS_STREETS,
   readHeader, int32View, type ArtifactHeader,
 } from '@adres-pl/index-format';
 import { normalizeText, tokenize, levenshtein } from '@adres-pl/core';
@@ -40,9 +40,9 @@ import type { Suggestion } from '@adres-pl/core';
  * Dla dopasowania prefiksowego takie slowo nie niesie informacji - nikt nie
  * szuka ulicy, wpisujac najpierw "ulica". Lista jest domknieta i celowo krotka:
  * pomijamy wyrazy, ktore bywaja czescia nazwy wlasnej (np. "Aleje" w "Aleje
- * Jerozolimskie" albo "Rynek"), bo tam obcięcie zmienialoby sens.
+ * Jerozolimskie" albo "Rynek"), bo tam obciecie zmienialoby sens.
  */
-const SLOWA_RODZAJOWE = new Set([
+const GENERIC_WORDS = new Set([
   'ulica', 'ul', 'aleja', 'al', 'plac', 'pl', 'osiedle', 'os',
   'skwer', 'rondo', 'bulwar', 'bulw', 'droga', 'szosa', 'wybrzeze',
 ]);
@@ -55,11 +55,11 @@ const SLOWA_RODZAJOWE = new Set([
  * Wersja alokujaca podciag kosztowala ok. 11% mediany czasu odpowiedzi;
  * `startsWith(q, offset)` nie alokuje nic.
  */
-function poSlowieRodzajowym(norm: string): number {
-  const spacja = norm.indexOf(' ');
-  if (spacja <= 0 || spacja + 1 >= norm.length) return 0;
-  const koniec = norm.charCodeAt(spacja - 1) === 46 /* '.' */ ? spacja - 1 : spacja;
-  return SLOWA_RODZAJOWE.has(norm.slice(0, koniec)) ? spacja + 1 : 0;
+function afterGenericWord(norm: string): number {
+  const space = norm.indexOf(' ');
+  if (space <= 0 || space + 1 >= norm.length) return 0;
+  const end = norm.charCodeAt(space - 1) === 46 /* '.' */ ? space - 1 : space;
+  return GENERIC_WORDS.has(norm.slice(0, end)) ? space + 1 : 0;
 }
 
 export interface SearchOptions {
@@ -281,12 +281,12 @@ export class SearchIndex {
     // wlasnie dlatego, ze etykieta zaczyna sie od zapytania, wiec ta sciezka
     // nie moze placic za obsluge przedrostka. Przesuniecie liczymy dopiero,
     // gdy tani test zawiedzie.
-    let odNazwy = 0;
+    let fromName = 0;
     if (norm.startsWith(q)) {
       s += 1000;
     } else {
-      odNazwy = poSlowieRodzajowym(norm);
-      if (odNazwy > 0 && norm.startsWith(q, odNazwy)) s += 1000;
+      fromName = afterGenericWord(norm);
+      if (fromName > 0 && norm.startsWith(q, fromName)) s += 1000;
       else if (norm.includes(q)) s += 500;
     }
 
@@ -320,14 +320,14 @@ export class SearchIndex {
     // remisie, a nie przykrywac dopasowania nazwy. Roznica miedzy Warszawa
     // (126 566 adresow) a wsia na kilkaset wychodzi na ok. 60 punktow, przy
     // premii za trafienie prefiksowe rownej 1000.
-    const punktow = this.field(docId, DOC.PUNKTOW);
-    s += Math.log10(punktow + 1) * 30;
-    s += Math.log10(this.field(docId, DOC.PUNKTOW_MIEJSCOWOSCI) + 1) * 25;
+    const points = this.field(docId, DOC.POINTS);
+    s += Math.log10(points + 1) * 30;
+    s += Math.log10(this.field(docId, DOC.LOCALITY_POINTS) + 1) * 25;
 
     // Kara za dlugosc liczona bez slowa rodzajowego - inaczej etykieta
     // "ulica Pulawska, Warszawa" placi za szesc znakow, ktorych uzytkownik
     // nie wpisal i ktore nie odrozniaja jej od niczego.
-    s -= Math.min(norm.length - odNazwy, 60) * 1.5;
+    s -= Math.min(norm.length - fromName, 60) * 1.5;
 
     return s;
   }
@@ -341,7 +341,7 @@ export class SearchIndex {
 
     // etykieta ulicy ma format "<cecha> <nazwa>, <miejscowosc>"
     let street: string | undefined;
-    let cecha: string | undefined;
+    let streetType: string | undefined;
     let locality = label;
     if (type === 'street') {
       const comma = label.lastIndexOf(', ');
@@ -349,7 +349,7 @@ export class SearchIndex {
       locality = comma >= 0 ? label.slice(comma + 2) : '';
       const sp = streetPart.indexOf(' ');
       if (sp > 0 && streetPart.slice(0, sp).endsWith('.')) {
-        cecha = streetPart.slice(0, sp);
+        streetType = streetPart.slice(0, sp);
         street = streetPart.slice(sp + 1);
       } else {
         street = streetPart;
@@ -367,12 +367,12 @@ export class SearchIndex {
       ulicId: ulicId >= 0 ? ulicId : undefined,
       locality,
       street,
-      cecha,
+      streetType,
       gmina: this.dictAt(this.field(docId, DOC.GMINA_IDX)),
       powiat: this.dictAt(this.field(docId, DOC.POWIAT_IDX)),
-      wojewodztwo: this.dictAt(this.field(docId, DOC.WOJ_IDX)),
-      maUlice: (this.field(docId, DOC.FLAGS) & FLAG_MA_ULICE) !== 0,
-      liczbaPunktow: this.field(docId, DOC.PUNKTOW),
+      voivodeship: this.dictAt(this.field(docId, DOC.VOIVODESHIP_IDX)),
+      hasStreets: (this.field(docId, DOC.FLAGS) & FLAG_HAS_STREETS) !== 0,
+      addressPointCount: this.field(docId, DOC.POINTS),
       ...(lat !== 0 || lon !== 0 ? { lat: lat / 1e6, lon: lon / 1e6 } : {}),
     } as Suggestion;
   }

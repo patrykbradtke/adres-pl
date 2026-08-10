@@ -7,7 +7,7 @@
  * Nazwy kolumn zmieniaja sie miedzy gminami i miedzy wydaniami.
  *
  * Zamiast pisac parser per zrodlo, mamy jeden czytnik sterowany PROFILEM:
- * profil to mapa pola docelowego na liste kandydujacych nazw kolumn.
+ * profile to mapa pola docelowego na liste kandydujacych nazw kolumn.
  * Jesli zadna nie pasuje, tryb rozpoznawania pokazuje, co faktycznie jest
  * w pliku - tak samo jak przy GML.
  */
@@ -40,13 +40,13 @@ export interface TabularRow {
 }
 
 export interface TabularStats {
-  wierszy: number;
+  rows: number;
   /** Kolumny obecne w pliku. */
-  kolumny: string[];
+  columns: string[];
   /** Pola profilu, dla ktorych NIE znaleziono kolumny. */
   brakujace: AddressField[];
-  /** Kolumny pliku, ktorych profil nie wykorzystuje. */
-  nieuzyte: string[];
+  /** Kolumny pliku, ktorych profile nie wykorzystuje. */
+  unused: string[];
   separator: string;
 }
 
@@ -78,7 +78,7 @@ export async function readTabular(
   let sep = profile.separator ?? ';';
   let index = 0;
   const stats: TabularStats = {
-    wierszy: 0, kolumny: [], brakujace: [], nieuzyte: [], separator: sep,
+    rows: 0, columns: [], brakujace: [], unused: [], separator: sep,
   };
   /** pole docelowe -> indeks kolumny */
   let mapping = new Map<AddressField, number>();
@@ -90,7 +90,7 @@ export async function readTabular(
       sep = profile.separator ?? detectSeparator(line);
       stats.separator = sep;
       header = parseCsvLine(line, sep);
-      stats.kolumny = header.map((h) => h.replace(/^﻿/, '').trim());
+      stats.columns = header.map((h) => h.replace(/^﻿/, '').trim());
 
       const byNorm = new Map<string, number>();
       header.forEach((h, i) => byNorm.set(normHeader(h), i));
@@ -105,7 +105,7 @@ export async function readTabular(
         if (found >= 0) { mapping.set(field, found); uzyte.add(found); }
         else stats.brakujace.push(field);
       }
-      stats.nieuzyte = stats.kolumny.filter((_, i) => !uzyte.has(i));
+      stats.unused = stats.columns.filter((_, i) => !uzyte.has(i));
       continue;
     }
 
@@ -128,8 +128,8 @@ export async function readTabular(
     };
 
     await onRow(row, index++);
-    stats.wierszy++;
-    if (opts.limit && stats.wierszy >= opts.limit) break;
+    stats.rows++;
+    if (opts.limit && stats.rows >= opts.limit) break;
   }
 
   rl.close();
@@ -138,16 +138,16 @@ export async function readTabular(
 
 /**
  * Tryb rozpoznawania dla zrodel tabelarycznych.
- * Zwraca naglowek i probki wartosci, zeby dalo sie dopisac profil.
+ * Zwraca naglowek i probki wartosci, zeby dalo sie dopisac profile.
  */
 export async function discoverTabular(
   input: Readable,
   sampleRows = 5,
-): Promise<{ separator: string; kolumny: Array<{ nazwa: string; probki: string[] }> }> {
+): Promise<{ separator: string; columns: Array<{ name: string; samples: string[] }> }> {
   const rl = createInterface({ input, crlfDelay: Infinity });
   let header: string[] | null = null;
   let sep = ';';
-  const probki: string[][] = [];
+  const samples: string[][] = [];
 
   for await (const line of rl) {
     if (line.trim().length === 0) continue;
@@ -156,16 +156,16 @@ export async function discoverTabular(
       header = parseCsvLine(line, sep).map((h) => h.replace(/^﻿/, '').trim());
       continue;
     }
-    probki.push(parseCsvLine(line, sep));
-    if (probki.length >= sampleRows) break;
+    samples.push(parseCsvLine(line, sep));
+    if (samples.length >= sampleRows) break;
   }
   rl.close();
 
   return {
     separator: sep,
-    kolumny: (header ?? []).map((nazwa, i) => ({
-      nazwa,
-      probki: probki.map((p) => p[i] ?? '').filter((v) => v !== '').slice(0, 3),
+    columns: (header ?? []).map((name, i) => ({
+      name,
+      samples: samples.map((p) => p[i] ?? '').filter((v) => v !== '').slice(0, 3),
     })),
   };
 }
@@ -184,16 +184,16 @@ export function formatTabularDiscovery(
       for (const c of cands) byNorm.set(normHeader(c), f);
     }
   }
-  for (const k of d.kolumny) {
-    const mapped = byNorm.get(normHeader(k.nazwa));
+  for (const k of d.columns) {
+    const mapped = byNorm.get(normHeader(k.name));
     const tag = mapped ? `-> ${mapped}` : profile ? '   (nieuzywana)' : '';
-    out.push(`  ${k.nazwa.padEnd(28)} ${tag.padEnd(24)} ${k.probki.join(' | ')}`);
+    out.push(`  ${k.name.padEnd(28)} ${tag.padEnd(24)} ${k.samples.join(' | ')}`);
   }
   if (profile) {
-    const znalezione = new Set(
-      d.kolumny.map((k) => byNorm.get(normHeader(k.nazwa))).filter(Boolean) as AddressField[],
+    const found = new Set(
+      d.columns.map((k) => byNorm.get(normHeader(k.name))).filter(Boolean) as AddressField[],
     );
-    const brak = (Object.keys(profile.columns) as AddressField[]).filter((f) => !znalezione.has(f));
+    const brak = (Object.keys(profile.columns) as AddressField[]).filter((f) => !found.has(f));
     if (brak.length) {
       out.push('');
       out.push('POLA PROFILU BEZ ODPOWIEDNIKA W PLIKU:');

@@ -9,7 +9,7 @@
  * modyfikujemy artefaktu w miejscu - nowa wersja to nowy plik.
  */
 import {
-  DOC, DOC_STRIDE, FLAG_MA_ULICE,
+  DOC, DOC_STRIDE, FLAG_HAS_STREETS,
   StringDict, packStrings, serializeArtifact, bufferFromInt32,
   type SectionName,
 } from '@adres-pl/index-format';
@@ -21,13 +21,13 @@ export interface IndexDoc {
   label: string;
   simc: string;
   ulicId?: number;
-  liczbaPunktow: number;
+  addressPointCount: number;
   /** Punkty CALEJ miejscowosci. Dla miejscowosci rowne liczbaPunktow. */
-  liczbaPunktowMiejscowosci?: number;
+  localityPointCount?: number;
   gmina?: string;
   powiat?: string;
-  wojewodztwo?: string;
-  maUlice?: boolean;
+  voivodeship?: string;
+  hasStreets?: boolean;
   lat?: number;
   lon?: number;
   /**
@@ -99,15 +99,15 @@ export function buildIndex(docs: Iterable<IndexDoc>, dataVersion: string): Build
     docFields[base + DOC.TYPE] = d.type === 'locality' ? 0 : 1;
     docFields[base + DOC.SIMC] = Number(d.simc) || 0;
     docFields[base + DOC.ULIC_ID] = d.ulicId ?? -1;
-    docFields[base + DOC.PUNKTOW] = Math.min(d.liczbaPunktow | 0, 2_000_000_000);
+    docFields[base + DOC.POINTS] = Math.min(d.addressPointCount | 0, 2_000_000_000);
     docFields[base + DOC.GMINA_IDX] = dict.intern(d.gmina);
     docFields[base + DOC.POWIAT_IDX] = dict.intern(d.powiat);
-    docFields[base + DOC.WOJ_IDX] = dict.intern(d.wojewodztwo);
-    docFields[base + DOC.FLAGS] = d.maUlice ? FLAG_MA_ULICE : 0;
+    docFields[base + DOC.VOIVODESHIP_IDX] = dict.intern(d.voivodeship);
+    docFields[base + DOC.FLAGS] = d.hasStreets ? FLAG_HAS_STREETS : 0;
     docFields[base + DOC.LAT_E6] = d.lat ? Math.round(d.lat * 1e6) : 0;
     docFields[base + DOC.LON_E6] = d.lon ? Math.round(d.lon * 1e6) : 0;
-    docFields[base + DOC.PUNKTOW_MIEJSCOWOSCI] =
-      Math.min((d.liczbaPunktowMiejscowosci ?? d.liczbaPunktow) | 0, 2_000_000_000);
+    docFields[base + DOC.LOCALITY_POINTS] =
+      Math.min((d.localityPointCount ?? d.addressPointCount) | 0, 2_000_000_000);
 
     const seen = new Set<string>();
     for (const k of rotationalKeys(d.label)) {
@@ -189,60 +189,60 @@ export function buildIndex(docs: Iterable<IndexDoc>, dataVersion: string): Build
 export const SQL_INDEX_DOCS = `
   SELECT
     'locality'         AS type,
-    m.nazwa            AS label,
+    m.name            AS label,
     m.simc,
     NULL::bigint       AS ulic_id,
-    m.liczba_punktow,
-    m.liczba_punktow   AS liczba_punktow_miejscowosci,
-    g.nazwa            AS gmina,
-    pw.nazwa           AS powiat,
-    w.nazwa            AS wojewodztwo,
-    m.ma_ulice,
+    m.point_count,
+    m.point_count   AS locality_point_count,
+    g.name            AS gmina,
+    pw.name           AS powiat,
+    w.name            AS voivodeship,
+    m.has_streets,
     ST_Y(m.centroid::geometry) AS lat,
     ST_X(m.centroid::geometry) AS lon,
     NULL::text[]       AS aliases
-  FROM adres.miejscowosc m
-  JOIN adres.teryt_jednostka g   ON g.terc = m.terc_gminy
-  LEFT JOIN adres.teryt_jednostka pw ON pw.terc = g.parent_terc
-  LEFT JOIN adres.teryt_jednostka w  ON w.terc = pw.parent_terc
-  WHERE m.wycofany_od IS NULL
-    -- Pomijamy miejscowosci, w ktorych zadna sciezka nie prowadzi do adresu:
-    -- zero punktow adresowych I zero ulic. Jest ich 49 079, czyli 48% slownika.
+  FROM address.locality m
+  JOIN address.teryt_unit g   ON g.terc = m.gmina_terc
+  LEFT JOIN address.teryt_unit pw ON pw.terc = g.parent_terc
+  LEFT JOIN address.teryt_unit w  ON w.terc = pw.parent_terc
+  WHERE m.withdrawn_at IS NULL
+    -- Pomijamy localities, w ktorych zadna sciezka nie prowadzi do adresu:
+    -- zero points adresowych I zero ulic. Jest ich 49 079, czyli 48% slownika.
     --
     -- To nie sa bledy w danych - to glownie jednostki typu "czesc" i "czesc
     -- miasta", ktore w TERYT z definicji nie sa adresowalne, bo adresy naleza
-    -- do miejscowosci nadrzednej. W polu adresowym sa jednak slepym zaulkiem:
+    -- do localities nadrzednej. W polu adresowym sa jednak slepym zaulkiem:
     -- uzytkownik wybiera "Gdansk" w gminie Lidzbark i nie ma czego wybrac dalej.
     --
     -- Filtr jest FUNKCJONALNY, nie slownikowy, i to celowo: 921 wpisow typu
     -- "czesc" ma wlasne adresy (do 688), wiec wykluczanie po rodzaju bylo by
-    -- bledem. Zostaja tez 246 miejscowosci bez punktow, ale z ulicami -
+    -- bledem. Zostaja tez 246 localities bez points, ale z ulicami -
     -- np. dzielnica Targowek z 409 ulicami, gdzie punkty wisza przy Warszawie.
     --
     -- Same rekordy zostaja w bazie i sa dostepne przez /v1/locality/{simc}.
-    AND (m.liczba_punktow > 0
-         OR EXISTS (SELECT 1 FROM adres.ulica u
-                     WHERE u.simc = m.simc AND u.wycofany_od IS NULL))
+    AND (m.point_count > 0
+         OR EXISTS (SELECT 1 FROM address.street u
+                     WHERE u.simc = m.simc AND u.withdrawn_at IS NULL))
 
   UNION ALL
 
   SELECT
     'street',
-    concat_ws(' ', u.cecha, u.nazwa) || ', ' || m.nazwa,
+    concat_ws(' ', u.street_type, u.name) || ', ' || m.name,
     m.simc,
     u.ulic_id,
-    u.liczba_punktow,
-    m.liczba_punktow,
-    g.nazwa, pw.nazwa, w.nazwa,
-    m.ma_ulice,
+    u.point_count,
+    m.point_count,
+    g.name, pw.name, w.name,
+    m.has_streets,
     NULL, NULL,
-    CASE WHEN u.nazwa_skroc IS NOT NULL
-         THEN ARRAY[u.nazwa_skroc || ', ' || m.nazwa]
+    CASE WHEN u.short_name IS NOT NULL
+         THEN ARRAY[u.short_name || ', ' || m.name]
          ELSE NULL END
-  FROM adres.ulica u
-  JOIN adres.miejscowosc m ON m.simc = u.simc
-  JOIN adres.teryt_jednostka g   ON g.terc = m.terc_gminy
-  LEFT JOIN adres.teryt_jednostka pw ON pw.terc = g.parent_terc
-  LEFT JOIN adres.teryt_jednostka w  ON w.terc = pw.parent_terc
-  WHERE u.wycofany_od IS NULL
+  FROM address.street u
+  JOIN address.locality m ON m.simc = u.simc
+  JOIN address.teryt_unit g   ON g.terc = m.gmina_terc
+  LEFT JOIN address.teryt_unit pw ON pw.terc = g.parent_terc
+  LEFT JOIN address.teryt_unit w  ON w.terc = pw.parent_terc
+  WHERE u.withdrawn_at IS NULL
 `;

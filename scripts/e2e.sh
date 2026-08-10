@@ -30,12 +30,13 @@ krok "0. Migracje i czyszczenie"
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/001_init.sql
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/002_staging.sql
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/004_licencje.sql
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/005_english_naming.sql
 # TRUNCATE, nie DELETE - przy wiekszej bazie DELETE 8,5 mln wierszy
 # potrafi trwac minuty i generuje ogromna ilosc martwych krotek.
 psql "$DATABASE_URL" -q -c "
-  TRUNCATE staging.punkt_adresowy, staging.miejscowosc, staging.ulica;
-  TRUNCATE adres.punkt_adresowy, adres.ulica, adres.miejscowosc,
-           adres.teryt_jednostka, adres.wmrodz, adres.zrzut CASCADE;"
+  TRUNCATE staging.address_point, staging.locality, staging.street;
+  TRUNCATE address.address_point, address.street, address.locality,
+           address.teryt_unit, address.wmrodz, address.snapshot CASCADE;"
 
 krok "1. TERYT - slowniki. BEZ TEGO KROKU BAZA NIE PRZYJMIE PUNKTOW"
 $ETL teryt "$FIX/teryt"
@@ -44,18 +45,18 @@ krok "2. Rozpoznanie struktury GML (nowa, obowiazujaca od 1.09.2026)"
 $ETL discover "$FIX/emuia-2021-sample.gml" | head -12
 
 krok "3. Zaladowanie do obszaru przejsciowego"
-$ETL load "$FIX/emuia-2021-sample.gml" --woj 14 --wersja "$WERSJA"
+$ETL load "$FIX/emuia-2021-sample.gml" --voivodeship 14 --version "$WERSJA"
 
 krok "4. Kontrole jakosci + publikacja transakcyjna"
-$ETL publish --woj 14 --wersja "$WERSJA"
+$ETL publish --voivodeship 14 --version "$WERSJA"
 
 krok "5. Ta sama sciezka dla struktury DOTYCHCZASOWEJ (do 1.09.2026)"
-$ETL load "$FIX/prg-2012-sample.gml" --woj 14 --wersja "$WERSJA-stara" >/dev/null
-$ETL publish --woj 14 --wersja "$WERSJA-stara" | tail -7
+$ETL load "$FIX/prg-2012-sample.gml" --voivodeship 14 --version "$WERSJA-stara" >/dev/null
+$ETL publish --voivodeship 14 --version "$WERSJA-stara" | tail -7
 
 krok "6. Zrodlo zapasowe - raport rozbieznosci (NIE zmienia danych produktowych)"
-$ETL impa "$FIX/impa-adruni-sample.csv" --wersja "$WERSJA" >/dev/null
-$ETL impa diff --wersja "$WERSJA"
+$ETL impa "$FIX/impa-adruni-sample.csv" --version "$WERSJA" >/dev/null
+$ETL impa diff --version "$WERSJA"
 
 krok "7. Artefakt indeksu wyszukiwania"
 $ETL build-index
@@ -63,7 +64,7 @@ $ETL build-index
 krok "8. Stan bazy"
 psql "$DATABASE_URL" -c "
   SELECT miejscowosc, cecha, ulica, nr_budynku, kod_pocztowy, gmina, wojewodztwo
-    FROM adres.adres_pelny ORDER BY 1,3,4;"
+    FROM address.full_address ORDER BY 1,3,4;"
 
 printf '\n\033[1;32m### OK - pipeline przeszedl dla obu struktur GML\033[0m\n'
 printf '\nUruchom serwis:\n'

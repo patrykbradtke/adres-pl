@@ -16,7 +16,7 @@ openapi: 3.1.0
 
 info:
   title: adres-pl — mikroserwis adresowy
-  version: '1.0'
+  version: '2.0'
   description: |
     Podpowiedzi adresowe, walidacja i geokodowanie odwrotne na danych
     Państwowego Rejestru Granic (PRG) i TERYT.
@@ -49,7 +49,7 @@ servers:
 # sprawia, ze nowy endpoint jest chroniony DOMYSLNIE - trzeba swiadomie
 # napisac `security: []`, zeby go otworzyc.
 security:
-  - KluczApi: []
+  - ApiKey: []
 
 tags:
   - name: podpowiedzi
@@ -69,7 +69,7 @@ tags:
 paths:
   /v1/suggest:
     get:
-      tags: [podpowiedzi]
+      tags: [suggestions]
       summary: Podpowiedzi uniwersalne — miejscowości i ulice łącznie
       description: Zasila pojedyncze pole „zacznij pisać adres”.
       parameters:
@@ -87,20 +87,20 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [query, results, czasMs, wersjaDanych]
+                required: [query, results, czasMs, dataVersion]
                 properties:
                   query: { type: string }
                   results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
                   czasMs: { type: number, description: Czas samego wyszukiwania, bez obsługi żądania. }
-                  wersjaDanych: { type: string, example: '2026-08-06' }
-        '400': { $ref: '#/components/responses/BladWalidacji' }
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+                  dataVersion: { type: string, example: '2026-08-06' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   /v1/localities:
     get:
-      tags: [podpowiedzi]
+      tags: [suggestions]
       summary: Podpowiedzi miejscowości
       parameters:
         - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 120 } }
@@ -115,14 +115,14 @@ paths:
                 required: [results]
                 properties:
                   results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
-        '400': { $ref: '#/components/responses/BladWalidacji' }
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   /v1/streets:
     get:
-      tags: [podpowiedzi]
+      tags: [suggestions]
       summary: Podpowiedzi ulic w wybranej miejscowości
       description: |
         `simc` jest **wymagany**. Bez zawężenia lista ulic w Polsce jest
@@ -145,14 +145,14 @@ paths:
                 properties:
                   simc: { type: string }
                   results: { type: array, items: { $ref: '#/components/schemas/Podpowiedz' } }
-        '400': { $ref: '#/components/responses/BladWalidacji' }
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   /v1/numbers:
     get:
-      tags: [wyszukiwanie]
+      tags: [search]
       summary: Numery budynków na ulicy albo w miejscowości bez ulic
       description: |
         Wymagany dokładnie jeden z `ulicId` lub `simc`; brak obu daje 400.
@@ -177,14 +177,14 @@ paths:
                 properties:
                   count: { type: integer }
                   results: { type: array, items: { $ref: '#/components/schemas/NumerBudynku' } }
-        '400': { $ref: '#/components/responses/BladZadania' }
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   /v1/postal-code:
     get:
-      tags: [wyszukiwanie]
+      tags: [search]
       summary: Kod pocztowy dla adresu
       description: |
         Kod pochodzi z PRG, czyli z ewidencji gminnych — **nie od Poczty
@@ -205,23 +205,23 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [kodPocztowy, zrodlo]
+                required: [postalCode, source]
                 properties:
-                  kodPocztowy: { type: [string, 'null'], example: '00-624' }
-                  zrodlo:
+                  postalCode: { type: [string, 'null'], example: '00-624' }
+                  source:
                     type: string
                     enum: [rejestr_prg, dominujacy_na_ulicy, brak]
                   uwaga:
                     type: string
                     description: Obecne wyłącznie gdy `zrodlo` nie jest `rejestr_prg`.
-        '400': { $ref: '#/components/responses/BladZadania' }
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   /v1/reverse:
     get:
-      tags: [wyszukiwanie]
+      tags: [search]
       summary: Geokodowanie odwrotne — najbliższe adresy
       description: Współrzędne poza prostokątem obejmującym Polskę dają 400.
       parameters:
@@ -246,14 +246,14 @@ paths:
                         - type: object
                           properties:
                             odleglosc_m: { type: number }
-        '400': { $ref: '#/components/responses/BladWalidacji' }
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   /v1/locality/{simc}:
     get:
-      tags: [wyszukiwanie]
+      tags: [search]
       summary: Szczegóły miejscowości
       description: |
         Pole `ma_ulice` steruje formularzem: gdy `false`, pole ulicy należy
@@ -267,14 +267,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Miejscowosc' }
-        '404': { $ref: '#/components/responses/BladZadania' }
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+        '404': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   /v1/parse:
     post:
-      tags: [walidacja]
+      tags: [validation]
       summary: Rozbiór adresu na pola
       description: Reguły lokalne, bez odpytywania rejestru. Tanie, do podglądu.
       requestBody:
@@ -293,14 +293,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdresRozebrany' }
-        '400': { $ref: '#/components/responses/BladWalidacji' }
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   /v1/validate:
     post:
-      tags: [walidacja]
+      tags: [validation]
       summary: Walidacja adresu wobec rejestru
       description: |
         Podaj `raw` **albo** `address`. Walidacja **nie blokuje** zapisu —
@@ -320,14 +320,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WynikWalidacji' }
-        '400': { $ref: '#/components/responses/BladWalidacji' }
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   /v1/batch:
     post:
-      tags: [walidacja]
+      tags: [validation]
       summary: Walidacja wsadowa — synchroniczna
       description: |
         **Bez wysyłki pliku i bez kolejki.** Do 1000 adresów przekazanych
@@ -364,14 +364,14 @@ paths:
                     additionalProperties: { type: integer }
                     description: Liczność każdego poziomu pewności.
                   results: { type: array, items: { $ref: '#/components/schemas/WynikWalidacji' } }
-        '400': { $ref: '#/components/responses/BladWalidacji' }
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   /v1/meta:
     get:
-      tags: [walidacja]
+      tags: [validation]
       summary: Metadane zbioru
       description: |
         Pozwala wykryć, że dane przestały być aktualizowane.
@@ -380,7 +380,7 @@ paths:
         **pobranego** pliku dowolnego źródła, więc pobranie słowników TERYT
         albo paczki odrzuconej przez kontrole jakości wygasza ostrzeżenie,
         mimo że dane produkcyjne stoją. Do **monitorowania** służy metryka
-        `adres_dane_wiek_dni` z `/metrics`, która liczy wiek ostatniego
+        `adres_data_age_days` z `/metrics`, która liczy wiek ostatniego
         **opublikowanego** zrzutu PRG.
       responses:
         '200':
@@ -389,14 +389,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [indeks, zrzuty, wiekNajnowszegoZrzutuDni]
+                required: [index, snapshots, newestSnapshotAgeDays]
                 properties:
-                  indeks:
+                  index:
                     type: object
                     properties:
-                      wersjaDanych: { type: string }
-                      zbudowano: { type: string, format: date-time }
-                      liczby:
+                      dataVersion: { type: string }
+                      builtAt: { type: string, format: date-time }
+                      counts:
                         type: object
                         properties:
                           docs: { type: integer }
@@ -406,22 +406,22 @@ paths:
                           addressPoints:
                             type: integer
                             description: Zawsze 0 — punkty adresowe nie trafiają do indeksu, są pobierane z bazy po wyborze ulicy.
-                  zrzuty:
+                  snapshots:
                     type: array
                     maxItems: 10
                     items:
                       type: object
                       properties:
-                        zrodlo: { type: string, enum: [prg, teryt, impa, krakow] }
-                        wersja: { type: string }
-                        pobrano: { type: string, format: date-time }
-                  wiekNajnowszegoZrzutuDni: { type: number }
-                  ostrzezenie:
+                        source: { type: string, enum: [prg, teryt, impa, krakow] }
+                        version: { type: string }
+                        fetchedAt: { type: string, format: date-time }
+                  newestSnapshotAgeDays: { type: number }
+                  warning:
                     type: string
                     description: Obecne wyłącznie gdy wiek przekracza 30 dni.
-        '401': { $ref: '#/components/responses/BrakUwierzytelnienia' }
-        '403': { $ref: '#/components/responses/BrakUprawnien' }
-        '429': { $ref: '#/components/responses/PrzekroczonyLimit' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimitExceeded' }
 
   # --- administracyjne ---------------------------------------------------
   #
@@ -430,7 +430,7 @@ paths:
 
   /admin/clients:
     post:
-      tags: [administracyjne]
+      tags: [administrative]
       summary: Zakłada klienta
       security: [{ TokenOperatora: [] }]
       requestBody:
@@ -439,29 +439,29 @@ paths:
           application/json:
             schema:
               type: object
-              required: [nazwa]
+              required: [name]
               properties:
-                nazwa: { type: string }
+                name: { type: string }
                 nip: { type: string, pattern: '^[0-9]{10}$' }
                 email: { type: string }
-                pakiet: { type: string, default: test }
-                limitNaMinute: { type: integer, default: 600 }
-                kwotaMiesieczna: { type: integer, description: W jednostkach rozliczeniowych. }
+                plan: { type: string, default: test }
+                rateLimitPerMin: { type: integer, default: 600 }
+                monthlyQuota: { type: integer, description: W jednostkach rozliczeniowych. }
       responses:
         '200': { description: Klient założony. }
         '201': { description: Klient założony. }
-        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
+        '401': { $ref: '#/components/responses/MissingOperatorToken' }
     get:
-      tags: [administracyjne]
+      tags: [administrative]
       summary: Lista klientów
       security: [{ TokenOperatora: [] }]
       responses:
         '200': { description: Klienci wraz z limitami i kwotami. }
-        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
+        '401': { $ref: '#/components/responses/MissingOperatorToken' }
 
   /admin/keys:
     post:
-      tags: [administracyjne]
+      tags: [administrative]
       summary: Wystawia klucz — jedyne miejsce zwracające klucz jawny
       description: |
         Klucz jawny jest zwracany **raz** i nie da się go odtworzyć — w bazie
@@ -474,27 +474,27 @@ paths:
           application/json:
             schema:
               type: object
-              required: [klientId]
+              required: [clientId]
               properties:
-                klientId: { type: integer }
-                srodowisko: { type: string, enum: [live, test], default: live }
-                nazwa: { type: string }
-                zastepujeId: { type: integer }
+                clientId: { type: integer }
+                environment: { type: string, enum: [live, test], default: live }
+                name: { type: string }
+                replacesId: { type: integer }
       responses:
         '200': { description: Klucz wystawiony. }
         '201': { description: Klucz wystawiony. Pole `klucz` widoczne jedyny raz. }
-        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
+        '401': { $ref: '#/components/responses/MissingOperatorToken' }
     get:
-      tags: [administracyjne]
+      tags: [administrative]
       summary: Lista kluczy — nigdy nie zwraca klucza ani skrótu
       security: [{ TokenOperatora: [] }]
       responses:
         '200': { description: Klucze wraz ze stanem i zużyciem w bieżącym okresie. }
-        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
+        '401': { $ref: '#/components/responses/MissingOperatorToken' }
 
   /admin/keys/rotate:
     post:
-      tags: [administracyjne]
+      tags: [administrative]
       summary: Rotacja bezprzerwowa — następca obok, poprzednik z terminem
       description: |
         Poprzednik dostaje **termin**, nie natychmiastowe unieważnienie: przez
@@ -507,19 +507,19 @@ paths:
           application/json:
             schema:
               type: object
-              required: [kluczId]
+              required: [apiKeyId]
               properties:
-                kluczId: { type: integer }
-                okresDni: { type: integer, default: 7 }
+                apiKeyId: { type: integer }
+                graceDays: { type: integer, default: 7 }
       responses:
         '200': { description: Następca wystawiony. }
         '201': { description: Następca wystawiony. Pole `klucz` widoczne jedyny raz. }
-        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
-        '404': { $ref: '#/components/responses/BladZadania' }
+        '401': { $ref: '#/components/responses/MissingOperatorToken' }
+        '404': { $ref: '#/components/responses/BadRequest' }
 
   /admin/keys/revoke:
     post:
-      tags: [administracyjne]
+      tags: [administrative]
       summary: Unieważnia klucz natychmiast
       description: Zbieżność we wszystkich instancjach typowo poniżej 100 ms.
       security: [{ TokenOperatora: [] }]
@@ -529,19 +529,19 @@ paths:
           application/json:
             schema:
               type: object
-              required: [kluczId]
+              required: [apiKeyId]
               properties:
-                kluczId: { type: integer }
-                powod: { type: string }
+                apiKeyId: { type: integer }
+                reason: { type: string }
       responses:
         '200': { description: Klucz unieważniony. }
-        '401': { $ref: '#/components/responses/BrakTokenuOperatora' }
-        '404': { $ref: '#/components/responses/BladZadania' }
+        '401': { $ref: '#/components/responses/MissingOperatorToken' }
+        '404': { $ref: '#/components/responses/BadRequest' }
 
   /health:
     get:
       security: []
-      tags: [operacyjne]
+      tags: [operational]
       summary: Sonda żywotności
       description: Sprawdza wyłącznie, czy indeks jest w pamięci. **Nie zależy od bazy.**
       responses:
@@ -551,7 +551,7 @@ paths:
   /ready:
     get:
       security: []
-      tags: [operacyjne]
+      tags: [operational]
       summary: Sonda gotowości
       description: |
         Sprawdza indeks **oraz bazę**. Konsekwencja: awaria bazy wyłącza
@@ -564,7 +564,7 @@ paths:
   /metrics:
     get:
       security: []
-      tags: [operacyjne]
+      tags: [operational]
       summary: Metryki w formacie Prometheusa
       description: 17 rodzin metryk. Liczebności są cache'owane; dostępność bazy nie.
       responses:
@@ -576,7 +576,7 @@ paths:
   /status:
     get:
       security: []
-      tags: [operacyjne]
+      tags: [operational]
       summary: Stan usługi w postaci czytelnej dla człowieka
       responses:
         '200':
@@ -586,14 +586,14 @@ paths:
 
 components:
   securitySchemes:
-    TokenOperatora:
+    OperatorToken:
       type: http
       scheme: bearer
       description: |
         Token operatora do zarządzania klientami i kluczami. **Odrębny od kluczy
         klienckich**: klucz `adr_live_*` nie otwiera żadnej trasy `/admin` —
         inaczej dowolny klient wystawiłby sobie klucz bez limitów.
-    KluczApi:
+    ApiKey:
       type: apiKey
       in: header
       name: X-API-Key
@@ -603,7 +603,7 @@ components:
         do nagłówka `Referer` i do historii przeglądarki.
 
   responses:
-    BrakTokenuOperatora:
+    MissingOperatorToken:
       description: 'Brak nagłówka `Authorization: Bearer` albo token niezgodny.'
       content:
         application/json:
@@ -613,7 +613,7 @@ components:
             properties:
               error: { type: string, example: 'Wymagany token operatora.' }
               code: { type: string, enum: [BRAK_TOKENU] }
-    BrakUwierzytelnienia:
+    Unauthenticated:
       description: |
         Brak klucza albo klucz nieprawidłowy.
 
@@ -627,7 +627,7 @@ components:
             properties:
               error: { type: string, example: 'Klucz API nieprawidlowy.' }
               code: { type: string, enum: [BRAK_KLUCZA, NIEPRAWIDLOWY] }
-    BrakUprawnien:
+    Forbidden:
       description: |
         Klucz rozpoznany, ale nieczynny. Kod mówi wprost, co się stało —
         na tym etapie klient udowodnił już posiadanie całego sekretu, więc
@@ -640,7 +640,7 @@ components:
             properties:
               error: { type: string, example: 'Klucz API wygasl.' }
               code: { type: string, enum: [NIEWAZNY_JESZCZE, WYGASLY, UNIEWAZNIONY, ZAWIESZONY] }
-    BladWalidacji:
+    ValidationError:
       description: Parametry nie przeszły walidacji schematu.
       content:
         application/json:
@@ -651,7 +651,7 @@ components:
               code: { type: string, example: FST_ERR_VALIDATION }
               error: { type: string, example: Bad Request }
               message: { type: string, example: 'querystring/simc must match pattern "^[0-9]{7}$"' }
-    BladZadania:
+    BadRequest:
       description: Żądanie poprawne składniowo, ale niewykonalne.
       content:
         application/json:
@@ -660,7 +660,7 @@ components:
             required: [error]
             properties:
               error: { type: string, example: 'Podaj ulicId albo simc.' }
-    PrzekroczonyLimit:
+    RateLimitExceeded:
       description: |
         Przekroczony limit zapytań. Limit liczony jest po adresie sieciowym
         klienta, domyślnie 600 żądań na minutę.
@@ -668,7 +668,7 @@ components:
   schemas:
     Podpowiedz:
       type: object
-      required: [type, label, score, simc, locality, maUlice, liczbaPunktow]
+      required: [type, label, score, simc, locality, hasStreets, addressPointCount]
       properties:
         type: { type: string, enum: [locality, street] }
         label: { type: string, description: 'Gotowa do wyświetlenia etykieta, np. „Marszałkowska, Cmolas”.' }
@@ -679,9 +679,9 @@ components:
         street: { type: string }
         gmina: { type: string }
         powiat: { type: string }
-        wojewodztwo: { type: string }
-        maUlice: { type: boolean }
-        liczbaPunktow: { type: integer, description: Liczba punktów adresowych. Steruje kolejnością — większe miejscowości wyżej. }
+        voivodeship: { type: string }
+        hasStreets: { type: boolean }
+        addressPointCount: { type: integer, description: Liczba punktów adresowych. Steruje kolejnością — większe miejscowości wyżej. }
 
     NumerBudynku:
       type: object
@@ -698,15 +698,15 @@ components:
       type: object
       properties:
         simc: { type: string }
-        nazwa: { type: string }
-        rodzaj: { type: integer }
+        name: { type: string }
+        kind: { type: integer }
         rodzaj_nazwa: { type: [string, 'null'], example: miasto }
         ma_ulice: { type: boolean }
         liczba_punktow: { type: integer }
         terc_gminy: { type: string }
         gmina: { type: string }
         powiat: { type: [string, 'null'] }
-        wojewodztwo: { type: [string, 'null'] }
+        voivodeship: { type: [string, 'null'] }
         lat: { type: [number, 'null'] }
         lon: { type: [number, 'null'] }
 
@@ -714,36 +714,36 @@ components:
       type: object
       properties:
         raw: { type: string }
-        miejscowosc: { type: string }
-        cecha: { type: string, example: 'ul.' }
-        ulica: { type: string }
-        nrBudynku: { type: string }
-        nrLokalu: { type: string }
-        kodPocztowy: { type: string }
-        reszta: { type: array, items: { type: string }, description: Fragmenty, których nie udało się przypisać. }
+        locality: { type: string }
+        streetType: { type: string, example: 'ul.' }
+        street: { type: string }
+        buildingNumber: { type: string }
+        unitNumber: { type: string }
+        postalCode: { type: string }
+        unparsed: { type: array, items: { type: string }, description: Fragmenty, których nie udało się przypisać. }
 
     AdresPelny:
       type: object
       additionalProperties: true
-      description: Adres z widoku `adres_pelny` — miejscowość, ulica, numer, kod, współrzędne i hierarchia administracyjna.
+      description: Adres z widoku `full_address` — miejscowość, ulica, numer, kod, współrzędne i hierarchia administracyjna.
 
     Confidence:
       type: string
-      enum: [zweryfikowany_rejestr, zweryfikowany_czesciowo, poza_rejestrem, nietypowy, niezweryfikowany]
+      enum: [verified_registry, verified_partial, outside_registry, irregular, niezweryfikowany]
       description: |
         Poziom pewności dopasowania.
 
-        **`poza_rejestrem` nie jest nigdy nadawany przez serwis** — ustawia go
+        **`outside_registry` nie jest nigdy nadawany przez serwis** — ustawia go
         aplikacja konsumencka po świadomym potwierdzeniu adresu przez
         użytkownika. Adres z miejscowością i ulicą z rejestru, ale numerem
-        spoza niego, otrzymuje `zweryfikowany_czesciowo`. Reguła biznesowa
-        oczekująca `poza_rejestrem` z tego interfejsu nigdy się nie uruchomi.
+        spoza niego, otrzymuje `verified_partial`. Reguła biznesowa
+        oczekująca `outside_registry` z tego interfejsu nigdy się nie uruchomi.
 
     Uwaga:
       type: object
       required: [code, severity, message]
       properties:
-        code: { type: string, example: WIELE_KANDYDATOW }
+        code: { type: string, example: MULTIPLE_CANDIDATES }
         severity: { type: string, enum: [info, warning, error] }
         field: { type: string }
         message: { type: string }
@@ -756,15 +756,15 @@ components:
           type: object
           additionalProperties: true
           properties:
-            kraj: { type: string, enum: [PL] }
+            country: { type: string, enum: [PL] }
             simc: { type: string }
-            miejscowosc: { type: string }
-            cecha: { type: string }
-            ulica: { type: string }
-            nrBudynku: { type: string }
-            nrLokalu: { type: string, description: 'Zawsze wolny tekst. Nigdy nie weryfikowany wobec rejestru.' }
-            kodPocztowy: { type: string }
-            tercGminy: { type: string }
+            locality: { type: string }
+            streetType: { type: string }
+            street: { type: string }
+            buildingNumber: { type: string }
+            unitNumber: { type: string, description: 'Zawsze wolny tekst. Nigdy nie weryfikowany wobec rejestru.' }
+            postalCode: { type: string }
+            gminaTerc: { type: string }
             lat: { type: number }
             lon: { type: number }
             prgLocalId: { type: string }
@@ -772,4 +772,4 @@ components:
             raw: { type: string }
         issues: { type: array, items: { $ref: '#/components/schemas/Uwaga' } }
         confidence: { $ref: '#/components/schemas/Confidence' }
-        wersjaDanych: { type: string }
+        dataVersion: { type: string }

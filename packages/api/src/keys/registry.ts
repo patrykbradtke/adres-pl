@@ -5,7 +5,7 @@
  *
  * Cache z chybieniami mialby trzy wady naraz, a kazda z nich boli inaczej:
  *   - chybienie to zapytanie do bazy, wiec ZGADYWANIE KLUCZY generuje ruch
- *     do Postgresa; napastnik dostaje darmowy kanal obciazania bazy,
+ *     do Postgresa; napastnik dostaje darmowy channel obciazania bazy,
  *   - zimny start poda to burza zapytan przy pierwszym ruchu,
  *   - przy awarii bazy operator nie odroznia "chybienie cache" od "baza padla",
  *     bo objaw jest ten sam.
@@ -22,62 +22,62 @@
  * restarcie bazy i przelaczeniu na replike - i ginie CICHO. Klucz uniewazniony
  * po prostu dziala dalej, a nikt tego nie widzi.
  *
- * Dlatego odpytywanie co KLUCZE_ODSWIEZANIE_MS jest GWARANCJA. Kontrakt
+ * Dlatego odpytywanie co KEYS_REFRESH_MS jest GWARANCJA. Kontrakt
  * zbieznosci do zapisania w umowie: typowo ponizej 100 ms, gwarantowanie
  * ponizej okresu odpytywania plus czas zapytania, czyli okolo 10 s.
  *
  * Nasluch siedzi na WLASNYM polaczeniu poza pula: pula recyklinguje polaczenia
- * i nasluch zniknalby bez sladu, a przy PG_POOL_MAX=10 zajecie jednego watku
+ * i listener zniknalby bez sladu, a przy PG_POOL_MAX=10 zajecie jednego watku
  * puli to 10% pojemnosci.
  */
 import pg from 'pg';
 import { NotifyListener } from './notify-listener.ts';
 
 export interface KeyEntry {
-  kluczId: number;
-  klientId: number;
-  prefiks: string;
-  srodowisko: 'test' | 'live';
-  pieprzWersja: number;
+  keyId: number;
+  clientId: number;
+  prefix: string;
+  environment: 'test' | 'live';
+  pepperVersion: number;
   /** null = wez limit z klienta. Zero znaczy "zablokuj", i to co innego. */
-  limitKluczaNaMinute: number | null;
-  limitKlientaNaMinute: number;
-  kwotaMiesieczna: number | null;
-  licencja: string;
-  waznyOd: Date;
-  waznyDo: Date | null;
-  uniewaznionyOd: Date | null;
-  zawieszonyOd: Date | null;
+  keyRateLimitPerMin: number | null;
+  clientRateLimitPerMin: number;
+  monthlyQuota: number | null;
+  license: string;
+  validFrom: Date;
+  validTo: Date | null;
+  revokedAt: Date | null;
+  suspendedAt: Date | null;
 }
 
 export interface RegistryConfig {
   pool: pg.Pool;
   connectionString: string;
   /** 0 wylacza odpytywanie - wylacznie do testow kanalu NOTIFY. */
-  odswiezanieMs?: number;
+  refreshMs?: number;
   /** Odrzuc przeladowanie, ktore zmniejsza liczbe kluczy o wiecej niz tyle procent. */
   maxSpadekProc?: number;
-  onError?: (err: Error, gdzie: string) => void;
+  onError?: (err: Error, where: string) => void;
   onInfo?: (msg: string) => void;
 }
 
 const SQL_WPISY = `
-  SELECT k.id                AS klucz_id,
-         k.klient_id,
-         k.prefiks,
-         k.srodowisko,
-         k.pieprz_wersja,
-         k.limit_zapytan_min AS limit_klucza,
-         k.wazny_od,
-         k.wazny_do,
-         k.uniewazniony_od,
+  SELECT k.id                AS api_key_id,
+         k.client_id,
+         k.prefix,
+         k.environment,
+         k.pepper_version,
+         k.rate_limit_per_min AS key_limit,
+         k.valid_from,
+         k.valid_to,
+         k.revoked_at,
          encode(k.hash, 'hex') AS hash_hex,
-         c.limit_zapytan_min AS limit_klienta,
-         c.kwota_miesieczna,
-         c.licencja,
-         c.zawieszony_od
-    FROM licencje.klucz_api k
-    JOIN licencje.klient c ON c.id = k.klient_id`;
+         c.rate_limit_per_min AS client_limit,
+         c.monthly_quota,
+         c.license,
+         c.suspended_at
+    FROM licensing.api_key k
+    JOIN licensing.client c ON c.id = k.client_id`;
 
 /**
  * Znacznik zmian liczony z OBU tabel.
@@ -93,12 +93,12 @@ const SQL_WPISY = `
  * a nie stanu procesu, wiec instancje w roznych strefach czasowych musza
  * widziec ten sam miesiac.
  */
-const SQL_ZUZYCIE = `
-  SELECT k.klient_id, coalesce(sum(z.jednostek), 0)::text AS jednostek
-    FROM licencje.zuzycie z
-    JOIN licencje.klucz_api k ON k.id = z.klucz_id
-   WHERE z.okres = date_trunc('month', now() AT TIME ZONE 'UTC')::date
-   GROUP BY k.klient_id`;
+const SQL_USAGE = `
+  SELECT k.client_id, coalesce(sum(z.units), 0)::text AS units
+    FROM licensing.usage z
+    JOIN licensing.api_key k ON k.id = z.api_key_id
+   WHERE z.period = date_trunc('month', now() AT TIME ZONE 'UTC')::date
+   GROUP BY k.client_id`;
 
 /*
  * Rzutowanie na ::text jest KONIECZNE, nie kosmetyczne. Sterownik pg zamienia
@@ -111,39 +111,39 @@ const SQL_ZUZYCIE = `
  */
 const SQL_ZNACZNIK = `
   SELECT GREATEST(
-           coalesce((SELECT max(zmieniony) FROM licencje.klucz_api), '-infinity'::timestamptz),
-           coalesce((SELECT max(zmieniony) FROM licencje.klient),    '-infinity'::timestamptz)
-         )::text AS znacznik`;
+           coalesce((SELECT max(updated_at) FROM licensing.api_key), '-infinity'::timestamptz),
+           coalesce((SELECT max(updated_at) FROM licensing.client),    '-infinity'::timestamptz)
+         )::text AS stamp`;
 
 export class KeyRegistry {
-  private wpisy: ReadonlyMap<string, KeyEntry> = new Map();
+  private entries: ReadonlyMap<string, KeyEntry> = new Map();
   private cfg: RegistryConfig;
   private timer: NodeJS.Timeout | null = null;
-  private znacznik: string | null = null;
-  private nasluch: NotifyListener | null = null;
-  private odswiezaTrwa = false;
+  private stamp: string | null = null;
+  private listener: NotifyListener | null = null;
+  private refreshInFlight = false;
 
   /** Diagnostyka - wystawiana w /metrics i /status. */
-  private ostatnieUdaneMs = 0;
-  liczbaOdswiezen = 0;
-  liczbaBledow = 0;
-  get liczbaPowiadomien(): number { return this.nasluch?.liczbaPowiadomien ?? 0; }
-  get liczbaPonowien(): number { return this.nasluch?.liczbaPonowien ?? 0; }
-  zaladowana = false;
+  private lastSuccessMs = 0;
+  refreshCount = 0;
+  errorCount = 0;
+  get notificationCount(): number { return this.listener?.notificationCount ?? 0; }
+  get retryCount(): number { return this.listener?.retryCount ?? 0; }
+  loaded = false;
 
   constructor(cfg: RegistryConfig) {
     this.cfg = cfg;
   }
 
-  get rozmiar(): number { return this.wpisy.size; }
+  get size(): number { return this.entries.size; }
 
   /** Milisekundy od ostatniego UDANEGO odswiezenia. Infinity, gdy nigdy. */
-  get wiekMs(): number {
-    return this.zaladowana ? Date.now() - this.ostatnieUdaneMs : Infinity;
+  get ageMs(): number {
+    return this.loaded ? Date.now() - this.lastSuccessMs : Infinity;
   }
 
-  znajdz(hashHex: string): KeyEntry | undefined {
-    return this.wpisy.get(hashHex);
+  find(hashHex: string): KeyEntry | undefined {
+    return this.entries.get(hashHex);
   }
 
   /**
@@ -152,10 +152,10 @@ export class KeyRegistry {
    * sam z siebie NIGDY. Bez tej sondy blad wyszedlby dopiero na goracej
    * sciezce, jako kod 500 na 100% ruchu.
    */
-  static async sprawdzSchemat(pool: pg.Pool): Promise<void> {
-    const { rows: [r] } = await pool.query<{ jest: string | null }>(
-      `SELECT to_regclass('licencje.klucz_api')::text AS jest`);
-    if (!r?.jest) {
+  static async checkSchema(pool: pg.Pool): Promise<void> {
+    const { rows: [r] } = await pool.query<{ exists: string | null }>(
+      `SELECT to_regclass('licensing.api_key')::text AS exists`);
+    if (!r?.exists) {
       throw new Error(
         'Migracja 004_licencje.sql nie zostala wgrana do tej bazy. Uruchom:\n' +
         '  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/004_licencje.sql');
@@ -171,39 +171,39 @@ export class KeyRegistry {
    * w ogole nie dotyka (czyta artefakt z pamieci).
    */
   async start(): Promise<void> {
-    await KeyRegistry.sprawdzSchemat(this.cfg.pool);
+    await KeyRegistry.checkSchema(this.cfg.pool);
     try {
-      await this.odswiez();
+      await this.refresh();
     } catch (e) {
       this.cfg.onError?.(e as Error, 'pierwsze ladowanie');
       this.cfg.onInfo?.('Rejestr kluczy niezaladowany - ponawianie w tle, /ready zwraca 503');
     }
-    this.zaplanujOdswiezanie();
+    this.scheduleRefresh();
     // Czekamy na zestawienie nasluchu, zamiast puszczac go w tle: inaczej
     // powiadomienia z pierwszych setek milisekund po starcie przepadaja,
     // a uniewaznienie wykonane tuz po wdrozeniu czeka na pelny okres
-    // odpytywania. Niepowodzenie nie blokuje startu - nasluch sam planuje
-    // ponowienie.
-    this.nasluch = new NotifyListener({
+    // odpytywania. Niepowodzenie nie blokuje startu - listener sam planuje
+    // retryTimer.
+    this.listener = new NotifyListener({
       connectionString: this.cfg.connectionString,
-      kanal: 'licencje_zmiana',
-      onPowiadomienie: () => {
-        void this.odswiez().catch((e) => this.cfg.onError?.(e as Error, 'odswiezanie po NOTIFY'));
+      channel: 'licensing_change',
+      onNotification: () => {
+        void this.refresh().catch((e) => this.cfg.onError?.(e as Error, 'refresh po NOTIFY'));
       },
       // Powiadomienia z czasu przerwy przepadly bezpowrotnie, wiec po powrocie
       // przeladowujemy replike w calosci, nie ogladajac sie na znacznik.
-      onPrzywrocenie: () => {
-        void this.odswiez(true).catch(() => { /* zglosi sie przy odpytywaniu */ });
+      onReconnect: () => {
+        void this.refresh(true).catch(() => { /* zglosi sie przy odpytywaniu */ });
       },
       onError: this.cfg.onError,
       onInfo: this.cfg.onInfo,
     });
-    await this.nasluch.start();
+    await this.listener.start();
   }
 
   stop(): void {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    this.nasluch?.stop();
+    this.listener?.stop();
   }
 
   /**
@@ -220,46 +220,46 @@ export class KeyRegistry {
    * w kazdej instancji, wiec znacznik nigdy nie bylby rowny poprzedniemu
    * i replika przeladowywalaby sie w kolko.
    */
-  private zuzycie = new Map<number, number>();
+  private usage = new Map<number, number>();
 
   /** Jednostki zuzyte przez klienta w biezacym okresie, wedle stanu bazy. */
-  zuzyteJednostki(klientId: number): number {
-    return this.zuzycie.get(klientId) ?? 0;
+  usedUnits(clientId: number): number {
+    return this.usage.get(clientId) ?? 0;
   }
 
-  async odswiez(wymus = false): Promise<boolean> {
-    if (this.odswiezaTrwa) return false;
-    this.odswiezaTrwa = true;
+  async refresh(force = false): Promise<boolean> {
+    if (this.refreshInFlight) return false;
+    this.refreshInFlight = true;
     try {
-      const { rows: zuzycieWierszy } = await this.cfg.pool.query<
-        { klient_id: string; jednostek: string }>(SQL_ZUZYCIE);
-      const noweZuzycie = new Map<number, number>();
-      for (const r of zuzycieWierszy) noweZuzycie.set(Number(r.klient_id), Number(r.jednostek));
-      this.zuzycie = noweZuzycie;
+      const { rows: usageRows } = await this.cfg.pool.query<
+        { client_id: string; units: string }>(SQL_USAGE);
+      const newUsage = new Map<number, number>();
+      for (const r of usageRows) newUsage.set(Number(r.client_id), Number(r.units));
+      this.usage = newUsage;
 
-      const { rows: [z] } = await this.cfg.pool.query<{ znacznik: string }>(SQL_ZNACZNIK);
-      if (!wymus && this.znacznik !== null && z.znacznik === this.znacznik) {
-        this.ostatnieUdaneMs = Date.now();
+      const { rows: [z] } = await this.cfg.pool.query<{ stamp: string }>(SQL_ZNACZNIK);
+      if (!force && this.stamp !== null && z.stamp === this.stamp) {
+        this.lastSuccessMs = Date.now();
         return false;
       }
 
       const { rows } = await this.cfg.pool.query(SQL_WPISY);
-      const nowa = new Map<string, KeyEntry>();
+      const fresh = new Map<string, KeyEntry>();
       for (const r of rows) {
-        nowa.set(r.hash_hex, {
-          kluczId: Number(r.klucz_id),
-          klientId: Number(r.klient_id),
-          prefiks: r.prefiks,
-          srodowisko: r.srodowisko,
-          pieprzWersja: Number(r.pieprz_wersja),
-          limitKluczaNaMinute: r.limit_klucza === null ? null : Number(r.limit_klucza),
-          limitKlientaNaMinute: Number(r.limit_klienta),
-          kwotaMiesieczna: r.kwota_miesieczna === null ? null : Number(r.kwota_miesieczna),
-          licencja: r.licencja,
-          waznyOd: r.wazny_od,
-          waznyDo: r.wazny_do,
-          uniewaznionyOd: r.uniewazniony_od,
-          zawieszonyOd: r.zawieszony_od,
+        fresh.set(r.hash_hex, {
+          keyId: Number(r.api_key_id),
+          clientId: Number(r.client_id),
+          prefix: r.prefix,
+          environment: r.environment,
+          pepperVersion: Number(r.pepper_version),
+          keyRateLimitPerMin: r.key_limit === null ? null : Number(r.key_limit),
+          clientRateLimitPerMin: Number(r.client_limit),
+          monthlyQuota: r.monthly_quota === null ? null : Number(r.monthly_quota),
+          license: r.license,
+          validFrom: r.valid_from,
+          validTo: r.valid_to,
+          revokedAt: r.revoked_at,
+          suspendedAt: r.suspended_at,
         });
       }
 
@@ -267,44 +267,44 @@ export class KeyRegistry {
       // kluczy to objaw zlego polaczenia albo niedokonczonej migracji, a nie
       // decyzji operatora. Stara replika zostaje - lepiej dzialac na danych
       // sprzed minuty niz odciac wszystkich klientow.
-      const spadek = this.zaladowana && this.wpisy.size > 0
-        ? (1 - nowa.size / this.wpisy.size) * 100
+      const spadek = this.loaded && this.entries.size > 0
+        ? (1 - fresh.size / this.entries.size) * 100
         : 0;
-      const prog = this.cfg.maxSpadekProc ?? 50;
-      if (spadek > prog) {
-        this.liczbaBledow++;
+      const threshold = this.cfg.maxSpadekProc ?? 50;
+      if (spadek > threshold) {
+        this.errorCount++;
         this.cfg.onError?.(
           new Error(`Przeladowanie zmniejszylo rejestr o ${spadek.toFixed(0)}% ` +
-            `(${this.wpisy.size} -> ${nowa.size}) - odrzucone, zostaje poprzednia replika`),
+            `(${this.entries.size} -> ${fresh.size}) - odrzucone, zostaje poprzednia replika`),
           'kontrola rozsadku');
         return false;
       }
 
       // Podmiana REFERENCJI, nigdy czyszczenie mapy w miejscu: trwajace
       // zadania dokoncza sie na spojnym stanie.
-      this.wpisy = nowa;
-      this.znacznik = z.znacznik;
-      this.ostatnieUdaneMs = Date.now();
-      this.zaladowana = true;
-      this.liczbaOdswiezen++;
+      this.entries = fresh;
+      this.stamp = z.stamp;
+      this.lastSuccessMs = Date.now();
+      this.loaded = true;
+      this.refreshCount++;
       return true;
     } catch (e) {
-      this.liczbaBledow++;
+      this.errorCount++;
       throw e;
     } finally {
-      this.odswiezaTrwa = false;
+      this.refreshInFlight = false;
     }
   }
 
-  private zaplanujOdswiezanie(): void {
-    const okres = this.cfg.odswiezanieMs ?? 10_000;
-    if (okres <= 0) return;
+  private scheduleRefresh(): void {
+    const period = this.cfg.refreshMs ?? 10_000;
+    if (period <= 0) return;
     // Jitter +/-25%: bez niego wszystkie pody odswiezaja sie w tej samej
     // milisekundzie po wdrozeniu kroczacym i baza dostaje falami.
-    const zJitterem = Math.round(okres * (0.75 + Math.random() * 0.5));
+    const withJitter = Math.round(period * (0.75 + Math.random() * 0.5));
     this.timer = setInterval(() => {
-      void this.odswiez().catch((e) => this.cfg.onError?.(e as Error, 'odswiezanie'));
-    }, zJitterem);
+      void this.refresh().catch((e) => this.cfg.onError?.(e as Error, 'refresh'));
+    }, withJitter);
     this.timer.unref();
   }
 

@@ -46,11 +46,11 @@ Cel: komplet danych i **niezależność od źródła zewnętrznego**.
 
 | # | zadanie | nakład | zależy od |
 |---|---|---|---|
-| 1.1 | ~~Załadowanie 12 pozostałych województw~~ **WYKONANE 9.08.2026** — komplet 16, ~17 min przy `--rownolegle 4` | — | — |
+| 1.1 | ~~Załadowanie 12 pozostałych województw~~ **WYKONANE 9.08.2026** — komplet 16, ~17 min przy `--parallel 4` | — | — |
 | 1.2 | ~~Publikacja pełnego kraju~~ **WYKONANE 9.08.2026** — 8 605 682 punkty, o 45 tys. więcej niż zapowiadane 8,56 mln (przyrost za 4 miesiące) | — | — |
 | 1.3 | ~~Artefakt na pełnym zbiorze~~ **WYKONANE 9.08.2026** — **378 300 pozycji, 54,5 MB, RSS procesu 55 MB**. Wcześniej podawane 791 211 / 109,3 MB / 239 MB dotyczyło stanu sprzed scalenia ulic (6.19, 6.21) i jest nieaktualne | — | — |
 | 1.4 | **Archiwum poza maszyną** — wysyłka archiwów i artefaktów do magazynu obiektowego | 0,5 d (było 1 d) | 1.2 |
-| 1.5 | Odtworzenie z archiwum bez internetu (`cycle --z-archiwum`) — przećwiczyć | 0,5 d | 1.4 |
+| 1.5 | Odtworzenie z archiwum bez internetu (`cycle --from-archive`) — przećwiczyć | 0,5 d | 1.4 |
 | 1.6 | Kopie zapasowe bazy: harmonogram, retencja, test odtworzenia | 1 d | 1.2 |
 | 1.7 | **Jednorazowe odtworzenie z kopii offsite — dowodowe** | 0,5 d | 1.4 |
 
@@ -69,7 +69,7 @@ to kopia domniemana.
 Zakres 1.7: pobrać zestaw z serwera na czystą maszynę albo do osobnego
 wolumenu, odtworzyć bazę ze zrzutu **przez `pg_restore` z kontenera** (lokalny
 z libpq to 16.2 wobec zrzutu z PG 17.5 — patrz STAN-PRAC), uruchomić
-`cycle --z-archiwum 2026-08-06` na pobranym archiwum i potwierdzić komplet
+`cycle --from-archive 2026-08-06` na pobranym archiwum i potwierdzić komplet
 8 605 682 punktów oraz przejście zbioru wzorcowego. Zmierzyć przy okazji czas
 odtworzenia — to wejście do zadania 8.24.
 
@@ -111,7 +111,7 @@ Zrównoleglenie działa (zmierzone 3,6× na czterech procesach), ale jest
 | 2.7 | ~~Profil pełnego cyklu na 16 województwach~~ **WYKONANE 9.08.2026** — ~3 h 25 min, rozbicie niżej | — | — |
 | 2.8 | Publikacja: **2 h 16 min dla całego kraju** — zbadać i skrócić | 1–2 d | to 2/3 całego cyklu; wcześniejszy szacunek 72 min dotyczył 4 województw. **Pomiar z 10.08: cykl bez ani jednej zmiany trwa 3 h 57 min** — koszt jest stały, nie proporcjonalny do zmian |
 | 2.9 | Strojenie bazy pod ładowanie masowe (`work_mem`, `maintenance_work_mem`, autovacuum) | 0,5 d | domyślne 4 MB przy 2 mln wierszy |
-| 2.10 | Testy regresji wydajności wyszukiwania | 1 d | jest już `bench-realny.ts`; podpiąć do cyklu i ustawić progi. **Warunek wstępny — patrz 2.14**, bez niego próg będzie odpalał się losowo |
+| 2.10 | Testy regresji wydajności wyszukiwania | 1 d | jest już `bench-real.ts`; podpiąć do cyklu i ustawić progi. **Warunek wstępny — patrz 2.14**, bez niego próg będzie odpalał się losowo |
 | 2.14 | **Kontrolowane środowisko pomiaru wydajności** | 0,5 d | ustalenie z 10.08.2026, opis niżej |
 | 2.11 | **Rozgrzewanie instancji przed skierowaniem ruchu** | 0,5 d | pierwsze zapytanie po starcie: 82 ms wobec 1,7 ms po rozgrzewce — to, a nie nazwy pospolite, jest realnym przypadkiem brzegowym |
 | 2.12 | Przegląd zapytań pod kątem wzorca z `OR` i pętli zagnieżdżonych | 1 d | ten sam błąd może być gdzie indziej |
@@ -242,7 +242,7 @@ Z rozpoznania rynku, uporządkowane wg pilności.
 
 | # | zadanie | nakład | uwagi |
 |---|---|---|---|
-| 6.5 | ~~Specyfikacja OpenAPI jako źródło prawdy~~ **WYKONANE 9.08.2026** — `packages/api/openapi.yaml`, wszystkie 15 tras, kształty odpowiedzi zdjęte z działającej usługi. Test `openapi-zgodnosc.ts` porównuje specyfikację z trasami Fastify w obie strony, więc nie da się jej po cichu rozjechać | — | — |
+| 6.5 | ~~Specyfikacja OpenAPI jako źródło prawdy~~ **WYKONANE 9.08.2026** — `packages/api/openapi.yaml`, wszystkie 15 tras, kształty odpowiedzi zdjęte z działającej usługi. Test `openapi-conformance.ts` porównuje specyfikację z trasami Fastify w obie strony, więc nie da się jej po cichu rozjechać | — | — |
 | 6.6 | Polityka wycofywania wersji API | 0,5 d | ile wstecz, z jakim wyprzedzeniem |
 | 6.7 | Dokumentacja dla integratorów | 2 d | |
 
@@ -321,7 +321,7 @@ dokładnie dlatego, że nikt nie patrzył:
 | `/metrics` liczył trzy `count(*)` na tabelach produkcyjnych | odpowiedź 4,4 s przy limicie zbierania 10 s | endpoint na granicy timeoutu, każde zbieranie to pełny skan 8,6 mln wierszy |
 
 Po naprawie: jedno ładowanie artefaktu na start, `/metrics` w 0,05–0,12 s.
-Test regresji: `packages/api/test/loader-podmiana.ts`.
+Test regresji: `packages/api/test/loader-swap.ts`.
 
 **Próg alertu `WysokaLatencjaPodpowiedzi` przeliczony** z 25 ms na 60 ms.
 Poprzedni był skalibrowany do wycofanego pomiaru syntetycznego (1,84 ms)
@@ -376,7 +376,7 @@ zapytaniem, bez skanu tabeli.
 
 | # | zadanie | nakład |
 |---|---|---|
-| 8.1 | ~~**PILNE:** poprawka `keyGenerator` — limitowanie po IP do czasu wdrożenia uwierzytelniania~~ **WYKONANE 8.08.2026** — limitowanie po `req.ip`, `TRUST_PROXY` dla pracy za ingressem, test regresji `packages/api/test/limit-obejscie.ts` | — |
+| 8.1 | ~~**PILNE:** poprawka `keyGenerator` — limitowanie po IP do czasu wdrożenia uwierzytelniania~~ **WYKONANE 8.08.2026** — limitowanie po `req.ip`, `TRUST_PROXY` dla pracy za ingressem, test regresji `packages/api/test/rate-limit-bypass.ts` | — |
 | 8.0 | ~~Środowisko i hermetyczny baseline testów~~ **WYKONANE 9.08.2026** — atrapa artefaktu budowana produkcyjnym `buildIndex`, `npm test` przechodzi w świeżym klonie bez ETL i bez bazy; `.env` dopisany do `.gitignore` i `.dockerignore` (nie był ignorowany, a `Dockerfile` robi `COPY . .`) | — |
 | 8.2 | ~~Model danych: `klient`, `klucz_api`, `zuzycie`~~ **WYKONANE 9.08.2026** — `db/migrations/004_licencje.sql`, osobny schemat `licencje` bez kluczy obcych w stronę `adres` (bo `e2e.sh` robi `TRUNCATE adres.* CASCADE`), unikat na skrócie **pełny, nie częściowy**, wyzwalacze `NOTIFY` na obu tabelach | — |
 | 8.3 | ~~Generowanie i weryfikacja klucza w `@adres-pl/core`~~ **WYKONANE 9.08.2026** — `core/src/api-key.ts` bez ani jednego importu `node:*` (własny base64url i CRC32), suma kontrolna liczona **bez pieprza**, bo skaner wycieków musi potwierdzić kształt klucza bez naszego sekretu; HMAC z rotacją w `api/src/keys/pepper.ts` | — |
@@ -412,7 +412,7 @@ Zmierzona podłoga szumu: 6,03 ms przy 3 tys. żądań na serię, 0,659 ms przy
 60 tys., 0,04–0,19 ms przy 180 tys. Zmierzony na małej próbie próg dałby liczbę
 wyglądającą tak samo i wartą zero. Przy okazji sprostowano atrybucję: wiersz
 „pełna ścieżka HTTP" w `STAN-PRAC.md` i `alerty.yaml` był przypisany skryptowi
-`bench-realny.ts`, który Fastify w ogóle nie dotyka — hook uwierzytelniający
+`bench-real.ts`, który Fastify w ogóle nie dotyka — hook uwierzytelniający
 nie wykonuje się tam wcale, więc pomiar „przed i po" pokazywałby zero.
 
 **Sprostowanie kryterium 8.8 (10.08.2026): p99 nie mierzy kosztu żądania.**
@@ -435,7 +435,7 @@ kontrolna dowodzi wierności pomiaru, a p95 i p99 raportujemy informacyjnie.
 
 **Zmierzony koszt uwierzytelniania: 34–36 µs na p50** (trzy niezależne przebiegi) przy budżecie 300 µs — ośmiokrotny
 zapas. Potwierdza to niezależny mikropomiar samej ścieżki weryfikacji
-(`koszt-uwierzytelnienia.ts`, ~50 µs na wywołanie), więc dwie różne metody dają
+(`auth-cost.ts`, ~50 µs na wywołanie), więc dwie różne metody dają
 tę samą liczbę.
 
 **Wyciek w `app.inject()` (10.08.2026).** Przy okazji: `app.inject()` zatrzymuje

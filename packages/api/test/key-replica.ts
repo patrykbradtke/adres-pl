@@ -28,7 +28,7 @@ import pg from 'pg';
 import { KeyRegistry } from '../src/keys/registry.ts';
 
 const DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://adres:adres@localhost:5432/adres';
-const ODSWIEZANIE_MS = 1_000;
+const REFRESH_MS = 1_000;
 
 /**
  * Okno dla drogi POWIADOMIEN musi byc wyraznie krotsze niz najkrotszy mozliwy
@@ -40,17 +40,17 @@ const ODSWIEZANIE_MS = 1_000;
  * swiecila na zielono (895 ms). Zmierzona zbieznosc kanalem NOTIFY to 25-100 ms,
  * wiec 300 ms zostawia zapas i nie da sie go pomylic z odpytywaniem.
  */
-const OKNO_POWIADOMIENIA_MS = 300;
+const NOTIFICATION_WINDOW_MS = 300;
 
-let bledy = 0;
-const zglos = (ok: boolean, opis: string) => {
-  console.log(`${ok ? 'OK  ' : 'BLAD'} ${opis}`);
-  if (!ok) bledy++;
+let errors = 0;
+const report = (ok: boolean, description: string) => {
+  console.log(`${ok ? 'OK  ' : 'ERROR'} ${description}`);
+  if (!ok) errors++;
 };
 const spij = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Czeka, az warunek bedzie spelniony; zwraca czas oczekiwania albo -1. */
-async function czekaj(warunek: () => boolean, limitMs: number): Promise<number> {
+async function waitFor(warunek: () => boolean, limitMs: number): Promise<number> {
   const t0 = Date.now();
   while (Date.now() - t0 < limitMs) {
     if (warunek()) return Date.now() - t0;
@@ -65,38 +65,38 @@ const pool = new pg.Pool({ connectionString: DATABASE_URL, max: 4 });
 const operator = new pg.Client({ connectionString: DATABASE_URL });
 await operator.connect();
 
-const znacznik = `replika-8a-${Date.now()}`;
-const { rows: [klient] } = await operator.query<{ id: string }>(
-  `INSERT INTO licencje.klient (nazwa, pakiet, limit_zapytan_min, kwota_miesieczna)
-   VALUES ($1, 'test', 120, 1000) RETURNING id`, [znacznik]);
+const stamp = `replika-8a-${Date.now()}`;
+const { rows: [client] } = await operator.query<{ id: string }>(
+  `INSERT INTO licensing.client (name, plan, rate_limit_per_min, monthly_quota)
+   VALUES ($1, 'test', 120, 1000) RETURNING id`, [stamp]);
 
-const rejestr = new KeyRegistry({
+const registry = new KeyRegistry({
   pool,
   connectionString: DATABASE_URL,
-  odswiezanieMs: ODSWIEZANIE_MS,
-  onError: (e, gdzie) => console.log(`   [rejestr] ${gdzie}: ${e.message}`),
+  refreshMs: REFRESH_MS,
+  onError: (e, where) => console.log(`   [rejestr] ${where}: ${e.message}`),
 });
-await rejestr.start();
-const naStarcie = rejestr.rozmiar;
-zglos(rejestr.zaladowana, `replika zaladowana przy starcie (wpisow: ${naStarcie})`);
+await registry.start();
+const atStart = registry.size;
+report(registry.loaded, `replika zaladowana przy starcie (wpisow: ${atStart})`);
 
 // --- 1. Nowy klucz dociera droga powiadomien ---------------------------
 const hashA = randomBytes(32);
 const hexA = hashA.toString('hex');
 await operator.query(
-  `INSERT INTO licencje.klucz_api (klient_id, srodowisko, prefiks, hash)
-   VALUES ($1, 'live', 'adr_live_', $2)`, [klient.id, hashA]);
-const czasWstawienia = await czekaj(() => rejestr.znajdz(hexA) !== undefined, OKNO_POWIADOMIENIA_MS);
-zglos(czasWstawienia >= 0,
-  `nowy klucz widoczny po ${czasWstawienia} ms - droga NOTIFY (okno ${OKNO_POWIADOMIENIA_MS} ms)`);
+  `INSERT INTO licensing.api_key (client_id, environment, prefix, hash)
+   VALUES ($1, 'live', 'adr_live_', $2)`, [client.id, hashA]);
+const insertTime = await waitFor(() => registry.find(hexA) !== undefined, NOTIFICATION_WINDOW_MS);
+report(insertTime >= 0,
+  `nowy klucz widoczny po ${insertTime} ms - droga NOTIFY (okno ${NOTIFICATION_WINDOW_MS} ms)`);
 
 // --- 2. Uniewaznienie dociera droga powiadomien ------------------------
 await operator.query(
-  `UPDATE licencje.klucz_api SET uniewazniony_od = now() WHERE hash = $1`, [hashA]);
-const czasUniewaznienia = await czekaj(
-  () => rejestr.znajdz(hexA)?.uniewaznionyOd != null, OKNO_POWIADOMIENIA_MS);
-zglos(czasUniewaznienia >= 0,
-  `uniewaznienie widoczne po ${czasUniewaznienia} ms`);
+  `UPDATE licensing.api_key SET revoked_at = now() WHERE hash = $1`, [hashA]);
+const revocationTime = await waitFor(
+  () => registry.find(hexA)?.revokedAt != null, NOTIFICATION_WINDOW_MS);
+report(revocationTime >= 0,
+  `uniewaznienie widoczne po ${revocationTime} ms`);
 
 // --- 3. Zmiana KLIENTA tez dociera -------------------------------------
 //
@@ -108,20 +108,20 @@ zglos(czasUniewaznienia >= 0,
 // przeladowanie repliki (powiadomienia z czasu przerwy przepadly), wiec zmiana
 // klienta zaciagala sie przy okazji, niezaleznie od tego, co liczy znacznik.
 // Odwrocenie "znacznik tylko z klucz_api" swiecilo wtedy na zielono.
-// Przy zywym nasluchu NOTIFY wola odswiez(), a o przeladowaniu decyduje juz
+// Przy zywym nasluchu NOTIFY wola refresh(), a o przeladowaniu decyduje juz
 // wylacznie znacznik - i to jest badana logika.
-await operator.query(`UPDATE licencje.klient SET zawieszony_od = now() WHERE id = $1`, [klient.id]);
-const czasZawieszenia = await czekaj(
-  () => rejestr.znajdz(hexA)?.zawieszonyOd != null, OKNO_POWIADOMIENIA_MS);
-zglos(czasZawieszenia >= 0,
-  `zawieszenie klienta widoczne po ${czasZawieszenia} ms mimo braku zmian w tabeli kluczy`);
+await operator.query(`UPDATE licensing.client SET suspended_at = now() WHERE id = $1`, [client.id]);
+const suspensionTime = await waitFor(
+  () => registry.find(hexA)?.suspendedAt != null, NOTIFICATION_WINDOW_MS);
+report(suspensionTime >= 0,
+  `zawieszenie klienta widoczne po ${suspensionTime} ms mimo braku zmian w tabeli kluczy`);
 
 // --- 4. Po ZERWANIU nasluchu ratuje odpytywanie ------------------------
 //
 // Symulacja restartu bazy albo przelaczenia na replike. Bez tej drogi
 // uniewazniony klucz dzialalby dalej, a nikt by tego nie zauwazyl - NOTIFY
 // ginie CICHO.
-const powiadomieniaPrzed = rejestr.liczbaPowiadomien;
+const notificationsBefore = registry.notificationCount;
 await operator.query(`
   SELECT pg_terminate_backend(pid) FROM pg_stat_activity
    WHERE query LIKE 'LISTEN%' AND pid <> pg_backend_pid()`);
@@ -130,35 +130,35 @@ await spij(200);
 const hashB = randomBytes(32);
 const hexB = hashB.toString('hex');
 await operator.query(
-  `INSERT INTO licencje.klucz_api (klient_id, srodowisko, prefiks, hash)
-   VALUES ($1, 'live', 'adr_live_', $2)`, [klient.id, hashB]);
-const czasPoZerwaniu = await czekaj(() => rejestr.znajdz(hexB) !== undefined, ODSWIEZANIE_MS * 4);
-zglos(czasPoZerwaniu >= 0,
-  `po zerwaniu nasluchu zmiana dotarla po ${czasPoZerwaniu} ms droga odpytywania ` +
-  `(powiadomien w tym czasie: ${rejestr.liczbaPowiadomien - powiadomieniaPrzed})`);
+  `INSERT INTO licensing.api_key (client_id, environment, prefix, hash)
+   VALUES ($1, 'live', 'adr_live_', $2)`, [client.id, hashB]);
+const timeAfterDrop = await waitFor(() => registry.find(hexB) !== undefined, REFRESH_MS * 4);
+report(timeAfterDrop >= 0,
+  `po zerwaniu nasluchu zmiana dotarla po ${timeAfterDrop} ms droga odpytywania ` +
+  `(powiadomien w tym czasie: ${registry.notificationCount - notificationsBefore})`);
 
 // --- 5. Odswiezenie bez zmian nie przeladowuje repliki -----------------
-const odswiezenPrzed = rejestr.liczbaOdswiezen;
-for (let i = 0; i < 5; i++) await rejestr.odswiez();
-zglos(rejestr.liczbaOdswiezen === odswiezenPrzed,
+const refreshesBefore = registry.refreshCount;
+for (let i = 0; i < 5; i++) await registry.refresh();
+report(registry.refreshCount === refreshesBefore,
   `piec odswiezen bez zmian nie przeladowalo repliki (przeladowan: ` +
-  `${rejestr.liczbaOdswiezen - odswiezenPrzed})`);
+  `${registry.refreshCount - refreshesBefore})`);
 
 // --- 6. Kontrola rozsadku odrzuca nagly ubytek -------------------------
 //
 // Zle skierowane polaczenie albo niedokonczona migracja nie moga odciac
 // wszystkich klientow naraz.
 const maly = new KeyRegistry({
-  pool, connectionString: DATABASE_URL, odswiezanieMs: 0, maxSpadekProc: 50,
+  pool, connectionString: DATABASE_URL, refreshMs: 0, maxSpadekProc: 50,
   onError: () => { /* oczekiwane */ },
 });
 await maly.start();
-const przedUbytkiem = maly.rozmiar;
+const beforeDrop = maly.size;
 // Udajemy zapytanie zwracajace prawie nic: podmieniamy pule na taka, ktora
 // filtruje wiekszosc wierszy.
 // Atrapa celuje w JEDNO konkretne zapytanie - to, ktore pobiera wpisy kluczy
 // (rozpoznawane po aliasie "AS klucz_id"). Wczesniej bylo odwrotnie: doklejala
-// filtr do wszystkiego, co nie bylo zapytaniem o znacznik. Gdy odswiezanie
+// filtr do wszystkiego, co nie bylo zapytaniem o znacznik. Gdy refresh
 // zaczelo pobierac takze zuzycie, filtr trafil w zapytanie majace juz wlasne
 // WHERE i GROUP BY - i test padal na skladni SQL zamiast na badanej wlasnosci.
 const okrojona = {
@@ -168,23 +168,23 @@ const okrojona = {
       : pool.query(tekst, param as never),
 } as unknown as pg.Pool;
 (maly as unknown as { cfg: { pool: pg.Pool } }).cfg.pool = okrojona;
-await maly.odswiez(true);
-zglos(maly.rozmiar === przedUbytkiem,
-  `przeladowanie usuwajace wszystkie wpisy odrzucone, replika ma nadal ${maly.rozmiar}`);
+await maly.refresh(true);
+report(maly.size === beforeDrop,
+  `przeladowanie usuwajace wszystkie wpisy odrzucone, replika ma nadal ${maly.size}`);
 maly.stop();
 
 // --- 7. Brak schematu konczy sie czytelnym bledem ----------------------
-let komunikat = '';
+let message = '';
 try {
-  await KeyRegistry.sprawdzSchemat({
-    query: async () => ({ rows: [{ jest: null }] }),
+  await KeyRegistry.checkSchema({
+    query: async () => ({ rows: [{ exists: null }] }),
   } as unknown as pg.Pool);
-} catch (e) { komunikat = (e as Error).message; }
-zglos(komunikat.includes('004_licencje.sql') && komunikat.includes('psql'),
+} catch (e) { message = (e as Error).message; }
+report(message.includes('004_licencje.sql') && message.includes('psql'),
   'brak schematu daje komunikat wskazujacy plik migracji i polecenie');
 
-rejestr.stop();
+registry.stop();
 await operator.end();
 await pool.end();
-console.log(bledy === 0 ? '\nWszystkie kontrole przeszly.' : `\n${bledy} kontroli nie przeszlo.`);
-process.exit(bledy === 0 ? 0 : 1);
+console.log(errors === 0 ? '\nWszystkie kontrole przeszly.' : `\n${errors} kontroli nie przeszlo.`);
+process.exit(errors === 0 ? 0 : 1);

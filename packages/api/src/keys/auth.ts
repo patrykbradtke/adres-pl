@@ -38,9 +38,9 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { parseApiKey } from '@adres-pl/core';
 import type { Peppers } from './pepper.ts';
 import type { KeyRegistry, KeyEntry } from './registry.ts';
-import { type UsageMeter, jednostkiZadania } from './usage.ts';
+import { type UsageMeter, requestUnits } from './usage.ts';
 
-export type ApiKeyMode = 'wylaczony' | 'opcjonalny' | 'wymagany';
+export type ApiKeyMode = 'disabled' | 'optional' | 'required';
 
 /**
  * Trasy poza uwierzytelnianiem, rozpoznawane po `req.routeOptions.url`,
@@ -54,13 +54,13 @@ export type ApiKeyMode = 'wylaczony' | 'opcjonalny' | 'wymagany';
  * (up{job="adres-api"} spada do 0 i zapala sie krytyczny BrakMetrykZSerwisu),
  * a pody beda ubijane przez nieudane sondy przy w pelni sprawnej usludze.
  */
-const BEZ_KLUCZA = new Set(['/health', '/ready', '/metrics', '/status']);
+const WITHOUT_KEY = new Set(['/health', '/ready', '/metrics', '/status']);
 
 
 export interface AuthConfig {
   mode: ApiKeyMode;
   /** Limit zadan na minute z jednego adresu dla ruchu BEZ waznego klucza. */
-  limitNieuwierzytelniony: number;
+  unauthenticatedLimit: number;
   /**
    * Sztuczne opoznienie sciezki uwierzytelniania, w mikrosekundach - WYLACZNIE
    * do walidacji przyrzadu pomiarowego z zadania 8.8b.
@@ -73,17 +73,17 @@ export interface AuthConfig {
    * Wartosc jest per INSTANCJA, a nie per proces: przyrzad stawia trzy serwery
    * w jednym procesie i kazdy musi miec wlasne ustawienie.
    */
-  debugOpoznienieUs?: number;
+  debugDelayUs?: number;
 }
 
 export interface AuthDeps {
-  rejestr: KeyRegistry;
-  pieprze: Peppers;
+  registry: KeyRegistry;
+  peppers: Peppers;
   cfg: AuthConfig;
   /** Licznik zuzycia. Bez niego kwota nie jest egzekwowana ani ksiegowana. */
-  zuzycie?: UsageMeter;
+  usage?: UsageMeter;
   /** Licznik do metryk - wolany dla kazdego rozstrzygniecia. */
-  onWynik?: (wynik: string) => void;
+  onResult?: (result: string) => void;
 }
 
 /**
@@ -91,12 +91,12 @@ export interface AuthDeps {
  * (tak jak reszta wyjscia /metrics) i maja DOMKNIETY zbior - inaczej
  * kardynalnosc szeregow czasowych rosla by bez ograniczenia.
  */
-type Wynik =
-  | 'ok' | 'brak_klucza' | 'nieprawidlowy' | 'niewazny_jeszcze' | 'wygasly'
-  | 'uniewazniony' | 'zawieszony' | 'limit_prob' | 'kwota';
+type Result =
+  | 'ok' | 'missing_key' | 'invalid' | 'not_yet_valid' | 'expired'
+  | 'revoked' | 'suspended' | 'rate_limited' | 'quota';
 
 /** Stany klucza, ktore konczy sie odmowa po trafieniu w wiersz rejestru. */
-type StanOdmowy = 'niewazny_jeszcze' | 'wygasly' | 'uniewazniony' | 'zawieszony';
+type DenialState = 'not_yet_valid' | 'expired' | 'revoked' | 'suspended';
 
 /**
  * Kod i komunikat w JEDNYM miejscu, zamiast rozproszonych po wywolaniach.
@@ -110,11 +110,11 @@ type StanOdmowy = 'niewazny_jeszcze' | 'wygasly' | 'uniewazniony' | 'zawieszony'
  * sekretu. To nie jest wyciek - znajomosc klucza to juz posiadanie - a
  * integrator dowiaduje sie, co zrobic, zamiast zgadywac.
  */
-const ODMOWY: Record<StanOdmowy, { kod: 403; komunikat: string }> = {
-  niewazny_jeszcze: { kod: 403, komunikat: 'Klucz API nie jest jeszcze wazny.' },
-  wygasly: { kod: 403, komunikat: 'Klucz API wygasl.' },
-  uniewazniony: { kod: 403, komunikat: 'Klucz API zostal uniewazniony.' },
-  zawieszony: { kod: 403, komunikat: 'Konto klienta jest zawieszone.' },
+const DENIALS: Record<DenialState, { code: 403; message: string }> = {
+  not_yet_valid: { code: 403, message: 'Klucz API nie jest jeszcze wazny.' },
+  expired: { code: 403, message: 'Klucz API wygasl.' },
+  revoked: { code: 403, message: 'Klucz API zostal uniewazniony.' },
+  suspended: { code: 403, message: 'Konto klienta jest zawieszone.' },
 };
 
 /**
@@ -124,13 +124,13 @@ const ODMOWY: Record<StanOdmowy, { kod: 403; komunikat: string }> = {
  * uniewaznienie jest decyzja operatora i wazniejsza informacja niz to,
  * ze klucz przy okazji zdazyl wygasnac.
  */
-function ocenStan(wpis: KeyEntry, teraz: number): StanOdmowy | null {
-  if (wpis.uniewaznionyOd && wpis.uniewaznionyOd.getTime() <= teraz) return 'uniewazniony';
-  if (wpis.zawieszonyOd && wpis.zawieszonyOd.getTime() <= teraz) return 'zawieszony';
-  if (wpis.waznyDo && wpis.waznyDo.getTime() <= teraz) return 'wygasly';
+function assessKeyState(entry: KeyEntry, teraz: number): DenialState | null {
+  if (entry.revokedAt && entry.revokedAt.getTime() <= teraz) return 'revoked';
+  if (entry.suspendedAt && entry.suspendedAt.getTime() <= teraz) return 'suspended';
+  if (entry.validTo && entry.validTo.getTime() <= teraz) return 'expired';
   // Klucz wystawiony "od jutra" nie moze dzialac dzis. Kolumna wazny_od
   // istnieje od migracji 003 i nie byla dotad sprawdzana.
-  if (wpis.waznyOd.getTime() > teraz) return 'niewazny_jeszcze';
+  if (entry.validFrom.getTime() > teraz) return 'not_yet_valid';
   return null;
 }
 
@@ -138,12 +138,12 @@ function ocenStan(wpis: KeyEntry, teraz: number): StanOdmowy | null {
  * Wyszukanie wpisu po skrocie liczonym KAZDA znana wersja pieprza - warunek
  * rotacji pieprza bez przerwy w dzialaniu. Zero dotkniecia bazy, zawsze.
  */
-function znajdzWpis(
-  pieprze: Peppers, rejestr: KeyRegistry, kluczJawny: string,
+function findEntry(
+  peppers: Peppers, registry: KeyRegistry, plaintextKey: string,
 ): KeyEntry | undefined {
-  for (const { hex } of pieprze.hashAll(kluczJawny)) {
-    const wpis = rejestr.znajdz(hex);
-    if (wpis) return wpis;
+  for (const { hex } of peppers.hashAll(plaintextKey)) {
+    const entry = registry.find(hex);
+    if (entry) return entry;
   }
   return undefined;
 }
@@ -153,31 +153,31 @@ function znajdzWpis(
  *
  * Po tej zmianie kontekst 404 tez przechodzi przez uwierzytelnianie, wiec
  * skanowanie sciezek generuje wpisy. Bez dlawienia jest to wektor DoS na dysk:
- * jeden wpis na sekundę na rodzaj wyniku wystarcza, zeby zobaczyc zjawisko,
+ * jeden wpis na sekunde na rodzaj wyniku wystarcza, zeby zobaczyc zjawisko,
  * i nie wystarcza, zeby zapelnic wolumen.
  */
 class DlawionyLog {
-  private ostatni = new Map<string, number>();
-  private okresMs: number;
+  private lastRun = new Map<string, number>();
+  private periodMs: number;
 
   // Jawne przypisanie zamiast parameter property - Node w trybie
   // --experimental-strip-types wycina wylacznie typy i nie generuje kodu,
   // wiec `constructor(private okresMs)` nie zadziala. Ta sama uwaga stoi
   // przy konstruktorze IndexHolder w search/loader.ts.
-  constructor(okresMs = 1000) {
-    this.okresMs = okresMs;
+  constructor(periodMs = 1000) {
+    this.periodMs = periodMs;
   }
 
-  wolno(klucz: string): boolean {
+  slow(key: string): boolean {
     const teraz = Date.now();
-    if (teraz - (this.ostatni.get(klucz) ?? 0) < this.okresMs) return false;
-    this.ostatni.set(klucz, teraz);
+    if (teraz - (this.lastRun.get(key) ?? 0) < this.periodMs) return false;
+    this.lastRun.set(key, teraz);
     return true;
   }
 }
 
 export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
-  const { rejestr, pieprze, cfg } = deps;
+  const { registry, peppers, cfg } = deps;
 
   // null, nie {}: Fastify 5 rzuca FST_ERR_DEC_REFERENCE_TYPE dla wartosci
   // referencyjnych juz przy budowie serwera (lib/decorate.js:69).
@@ -194,40 +194,40 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
    * wiec limiter trasy dziala potem niezaleznie.
    *
    * `cache` przekazany JAWNIE: domyslne 5000 wpisow to LRU wypychajace
-   * najstarsze liczniki, czyli druga - niezalezna od zadania 8.1 - droga
+   * najstarsze counters, czyli druga - niezalezna od zadania 8.1 - droga
    * obejscia limitu przez rozproszenie kluczy.
    */
   const limiterAdresu = app.createRateLimit({
     keyGenerator: (req: FastifyRequest) => `ip:${req.ip}`,
-    max: cfg.limitNieuwierzytelniony,
+    max: cfg.unauthenticatedLimit,
     timeWindow: '1 minute',
     cache: 20_000,
   });
 
   const log = new DlawionyLog();
 
-  const odmow = async (
+  const denials = async (
     req: FastifyRequest, reply: FastifyReply,
-    kod: 401 | 403, wynik: Wynik, komunikat: string, prefiks?: string,
+    code: 401 | 403, result: Result, message: string, prefix?: string,
   ) => {
     // Limitujemy KAZDE odrzucenie, zanim je odeslemy.
-    const stan = await limiterAdresu(req);
-    if (stan.isExceeded) {
-      deps.onWynik?.('limit_prob');
+    const state = await limiterAdresu(req);
+    if (state.isExceeded) {
+      deps.onResult?.('rate_limited');
       return reply.code(429)
-        .header('retry-after', Math.ceil(stan.ttl / 1000))
-        .send({ error: 'Za duzo prob uwierzytelnienia z tego adresu.', code: 'LIMIT_PROB' });
+        .header('retry-after', Math.ceil(state.ttl / 1000))
+        .send({ error: 'Za duzo prob uwierzytelnienia z tego adresu.', code: 'RATE_LIMITED' });
     }
-    deps.onWynik?.(wynik);
-    if (log.wolno(wynik)) {
+    deps.onResult?.(result);
+    if (log.slow(result)) {
       // W logu NIGDY klucz jawny, NIGDY skrot, NIGDY hex - wylacznie prefiks,
       // ktory sam w sobie nie wystarcza do uwierzytelnienia.
-      req.log.warn({ wynik, prefiks }, 'odrzucone uwierzytelnienie');
+      req.log.warn({ result, prefix }, 'odrzucone uwierzytelnienie');
     }
-    return reply.code(kod).send({ error: komunikat, code: wynik.toUpperCase() });
+    return reply.code(code).send({ error: message, code: result.toUpperCase() });
   };
 
-  if (deps.zuzycie) {
+  if (deps.usage) {
     /**
      * Ksiegowanie jednostek dopiero w onResponse - w onRequest cialo zadania
      * nie jest jeszcze sparsowane, a wsad rozlicza sie po liczbie pozycji.
@@ -235,10 +235,10 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
      * Odpowiedzi 5xx nie obciazaja klienta: nie placi za nasze bledy.
      */
     app.addHook('onResponse', async (req, reply) => {
-      if (!req.klient || reply.statusCode >= 500) return;
-      deps.zuzycie!.zlicz(
-        req.klient.kluczId, req.klient.klientId,
-        jednostkiZadania(req.routeOptions?.url, req.body));
+      if (!req.client || reply.statusCode >= 500) return;
+      deps.usage!.count(
+        req.client.keyId, req.client.clientId,
+        requestUnits(req.routeOptions?.url, req.body));
     });
   }
 
@@ -246,7 +246,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     const trasa = req.routeOptions?.url;
 
     // Sondy i metryki poza uwierzytelnianiem - patrz komentarz przy BEZ_KLUCZA.
-    if (trasa !== undefined && BEZ_KLUCZA.has(trasa)) return;
+    if (trasa !== undefined && WITHOUT_KEY.has(trasa)) return;
 
     // Trasy administracyjne maja WLASNY mechanizm (token operatora) i celowo
     // nie przechodza przez uwierzytelnianie klientow: klucz adr_live_* nie
@@ -258,27 +258,27 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     // uwierzytelnianie: dzieki temu sondowanie nieistniejacych sciezek przestaje
     // byc darmowe. Nie "naprawiac" tego przepuszczaniem nieznanych tras.
 
-    if (cfg.mode === 'wylaczony') return;
+    if (cfg.mode === 'disabled') return;
 
-    const surowy = req.headers['x-api-key'];
+    const raw = req.headers['x-api-key'];
     // Klucz w query stringu jest traktowany jak jego BRAK: trafia do access
     // logu ingressu, do naglowka Referer i do historii przegladarki.
-    if (typeof surowy !== 'string' || surowy.length === 0) {
-      if (cfg.mode === 'opcjonalny') return;
-      return odmow(req, reply, 401, 'brak_klucza',
+    if (typeof raw !== 'string' || raw.length === 0) {
+      if (cfg.mode === 'optional') return;
+      return denials(req, reply, 401, 'missing_key',
         'Wymagany naglowek x-api-key.');
     }
 
-    const rozebrany = parseApiKey(surowy);
+    const rozebrany = parseApiKey(raw);
     if (!rozebrany) {
       // Zly format, zla suma i klucz nieznany MUSZA byc nieodroznialne -
       // inaczej komunikat staje sie wyrocznia dla zgadujacego.
-      return odmow(req, reply, 401, 'nieprawidlowy', 'Klucz API nieprawidlowy.');
+      return denials(req, reply, 401, 'invalid', 'Klucz API nieprawidlowy.');
     }
 
-    const wpis = znajdzWpis(pieprze, rejestr, surowy);
-    if (!wpis) {
-      return odmow(req, reply, 401, 'nieprawidlowy', 'Klucz API nieprawidlowy.');
+    const entry = findEntry(peppers, registry, raw);
+    if (!entry) {
+      return denials(req, reply, 401, 'invalid', 'Klucz API nieprawidlowy.');
     }
 
     /**
@@ -292,14 +292,14 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
      * Odpowiedz jest NIEODROZNIALNA od "klucz nieznany" - to jest wciaz etap
      * przed potwierdzeniem, ze klucz nalezy do tej instalacji.
      */
-    if (rozebrany.environment !== wpis.srodowisko) {
-      return odmow(req, reply, 401, 'nieprawidlowy', 'Klucz API nieprawidlowy.');
+    if (rozebrany.environment !== entry.environment) {
+      return denials(req, reply, 401, 'invalid', 'Klucz API nieprawidlowy.');
     }
 
-    const stan = ocenStan(wpis, Date.now());
-    if (stan) {
-      const { kod, komunikat } = ODMOWY[stan];
-      return odmow(req, reply, kod, stan, komunikat, wpis.prefiks);
+    const state = assessKeyState(entry, Date.now());
+    if (state) {
+      const { code, message } = DENIALS[state];
+      return denials(req, reply, code, state, message, entry.prefix);
     }
 
     /**
@@ -314,14 +314,14 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
      * kwote o swoja wielkosc. Kwota jest podstawa faktury, a nie zaworem
      * bezpieczenstwa; twarda ochrone daje limit minutowy.
      */
-    if (wpis.kwotaMiesieczna !== null && deps.zuzycie) {
-      const zdalne = rejestr.zuzyteJednostki(wpis.klientId);
-      const lokalne = deps.zuzycie.jednostkiKlienta(wpis.klientId);
-      if (zdalne + lokalne >= wpis.kwotaMiesieczna) {
-        deps.onWynik?.('kwota');
+    if (entry.monthlyQuota !== null && deps.usage) {
+      const remote = registry.usedUnits(entry.clientId);
+      const lokalne = deps.usage.clientUnits(entry.clientId);
+      if (remote + lokalne >= entry.monthlyQuota) {
+        deps.onResult?.('quota');
         return reply.code(429).send({
           error: 'Miesieczna kwota zapytan wyczerpana.',
-          code: 'KWOTA_WYCZERPANA',
+          code: 'QUOTA_EXHAUSTED',
         });
       }
     }
@@ -331,19 +331,19 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     // znaczy tylko tyle, ze przyrzad niczego nie zmierzyl. Niedostepne
     // w produkcji - to jedyny warunek, ktory tu wystarcza, bo koszt jest
     // sterowany zmienna srodowiskowa, a nie danymi z zadania.
-    if (cfg.debugOpoznienieUs) {
-      const do_ = process.hrtime.bigint() + BigInt(cfg.debugOpoznienieUs * 1000);
+    if (cfg.debugDelayUs) {
+      const do_ = process.hrtime.bigint() + BigInt(cfg.debugDelayUs * 1000);
       while (process.hrtime.bigint() < do_) { /* zajete oczekiwanie */ }
     }
 
-    deps.onWynik?.('ok');
-    req.klient = wpis;
+    deps.onResult?.('ok');
+    req.client = entry;
   });
 }
 
 declare module 'fastify' {
   interface FastifyRequest {
     /** Zweryfikowany klient. Ustawia WYLACZNIE hook z tego pliku. */
-    klient: KeyEntry | null;
+    client: KeyEntry | null;
   }
 }

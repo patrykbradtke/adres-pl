@@ -42,10 +42,10 @@ for (const p of STREET_PREFIXES) {
  * Wydziela cechy z poczatku nazwy ulicy.
  * `"ulica Marszalkowska"` -> `{ cecha: 'ul.', nazwa: 'Marszalkowska' }`
  */
-export function splitStreetPrefix(input: string): { cecha?: string; nazwa: string } {
+export function splitStreetPrefix(input: string): { streetType?: string; name: string } {
   const trimmed = input.trim();
   const m = trimmed.match(/^([A-Za-zÀ-ɏ]+)\.?\s+(.+)$/);
-  if (!m) return { nazwa: trimmed };
+  if (!m) return { name: trimmed };
 
   const head = m[1]
     .toLowerCase()
@@ -53,8 +53,8 @@ export function splitStreetPrefix(input: string): { cecha?: string; nazwa: strin
     .replace(/[̀-ͯ]/g, '')
     .replace(/ł/g, 'l');
   const prefix = VARIANT_MAP.get(head);
-  if (!prefix) return { nazwa: trimmed };
-  return { cecha: prefix.canonical, nazwa: m[2].trim() };
+  if (!prefix) return { name: trimmed };
+  return { streetType: prefix.canonical, name: m[2].trim() };
 }
 
 /**
@@ -84,8 +84,8 @@ const GIVEN_NAME_ENDINGS = /(?:a|y|i|ego|owej|ow)$/;
  * Zwraca undefined, gdy skracanie nie ma sensu. Wynik trafia do indeksu
  * JAKO DODATKOWY klucz - nigdy nie zastepuje formy oficjalnej.
  */
-export function shortStreetName(nazwa: string): string | undefined {
-  const parts = nazwa.trim().split(/\s+/);
+export function shortStreetName(name: string): string | undefined {
+  const parts = name.trim().split(/\s+/);
   if (parts.length < 2) return undefined;
 
   const last = parts[parts.length - 1];
@@ -130,11 +130,11 @@ const ORDINALS: Array<[RegExp, string[]]> = [
   [/\bxx\s*-?\s*lecia\b/i, ['20 lecia', 'dwudziestolecia']],
 ];
 
-export function ordinalVariants(nazwa: string): string[] {
+export function ordinalVariants(name: string): string[] {
   const out: string[] = [];
   for (const [re, replacements] of ORDINALS) {
-    if (re.test(nazwa)) {
-      for (const r of replacements) out.push(nazwa.replace(re, r));
+    if (re.test(name)) {
+      for (const r of replacements) out.push(name.replace(re, r));
     }
   }
   return out;

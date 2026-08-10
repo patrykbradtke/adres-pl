@@ -29,7 +29,7 @@ Plan zadań: [plan-produkcyjny.md](plan-produkcyjny.md).
 Rejestr zapowiada 8 560 617 punktów na 31.03.2026 — mamy 45 tys. więcej, co
 odpowiada przyrostowi za cztery miesiące. Zrzut jest kompletny.
 
-Pomiar wyszukiwania: `node --experimental-strip-types packages/etl/test/bench-realny.ts`.
+Pomiar wyszukiwania: `node --experimental-strip-types packages/etl/test/bench-real.ts`.
 Testy: `npm test` — sześć zestawów **hermetycznych** (bez bazy i bez danych,
 budują sobie atrapę artefaktu). `npm run test:baza` — sześć zestawów na żywej
 bazie z migracją `004_licencje.sql`. `npm run jakosc` — zbiór wzorcowy (28
@@ -174,7 +174,7 @@ wskaźnik wersji już przy starcie, dodano `ANALYZE` po masowym wstawieniu.
 
 | etap | czas |
 |---|---|
-| Ładowanie 16 województw (`--rownolegle 4`) | **~17 min** |
+| Ładowanie 16 województw (`--parallel 4`) | **~17 min** |
 | `resolve_refs()` — 8,6 mln wierszy | ~49 min ← do naprawy, patrz usterka 8 |
 | Kontrole jakości na pełnym zbiorze | ~2 min |
 | Publikacja transakcyjna (+6 615 199 punktów) | **2 h 16 min** |
@@ -192,11 +192,11 @@ nałożonych indeksach (`resolve_refs` + wiązanie z ulicami wewnątrz publikacj
 
 | metoda | p50 | p95 | p99 | skąd |
 |---|---|---|---|---|
-| silnik bezpośrednio | 0,81 ms | 4,63 ms | 9,38 ms | `bench-realny.ts` |
+| silnik bezpośrednio | 0,81 ms | 4,63 ms | 9,38 ms | `bench-real.ts` |
 | pełna ścieżka HTTP | **1,71 ms** | 9,41 ms | 27,94 ms | **pomiar doraźny, nie do odtworzenia** |
 
 **Sprostowanie (etap 8A, 9.08).** Wiersz „pełna ścieżka HTTP" był tu i w
-`deploy/alerty.yaml` przypisany skryptowi `bench-realny.ts`. Ten skrypt
+`deploy/alerty.yaml` przypisany skryptowi `bench-real.ts`. Ten skrypt
 **nie może** tych liczb dać: importuje `SearchIndex` i mierzy `idx.search()`
 bezpośrednio — bez routingu, bez hooków, bez serializacji (`grep fastify`
 nie daje w nim ani jednego trafienia). Liczby pochodzą z pomiaru doraźnego,
@@ -212,7 +212,7 @@ wykonującej kod, nie koszt uszeregowania kandydatów. **Budżet czasu odpowiedz
 planować pod zimny start instancji, nie pod nazwy pospolite** — i rozgrzewać
 instancję przed skierowaniem na nią ruchu.
 
-Zrównoleglenie: `cycle --rownolegle N` lub `ETL_ROWNOLEGLE`. Domyślnie 1.
+Zrównoleglenie: `cycle --parallel N` lub `ETL_ROWNOLEGLE`. Domyślnie 1.
 Koszt ~400 MB RAM na proces — dobierać do pamięci, nie do liczby rdzeni.
 
 ---
@@ -223,7 +223,7 @@ Koszt ~400 MB RAM na proces — dobierać do pamięci, nie do liczby rdzeni.
 dostaje odpowiedzi (sprawdzone: 30 s, 60 s, 180 s), przy działającym pobraniu
 opisu usługi w 2,2 s. Konto produkcyjne: zgłoszenie na `teryt_ws1@stat.gov.pl`.
 **Nie jest potrzebne** — te same katalogi pobiera bez konta skrypt
-`scripts/teryt-pobierz-pliki.mjs` (odtwarza formularz eteryt). Uwaga: brać
+`scripts/teryt-fetch-files.mjs` (odtwarza formularz eteryt). Uwaga: brać
 warianty **CSV**, nie XML — parser obsługuje wyłącznie CSV ze średnikami.
 
 **Progi kontroli jakości.** `SANITY_MIN_POINTS` (domyślnie 7,5 mln) nie jest już
@@ -251,7 +251,7 @@ wersjonowania schematu to luka wskazana w planie.
 nagłówek `x-api-key` nie jest już kluczem kubełka, bo nikt go nie weryfikuje,
 a losowanie wartości dawało świeży licznik. Za ingressem ustawić `TRUST_PROXY`
 — bez tego cały ruch trafia do jednego kubełka po adresie ingressu.
-Test regresji: `node --experimental-strip-types packages/api/test/limit-obejscie.ts`.
+Test regresji: `node --experimental-strip-types packages/api/test/rate-limit-bypass.ts`.
 Pełne uwierzytelnianie z licencjami: etap 8A.
 
 ---
@@ -263,10 +263,10 @@ Pełne uwierzytelnianie z licencjami: etap 8A.
 docker compose up -d db
 
 # pełny cykl na pozostałych województwach, 4 procesy naraz
-docker compose run --rm etl cycle --z-archiwum 2026-08-06 --rownolegle 4
+docker compose run --rm etl cycle --from-archive 2026-08-06 --parallel 4
 
 # publikacja i artefakt
-docker compose run --rm etl publish --wersja 2026-08-06
+docker compose run --rm etl publish --version 2026-08-06
 docker compose run --rm etl build-index
 
 # serwis
@@ -282,8 +282,8 @@ i `./scripts/e2e.sh` — ten drugi wymaga `psql` w PATH:
 `export PATH="/usr/local/opt/libpq/bin:$PATH"`.
 
 Narzędzia pomocnicze w `scripts/`:
-- `teryt-pobierz-pliki.mjs <katalog>` — pobiera katalogi TERYT bez konta w GUS
-- `pobierz-wszystkie-woj.sh` — kolejka pobrania archiwów PRG, pomija już pobrane
+- `teryt-fetch-files.mjs <katalog>` — pobiera katalogi TERYT bez konta w GUS
+- `fetch-all-voivodeships.sh` — kolejka pobrania archiwów PRG, pomija już pobrane
 - `e2e.sh` — test całej ścieżki na fixture'ach
 
 ---
@@ -351,7 +351,7 @@ Dzięki temu podniesienie formatu artefaktu do wersji 2 przez równoległą sesj
 przeszło **bez jednej zmiany w kodzie testów**; wystarczyło przebudować plik.
 Zestawy wymagające bazy stoją osobno: `npm run test:baza`.
 
-**3. Nie osłabiaj `limit-obejscie.ts`.** Gdy sczerwienieje po zmianie
+**3. Nie osłabiaj `rate-limit-bypass.ts`.** Gdy sczerwienieje po zmianie
 w uwierzytelnianiu, znaczy to, że kubełek limitu przestał być liczony po
 zweryfikowanym kliencie — a nie że asercja jest za ostra. W nagłówku pliku są
 cztery instrukcje odtworzenia luki, każda dla innej drogi powrotu.
@@ -361,7 +361,7 @@ cztery instrukcje odtworzenia luki, każda dla innej drogi powrotu.
 | co | wynik |
 |---|---|
 | Koszt uwierzytelniania | **34–36 µs** na p50, przy budżecie 300 µs |
-| Ta sama liczba, drugą metodą | ~50 µs (`koszt-uwierzytelnienia.ts`, bez serwera) |
+| Ta sama liczba, drugą metodą | ~50 µs (`auth-cost.ts`, bez serwera) |
 | Zbieżność unieważnienia | 25–100 ms kanałem `NOTIFY`, gwarantowane ~10 s odpytywaniem |
 | Bramka jakości po zmianach | 28 przypadków, **zero odstępstw**, na pełnych danych |
 
@@ -389,7 +389,7 @@ wywołań na proces. Docelowo: osobny proces na serię.
 1. `psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/004_licencje.sql`
 2. Ustaw `API_KEY_PEPPER_1` — **bez niego serwis nie wstanie**, bo domyślką
    `API_KEY_MODE` jest od zadania 8.9 `wymagany`
-3. Wystaw pierwszy klucz: `npm run klucze -- wystaw --klient <ID>`
+3. Wystaw pierwszy klucz: `npm run klucze -- wystaw --client <ID>`
 4. Zabezpiecz kopię pieprza. Jego utrata unieważnia **wszystkie** klucze i nie
    da się jej odwrócić z kopii bazy, bo baza zawiera same skróty (zadanie 8.22)
 
@@ -539,3 +539,89 @@ Ustalenia dotyczące technologii (uzasadnienie w planie): serwis danych zostaje
 na Fastify bez ORM; NestJS i ewentualnie Drizzle rozważyć wyłącznie dla
 back-endu panelu administracyjnego, który powstanie w Angularze jako SPA
 z autoryzacją — planowany osobno, po etapach 4 i 5.
+
+---
+
+## 10. Refactor nazewnictwa na angielski (10.08.2026)
+
+Kod przeszedł na angielskie identyfikatory. Konwencja i jej uzasadnienie:
+**[konwencja-nazewnictwa.md](konwencja-nazewnictwa.md)** — ten dokument jest
+wiążący i rozstrzyga spory o nazwy raz, zamiast przy każdym module.
+
+### Co się zmieniło
+
+| warstwa | stan |
+|---|---|
+| identyfikatory TS | angielskie w całym repozytorium (`core`, `index-format`, `etl`, `api`, testy) |
+| pola JSON API | angielskie — `miejscowosc`→`locality`, `nrBudynku`→`buildingNumber`, `cecha`→`streetType` |
+| wartości enumów | `zweryfikowany_rejestr`→`verified_registry`, `BRAK_MIEJSCOWOSCI`→`MISSING_LOCALITY` |
+| kody odmowy 401/403 | `BRAK_KLUCZA`→`MISSING_KEY`, `WYGASLY`→`EXPIRED`, `UNIEWAZNIONY`→`REVOKED` |
+| baza | migracja **005_english_naming.sql** — schematy `adres`→`address`, `licencje`→`licensing` |
+| kanał NOTIFY | `licencje_zmiana`→`licensing_change`, ładunek `key:` / `client:` |
+| metryki | `adres_zapytania_total`→`adres_requests_total` i 25 innych; prefiks `adres_` **zostaje** |
+| zmienne środowiskowe | `KLUCZE_MAX_WIEK_S`→`KEYS_MAX_AGE_S`, `ZUZYCIE_FLUSH_MS`→`USAGE_FLUSH_MS` |
+| `API_KEY_MODE` | wartości `required` / `optional` / `disabled` (były polskie) |
+| flagi CLI | `--klient`→`--client`, `--woj`→`--voivodeship`, `--stan`→`--as-of` |
+| skrypty npm | `test:baza`→`test:db`, `jakosc`→`quality`, `raport`→`report`, `klucze`→`keys` |
+| pliki testów | angielskie nazwy (`uwierzytelnianie.ts`→`authentication.ts` itd.) |
+
+Komentarze i komunikaty **zostają po polsku**, bez znaków diakrytycznych.
+
+### Co zostaje po polsku celowo
+
+To nie są nasze nazwy — ich tłumaczenie byłoby błędem:
+
+- nagłówki kolumn plików iMPA i TERYT: `NAZWA_MIEJSCOWOSCI`, `TYP_ULICY`, `CECHA`
+- operacje SOAP w API GUS: `PobierzKatalogTERC`, `PobierzKatalogSIMC`
+- elementy GML GUGiK: `lokalnyId`, `numerPorzadkowy`, `przedrostek1Czesc`
+- cechy ulic jako dane słownikowe: `szosa`, `wybrzeze`, `bulwar`
+- migracje 001–004 — zapis historii, który na wdrożonej bazie już przeszedł
+
+### Trzy pułapki znalezione przy okazji
+
+Wszystkie trzy były **cichymi** błędami — kod działał, testy wcześniej
+przechodziły, a skutek ujawniał się dopiero w konkretnym scenariuszu:
+
+1. **Alias SQL kontra odczyt w TS.** `SELECT ... AS znacznik` przy odczycie
+   `z.stamp` dawało `undefined`. Efekt: `undefined === undefined`, więc rejestr
+   kluczy uznawał, że nic się nie zmieniło, i **nigdy się nie odświeżał**.
+   Przy każdej zmianie nazwy kolumny sprawdzać OBIE strony.
+2. **Pole i metoda o tej samej nazwie.** `private authentication = new Map()`
+   przesłoniło metodę `authentication()`. Każde żądanie kończyło się 500.
+3. **Typ unii kontra klucze rekordu.** `type DenialState = 'wygasly' | ...`
+   przy kluczach `DENIALS` już angielskich — trzy z czterech odmów zwracały
+   `undefined` zamiast kodu 403.
+
+### Zweryfikowane 10.08.2026
+
+- `npm test` — sześć zestawów hermetycznych, kod wyjścia **0**
+- `npm run test:db` — sześć zestawów na żywej bazie po migracji 005, **0**
+- `node docs/build-report.js` — raport generuje się poprawnie
+- migracja 005 wgrana na lokalnej bazie w kontenerze `adres-pl-db-1`
+
+### Czego NIE zweryfikowano
+
+- **`scripts/e2e.sh`** — poprawiony pod nowe nazwy (w tym dopisana migracja
+  005 do sekwencji), ale **nieuruchomiony**: wymaga pełnych danych TERYT i PRG
+- **`npm run quality`** — zbiór wzorcowy wymaga danych krajowych
+- **`npm run bench`** — pomiar niewykonany po zmianach
+
+### Zanim wdrożysz
+
+1. **Nie da się rolling-update.** Migracja zmienia jednocześnie nazwy kolumn
+   i kanał NOTIFY. Stara instancja API po migracji przestaje działać —
+   baza i obraz muszą wejść razem.
+2. **Prometheus straci ciągłość** dla 26 przemianowanych metryk. Alerty
+   i pulpit Grafany są zaktualizowane, ale wykresy będą miały wyrwę.
+3. **`.env` trzeba poprawić ręcznie** — `API_KEY_MODE=wymagany` już nie działa,
+   wartość to teraz `required`.
+
+### Kolejność dalszych prac po refactorze
+
+| # | zadanie | dlaczego |
+|---|---|---|
+| 1 | Uruchomić `scripts/e2e.sh` na pełnych danych | jedyna niezweryfikowana ścieżka; sprawdza ETL → publikacja → API od końca do końca |
+| 2 | Uruchomić `npm run quality` i `npm run bench` | potwierdzić brak regresji jakości wyszukiwania i czasów po zmianie nazw |
+| 3 | Przejrzeć prozę w README i tym dokumencie | opisy pól API miejscami wciąż mówią `miejscowosc`/`nrBudynku`; nazwy metryk i poleceń są już poprawione |
+| 4 | Zdjąć `redis` i `minio` z `docker-compose.yml` | zadanie sprzed refactoru, wciąż otwarte — ~9% CPU i 85 MB bez żadnego użycia |
+| 5 | Narzędzie do migracji (`node-pg-migrate`) | 005 to piąty plik wgrywany ręcznie; dług opisany w planie produkcyjnym |

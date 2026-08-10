@@ -60,7 +60,7 @@ const PATRONI = [
   'Henryka Sienkiewicza', 'Władysława Reymonta', 'gen. Józefa Bema', 'płk. Leopolda Okulickiego',
   '3 Maja', '1 Maja', 'Armii Krajowej', 'Bohaterów Getta', 'Konstytucji 3 Maja',
 ];
-const CECHY = ['ul.', 'ul.', 'ul.', 'ul.', 'ul.', 'al.', 'pl.', 'os.', 'rondo', 'skwer'];
+const STREET_TYPES = ['ul.', 'ul.', 'ul.', 'ul.', 'ul.', 'al.', 'pl.', 'os.', 'rondo', 'skwer'];
 const WOJ = [
   ['02', 'dolnośląskie'], ['04', 'kujawsko-pomorskie'], ['06', 'lubelskie'], ['08', 'lubuskie'],
   ['10', 'łódzkie'], ['12', 'małopolskie'], ['14', 'mazowieckie'], ['16', 'opolskie'],
@@ -70,16 +70,16 @@ const WOJ = [
 ] as const;
 
 export interface ScaleConfig {
-  punktow: number;
-  miejscowosci: number;
+  points: number;
+  localities: number;
   ulic: number;
   gmin: number;
   outDir: string;
 }
 
 export const PRG_REALNA_SKALA: Omit<ScaleConfig, 'outDir'> = {
-  punktow: 8_560_617,
-  miejscowosci: 103_000,
+  points: 8_560_617,
+  localities: 103_000,
   ulic: 302_793,
   gmin: 2_477,
 };
@@ -90,7 +90,7 @@ function esc(v: string | number | null | undefined): string {
 }
 
 /** Losowy punkt w przyblizonym obrysie Polski. */
-function losowaPozycja(): [number, number] {
+function randomPosition(): [number, number] {
   return [14.2 + rnd() * 9.8, 49.1 + rnd() * 5.6];
 }
 
@@ -116,8 +116,8 @@ export async function generuj(cfg: ScaleConfig): Promise<Record<string, string>>
     const naPowiat = Math.ceil(cfg.gmin / powiaty.length);
     for (const pterc of powiaty) {
       for (let g = 1; g <= naPowiat && gminy.length < cfg.gmin; g++) {
-        const rodz = pick([1, 2, 3, 3, 2, 2]);
-        gminy.push(`${pterc.slice(0, 4)}${String(g).padStart(2, '0')}${rodz}`);
+        const kind = pick([1, 2, 3, 3, 2, 2]);
+        gminy.push(`${pterc.slice(0, 4)}${String(g).padStart(2, '0')}${kind}`);
       }
       if (gminy.length >= cfg.gmin) break;
     }
@@ -125,8 +125,8 @@ export async function generuj(cfg: ScaleConfig): Promise<Record<string, string>>
 
   {
     const w = createWriteStream(f('terc'));
-    for (const [kod, nazwa] of WOJ) {
-      w.write([`${kod}00000`, nazwa, 1, '\\N', '\\N', '2026-08-01'].join('\t') + '\n');
+    for (const [code, name] of WOJ) {
+      w.write([`${code}00000`, name, 1, '\\N', '\\N', '2026-08-01'].join('\t') + '\n');
     }
     for (const pterc of powiaty) {
       w.write([pterc, `powiat ${pterc.slice(0, 4)}`, 2, '\\N', `${pterc.slice(0, 2)}00000`, '2026-08-01'].join('\t') + '\n');
@@ -138,64 +138,64 @@ export async function generuj(cfg: ScaleConfig): Promise<Record<string, string>>
     out.terc = f('terc');
   }
 
-  const nazwyMiejsc: string[] = [];
-  const maUlice: boolean[] = [];
+  const localityNames: string[] = [];
+  const hasStreets: boolean[] = [];
   {
     const w = createWriteStream(f('miejscowosc'));
-    for (let i = 0; i < cfg.miejscowosci; i++) {
+    for (let i = 0; i < cfg.localities; i++) {
       // 55% nazw dwuczlonowych -> masowe duplikaty typu "Nowa Wies"
-      const nazwa = rnd() < 0.55
+      const name = rnd() < 0.55
         ? `${pick(RDZENIE)} ${pick(KONCOWKI)}`
         : rnd() < 0.5 ? pick(KONCOWKI) : `${pick(RDZENIE)}${pick(SUFIKSY)}`;
       const simc = String(1_000_000 + i);
       // ~30% miejscowosci ma ulice (miasta i wieksze wsie)
-      const zUlicami = rnd() < 0.30;
-      nazwyMiejsc.push(nazwa);
-      maUlice.push(zUlicami);
-      const [lon, lat] = losowaPozycja();
+      const withStreets = rnd() < 0.30;
+      localityNames.push(name);
+      hasStreets.push(withStreets);
+      const [lon, lat] = randomPosition();
       w.write([
-        simc, nazwa, normalizeText(nazwa),
+        simc, name, normalizeText(name),
         pick([1, 1, 1, 1, 2, 3, 4, 96, 99]),
         pick(gminy), '\\N', '\\N',
-        zUlicami ? 't' : 'f', 0,
+        withStreets ? 't' : 'f', 0,
         `SRID=4326;POINT(${lon.toFixed(6)} ${lat.toFixed(6)})`,
         'test', 'skala', '\\N',
       ].join('\t') + '\n');
     }
     await new Promise((r) => w.end(r));
-    out.miejscowosc = f('miejscowosc');
+    out.locality = f('miejscowosc');
   }
 
   // --- ulice ------------------------------------------------------------
-  const zUlicami = nazwyMiejsc.map((_, i) => i).filter((i) => maUlice[i]);
-  const uliceSimc: number[] = [];
+  const withStreets = localityNames.map((_, i) => i).filter((i) => hasStreets[i]);
+  const streetSimcs: number[] = [];
   {
     const w = createWriteStream(f('ulica'));
-    const widziane = new Set<string>();
+    const seen = new Set<string>();
     let id = 0;
     for (let i = 0; i < cfg.ulic; i++) {
-      const mi = pick(zUlicami);
+      const mi = pick(withStreets);
       // 35% ulic patronackich - te wymagaja wyliczenia formy potocznej
       const patron = rnd() < 0.35;
-      const nazwa = patron ? pick(PATRONI) : pick(RDZENIE);
-      const cecha = pick(CECHY);
+      const name = patron ? pick(PATRONI) : pick(RDZENIE);
+      const streetType = pick(STREET_TYPES);
       const simc = String(1_000_000 + mi);
-      const norm = normalizeText(nazwa);
-      const klucz = `${simc}|${norm}|${cecha}`;
-      if (widziane.has(klucz)) continue;   // UNIQUE(simc, nazwa_norm, cecha)
-      widziane.add(klucz);
-      const skroc = shortStreetName(nazwa);
+      const norm = normalizeText(name);
+      const key = `${simc}|${norm}|${streetType}`;
+      if (seen.has(key)) continue;   // UNIQUE(simc, nazwa_norm, cecha)
+      seen.add(key);
+      const shortName = shortStreetName(name);
       id++;
-      uliceSimc.push(mi);
+      streetSimcs.push(mi);
       w.write([
-        id, simc, String(10_000 + (id % 90_000)).padStart(5, '0'), cecha,
-        nazwa, norm,
-        skroc ?? '\\N', skroc ? normalizeText(skroc) : '\\N',
+        id, simc, String(10_000 + (id % 90_000)).padStart(5, '0'), streetType,
+        name, norm,
+        shortName ?? '\\N', shortName ? normalizeText(shortName) : '\\N',
         '\\N', '\\N', 0, 'test', 'skala', '\\N',
       ].join('\t') + '\n');
     }
     await new Promise((r) => w.end(r));
-    out.ulica = f('ulica');
+    out.street = f('ulica');
     out._ulicCount = String(id);
   }
 
@@ -204,11 +204,11 @@ export async function generuj(cfg: ScaleConfig): Promise<Record<string, string>>
     const w = createWriteStream(f('punkt'), { highWaterMark: 1 << 20 });
     const ulicCount = Number(out._ulicCount);
     let bufor = '';
-    for (let i = 0; i < cfg.punktow; i++) {
+    for (let i = 0; i < cfg.points; i++) {
       // 65% adresow przy ulicy, 35% bez ulicy (adresy wiejskie)
-      const przyUlicy = rnd() < 0.65 && ulicCount > 0;
-      const ulicId = przyUlicy ? zipf(ulicCount, 2) : null;
-      const mi = przyUlicy ? uliceSimc[ulicId! - 1] : Math.floor(rnd() * cfg.miejscowosci);
+      const onStreet = rnd() < 0.65 && ulicCount > 0;
+      const ulicId = onStreet ? zipf(ulicCount, 2) : null;
+      const mi = onStreet ? streetSimcs[ulicId! - 1] : Math.floor(rnd() * cfg.localities);
       const simc = String(1_000_000 + mi);
 
       // rozklad numerow zblizony do realnego: krotkie czesciej niz dlugie
@@ -216,14 +216,14 @@ export async function generuj(cfg: ScaleConfig): Promise<Record<string, string>>
       const nr = rnd() < 0.08 ? `${n}${pick(['A', 'B', 'C', 'a'])}`
         : rnd() < 0.03 ? `${n}/${n + 2}` : String(n);
 
-      const [lon, lat] = losowaPozycja();
-      const kod = `${String(10 + Math.floor(rnd() * 89)).padStart(2, '0')}-${String(Math.floor(rnd() * 1000)).padStart(3, '0')}`;
+      const [lon, lat] = randomPosition();
+      const code = `${String(10 + Math.floor(rnd() * 89)).padStart(2, '0')}-${String(Math.floor(rnd() * 1000)).padStart(3, '0')}`;
       const hash = createHash('sha256').update(`${simc}|${ulicId}|${nr}`).digest('hex');
 
       bufor += [
         `PA-${i}`, '\\N', '\\N', simc, ulicId ?? '\\N',
         nr, buildingNumberKey(nr), buildingSortKey(nr),
-        kod, rnd() < 0.02 ? 'wTrakcieBudowy' : 'istniejacy', '\\N',
+        code, rnd() < 0.02 ? 'wTrakcieBudowy' : 'istniejacy', '\\N',
         `SRID=4326;POINT(${lon.toFixed(6)} ${lat.toFixed(6)})`,
         'prg', 'skala', `\\\\x${hash}`, pick(WOJ)[0],
       ].join('\t') + '\n';
@@ -235,7 +235,7 @@ export async function generuj(cfg: ScaleConfig): Promise<Record<string, string>>
     }
     if (bufor) w.write(bufor);
     await new Promise((r) => w.end(r));
-    out.punkt = f('punkt');
+    out.point = f('punkt');
   }
 
   return out;

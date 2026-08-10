@@ -1,5 +1,5 @@
 /**
- * Ladowanie i gorąca podmiana artefaktu indeksu.
+ * Ladowanie i goraca podmiana artefaktu indeksu.
  *
  * MODEL: pod API jest BEZSTANOWY wzgledem danych. Przy starcie pobiera
  * artefakt (z dysku, S3/MinIO albo HTTP), laduje do RAM i serwuje.
@@ -55,14 +55,14 @@ export class IndexHolder {
     // juz przy starcie - inaczej pod wstawal na `source` i dopiero pierwszy
     // cykl pollingu (domyslnie po minucie) przestawial go na wlasciwy
     // artefakt. Gdy wskaznika nie ma albo jest niepoprawny, zostaje `source`.
-    const zrodlo = await this.rozwiazZrodlo();
+    const source = await this.resolveSource();
     try {
-      await this.load(zrodlo);
+      await this.load(source);
     } catch (e) {
       // Wskaznik moze pokazywac na artefakt, ktorego jeszcze nie ma obok
       // (np. replikacja z S3 w toku). Lepiej wstac na starszym artefakcie
       // i podmienic go przy najblizszym pollingu, niz nie wstac wcale.
-      if (zrodlo === this.cfg.source) throw e;
+      if (source === this.cfg.source) throw e;
       this.cfg.onError?.(e as Error);
       await this.load(this.cfg.source);
     }
@@ -78,7 +78,7 @@ export class IndexHolder {
   }
 
   /** Sciezka artefaktu wskazana przez wskaznik, albo `source` jako zapasowa. */
-  private async rozwiazZrodlo(): Promise<string> {
+  private async resolveSource(): Promise<string> {
     if (!this.cfg.pointer) return this.cfg.source;
     try {
       const { current } = JSON.parse(await fetchText(this.cfg.pointer)) as { current?: string };
@@ -106,9 +106,9 @@ export class IndexHolder {
       // wskaznika - co 60 s pelny odczyt i parsowanie 109 MB, bez zmiany wersji.
       // W logu bylo to widoczne jako "podmieniono artefakt" z 2026-08-06
       // na 2026-08-06 w kolko. Wykryte dopiero po podpieciu monitoringu.
-      const tenSamPlik = this.loadedFrom === wanted;
-      const taSamaWersja = !dataVersion || this.index?.dataVersion === dataVersion;
-      if (this.index && tenSamPlik && taSamaWersja) return;
+      const sameFile = this.loadedFrom === wanted;
+      const sameVersion = !dataVersion || this.index?.dataVersion === dataVersion;
+      if (this.index && sameFile && sameVersion) return;
 
       await this.load(wanted);
     } catch (e) {

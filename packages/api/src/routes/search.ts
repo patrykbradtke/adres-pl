@@ -34,8 +34,8 @@ export function registerSearchRoutes(app: FastifyInstance, holder: IndexHolder):
       return {
         query: q,
         results,
-        czasMs: Math.round(ms * 1000) / 1000,
-        wersjaDanych: holder.current.dataVersion,
+        durationMs: Math.round(ms * 1000) / 1000,
+        dataVersion: holder.current.dataVersion,
       };
     },
   );

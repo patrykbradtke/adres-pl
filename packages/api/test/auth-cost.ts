@@ -43,37 +43,37 @@ const N = 100_000;
  * Zmierzone: 50-52 us. Prog zostawia trzykrotny zapas na wolniejsza maszyne,
  * a obieg do bazy (200-1000 us) i tak go przekroczy.
  */
-const PROG_US = 150;
+const THRESHOLD_US = 150;
 
-let bledy = 0;
-const zglos = (ok: boolean, opis: string) => {
-  console.log(`${ok ? 'OK  ' : 'BLAD'} ${opis}`);
-  if (!ok) bledy++;
+let errors = 0;
+const report = (ok: boolean, description: string) => {
+  console.log(`${ok ? 'OK  ' : 'ERROR'} ${description}`);
+  if (!ok) errors++;
 };
 
-const pieprze = new Peppers(new Map([[1, 'pieprz-mikropomiaru']]), 1);
-const klucze = Array.from({ length: 1000 }, () => generateApiKey('live'));
+const peppers = new Peppers(new Map([[1, 'pieprz-mikropomiaru']]), 1);
+const keys = Array.from({ length: 1000 }, () => generateApiKey('live'));
 
 // Replika w postaci, w jakiej uzywa jej hook: mapa hex -> wpis.
-const replika = new Map<string, { kluczId: number }>();
-klucze.forEach((k, i) => replika.set(pieprze.hash(k).hex, { kluczId: i }));
+const replica = new Map<string, { keyId: number }>();
+keys.forEach((k, i) => replica.set(peppers.hash(k).hex, { keyId: i }));
 
-function mierz(nazwa: string, praca: (klucz: string) => unknown): number {
+function measure(name: string, praca: (key: string) => unknown): number {
   // Rozgrzewka poza pomiarem - pierwsze wywolania sa rzedy wielkosci wolniejsze.
-  for (let i = 0; i < 5_000; i++) praca(klucze[i % klucze.length]);
+  for (let i = 0; i < 5_000; i++) praca(keys[i % keys.length]);
   const t0 = process.hrtime.bigint();
-  for (let i = 0; i < N; i++) praca(klucze[i % klucze.length]);
+  for (let i = 0; i < N; i++) praca(keys[i % keys.length]);
   const us = Number(process.hrtime.bigint() - t0) / 1000 / N;
-  console.log(`   ${nazwa.padEnd(28)} ${us.toFixed(3)} us/wywolanie`);
+  console.log(`   ${name.padEnd(28)} ${us.toFixed(3)} us/wywolanie`);
   return us;
 }
 
-const odniesienie = mierz('rozbior klucza (czysty TS)', (k) => parseApiKey(k));
-const pelna = mierz('pelna weryfikacja', (k) => {
+const baseline = measure('rozbior klucza (czysty TS)', (k) => parseApiKey(k));
+const pelna = measure('pelna weryfikacja', (k) => {
   if (!parseApiKey(k)) return undefined;
-  for (const { hex } of pieprze.hashAll(k)) {
-    const wpis = replika.get(hex);
-    if (wpis) return wpis;
+  for (const { hex } of peppers.hashAll(k)) {
+    const entry = replica.get(hex);
+    if (entry) return entry;
   }
   return undefined;
 });
@@ -82,23 +82,23 @@ const pelna = mierz('pelna weryfikacja', (k) => {
 //
 // Bez tej kontroli pomiar moglby mierzyc szybka sciezke bledu i wygladac
 // swietnie, nie robiac tego, co ma.
-const trafienia = klucze.filter((k) => {
-  for (const { hex } of pieprze.hashAll(k)) if (replika.has(hex)) return true;
+const trafienia = keys.filter((k) => {
+  for (const { hex } of peppers.hashAll(k)) if (replica.has(hex)) return true;
   return false;
 }).length;
-zglos(trafienia === klucze.length,
-  `sciezka weryfikacji odnajduje ${trafienia} z ${klucze.length} kluczy`);
+report(trafienia === keys.length,
+  `sciezka weryfikacji odnajduje ${trafienia} z ${keys.length} kluczy`);
 
 // --- 2. Koszt sciezki weryfikacji ------------------------------------
-zglos(pelna <= PROG_US,
-  `pelna weryfikacja ${pelna.toFixed(1)} us/wywolanie (prog ${PROG_US} us)`);
+report(pelna <= THRESHOLD_US,
+  `pelna weryfikacja ${pelna.toFixed(1)} us/wywolanie (prog ${THRESHOLD_US} us)`);
 
 // --- 3. Krotnosc wobec rozbioru - INFORMACYJNIE, bez progu -----------
 //
 // Zostaje w wydruku, bo pokazuje strukture kosztu (kryptografia wobec czystego
 // TypeScriptu), ale NIE jest asercja: wartosc odniesienia jest zbyt mala
 // i zbyt zmienna, zeby cokolwiek na niej oprzec.
-console.log(`   krotnosc wobec rozbioru      ${(pelna / odniesienie).toFixed(1)}x (informacyjnie)`);
+console.log(`   krotnosc wobec rozbioru      ${(pelna / baseline).toFixed(1)}x (informacyjnie)`);
 
-console.log(bledy === 0 ? '\nWszystkie kontrole przeszly.' : `\n${bledy} kontroli nie przeszlo.`);
-process.exit(bledy === 0 ? 0 : 1);
+console.log(errors === 0 ? '\nWszystkie kontrole przeszly.' : `\n${errors} kontroli nie przeszlo.`);
+process.exit(errors === 0 ? 0 : 1);

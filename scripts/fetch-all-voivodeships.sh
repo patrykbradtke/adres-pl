@@ -22,7 +22,7 @@ for kod in "${KODY[@]}"; do
     pominiete=$((pominiete+1)); continue
   fi
   echo "[$kod] $(date +%H:%M:%S) pobieram..."
-  if docker compose run --rm --no-TTY etl download --woj "$kod" --wersja "$WERSJA" 2>&1 | grep -v "Container adres-pl-db-1"; then
+  if docker compose run --rm --no-TTY etl download --voivodeship "$kod" --version "$WERSJA" 2>&1 | grep -v "Container adres-pl-db-1"; then
     ok=$((ok+1))
   else
     echo "[$kod] BLAD"; bledy+=("$kod")

@@ -45,7 +45,7 @@ natychmiastowe unieważnienie. Przez okres przejściowy działają oba.
 1. Wystaw następcę (klucz jawny widać **raz** — zapisz go od razu):
 
 ```bash
-node --experimental-strip-types packages/api/src/keys/cli.ts wystaw --klient <ID> --zastepuje <ID_STAREGO>
+node --experimental-strip-types packages/api/src/keys/cli.ts wystaw --client <ID> --replaces <ID_STAREGO>
 ```
 
 2. Ustaw poprzednikowi koniec ważności — domyślnie 7 dni:

@@ -107,7 +107,7 @@ function esc(s: string): string {
 export interface TerytFile {
   catalog: TerytCatalog;
   /** Data stanu, na ktora pobrano katalog. */
-  dataStanu: string;
+  asOfDate: string;
   /** Zawartosc CSV po rozpakowaniu. */
   csv: string;
   /** Nazwa pliku wewnatrz archiwum - do dziennika. */
@@ -130,14 +130,14 @@ const METHOD: Record<TerytCatalog, string> = {
  * jest istotne: pozwala odtworzyc dokladnie ten sam zbior przy ponownym
  * uruchomieniu, co jest warunkiem powtarzalnosci calego pipeline'u.
  */
-export async function pobierzKatalog(
+export async function fetchCatalog(
   catalog: TerytCatalog,
-  dataStanu: string,
+  asOfDate: string,
   cfg: TerytConfig = configFromEnv(),
   now: Date = new Date(),
 ): Promise<TerytFile> {
   const action = METHOD[catalog];
-  const body = `<ter:DataStanu>${dataStanu}</ter:DataStanu>`;
+  const body = `<ter:DataStanu>${asOfDate}</ter:DataStanu>`;
   const xml = envelope(action, body, cfg, now);
 
   const ctrl = new AbortController();
@@ -177,7 +177,7 @@ export async function pobierzKatalog(
   const { csv, filename } = await unzipFirstText(zipBuf);
   return {
     catalog,
-    dataStanu,
+    asOfDate,
     csv,
     filename,
     bytes: zipBuf.length,
@@ -227,7 +227,7 @@ async function unzipFirstText(buf: Buffer): Promise<{ csv: string; filename: str
 
 /** Zapisuje pobrany katalog do archiwum lokalnego. */
 export async function archiveTeryt(file: TerytFile, root: string): Promise<string> {
-  const path = `${root}/teryt/${file.dataStanu}/${file.catalog}.csv`;
+  const path = `${root}/teryt/${file.asOfDate}/${file.catalog}.csv`;
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, file.csv, 'utf8');
   return path;
@@ -239,12 +239,12 @@ export async function archiveTeryt(file: TerytFile, root: string): Promise<strin
  */
 export async function testConnection(
   cfg: TerytConfig = configFromEnv(),
-  dataStanu = new Date().toISOString().slice(0, 10),
+  asOfDate = new Date().toISOString().slice(0, 10),
 ): Promise<{ ok: boolean; message: string }> {
   try {
-    const f = await pobierzKatalog('WMRODZ', dataStanu, cfg);
+    const f = await fetchCatalog('WMRODZ', asOfDate, cfg);
     const lines = f.csv.split(/\r?\n/).filter((l) => l.trim()).length;
-    return { ok: true, message: `Polaczenie dziala. WMRODZ: ${lines - 1} pozycji, stan ${f.dataStanu}.` };
+    return { ok: true, message: `Polaczenie dziala. WMRODZ: ${lines - 1} pozycji, stan ${f.asOfDate}.` };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) };
   }

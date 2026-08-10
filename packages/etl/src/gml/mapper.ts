@@ -5,21 +5,21 @@
  * w tym o atrybutach, ktore znikaja 1.09.2026.
  */
 import { readField, readFieldAll, type RawFeature } from './parser.ts';
-import { RODZAJ_MIEJSCOWOSCI, RODZAJ_OBIEKTU_CECHA } from './profiles.ts';
+import { LOCALITY_KINDS, OBJECT_KIND_TO_STREET_TYPE } from './profiles.ts';
 import { cleanText, titleCasePl, normalizeText } from '@adres-pl/core';
 import { buildingNumberKey, normalizeBuildingNumber } from '@adres-pl/core';
 
 export interface PointRecord {
   prgLocalId: string;
-  wersjaId?: string;
-  poczatekWersji?: string;
+  versionId?: string;
+  versionStart?: string;
   /** SIMC miejscowosci - moze byc referencja do rozwiazania na etapie ladowania. */
   simcRef?: string;
   /** ULIC ulicy lub lokalnyId AD_UlicaPlac. */
   ulicRef?: string;
-  nrBudynku: string;
-  nrKey: string;
-  kodPocztowy?: string;
+  buildingNumber: string;
+  buildingNumberKey: string;
+  postalCode?: string;
   /** ZNIKA z PRG 1.09.2026 - po tej dacie zawsze undefined. */
   status?: string;
   /** ZNIKA z PRG 1.09.2026. */
@@ -30,31 +30,31 @@ export interface PointRecord {
 
 export interface LocalityRecord {
   prgLocalId: string;
-  wersjaId?: string;
+  versionId?: string;
   simc?: string;
-  nazwa: string;
-  nazwaNorm: string;
-  rodzaj?: number;
-  rodzajRaw?: string;
-  tercGminy?: string;
-  identyfikatorPRNG?: string;
+  name: string;
+  nameNorm: string;
+  kind?: number;
+  kindRaw?: string;
+  gminaTerc?: string;
+  prngId?: string;
   lon?: number;
   lat?: number;
 }
 
 export interface StreetRecord {
   prgLocalId: string;
-  wersjaId?: string;
+  versionId?: string;
   symUl?: string;
   simcRef?: string;
-  cecha?: string;
-  rodzajRaw?: string;
-  nazwa: string;
-  nazwaNorm: string;
+  streetType?: string;
+  kindRaw?: string;
+  name: string;
+  nameNorm: string;
   /** TERYTNazwa1 / nazwaGlownaCzesc. */
-  nazwa1?: string;
+  name1?: string;
   /** TERYTNazwa2 / nazwaCzesc. */
-  nazwa2?: string;
+  name2?: string;
 }
 
 export interface MapWarning {
@@ -95,37 +95,37 @@ export function mapFeature(f: RawFeature): MapResult {
 
 function mapPoint(f: RawFeature): MapResult {
   const m = f.profile.point.fields;
-  const lokalnyId = readField(f, m.lokalnyId) ?? f.gmlId;
-  if (!lokalnyId) {
+  const localId = readField(f, m.localId) ?? f.gmlId;
+  if (!localId) {
     return { kind: 'skipped', warning: { kind: 'point', reason: 'brak lokalnyId i gml:id' } };
   }
 
-  const nrRaw = readField(f, m.numerPorzadkowy);
+  const nrRaw = readField(f, m.buildingNumber);
   if (!nrRaw || isGarbageNumber(nrRaw)) {
-    return { kind: 'skipped', warning: { featureId: lokalnyId, kind: 'point', reason: `odrzucony numer: "${nrRaw ?? ''}"` } };
+    return { kind: 'skipped', warning: { featureId: localId, kind: 'point', reason: `odrzucony numer: "${nrRaw ?? ''}"` } };
   }
 
-  const nrBudynku = normalizeBuildingNumber(cleanText(nrRaw));
-  const kod = readField(f, m.kodPocztowy)?.trim();
+  const buildingNumber = normalizeBuildingNumber(cleanText(nrRaw));
+  const code = readField(f, m.postalCode)?.trim();
 
   // jednostkaAdministracyjna wystepuje do 3x (woj/pow/gmina) - bierzemy najdluzszy
   // kod TERYT, czyli poziom gminy. W strukturze 2021 tego pola nie ma.
-  const jednostki = m.jednostkaAdministracyjna ? readFieldAll(f, m.jednostkaAdministracyjna) : [];
-  const tercRef = jednostki
+  const units = m.adminUnit ? readFieldAll(f, m.adminUnit) : [];
+  const tercRef = units
     .filter((s) => /^\d{2,7}$/.test(s.trim()))
     .sort((a, b) => b.length - a.length)[0];
 
   return {
     kind: 'point',
     record: {
-      prgLocalId: lokalnyId,
-      wersjaId: readField(f, m.wersjaId),
-      poczatekWersji: readField(f, m.poczatekWersji),
-      simcRef: readField(f, m.miejscowosc),
-      ulicRef: m.ulica ? readField(f, m.ulica) : undefined,
-      nrBudynku,
-      nrKey: buildingNumberKey(nrBudynku),
-      kodPocztowy: kod && /^\d{2}-\d{3}$/.test(kod) ? kod : undefined,
+      prgLocalId: localId,
+      versionId: readField(f, m.versionId),
+      versionStart: readField(f, m.versionStart),
+      simcRef: readField(f, m.locality),
+      ulicRef: m.street ? readField(f, m.street) : undefined,
+      buildingNumber,
+      buildingNumberKey: buildingNumberKey(buildingNumber),
+      postalCode: code && /^\d{2}-\d{3}$/.test(code) ? code : undefined,
       status: m.status ? readField(f, m.status) : undefined,
       tercRef,
       lon: f.lon,
@@ -136,14 +136,14 @@ function mapPoint(f: RawFeature): MapResult {
 
 function mapLocality(f: RawFeature): MapResult {
   const m = f.profile.locality.fields;
-  const lokalnyId = readField(f, m.lokalnyId) ?? f.gmlId;
-  const nazwaRaw = readField(f, m.nazwa);
-  if (!lokalnyId || !nazwaRaw) {
-    return { kind: 'skipped', warning: { featureId: lokalnyId, kind: 'locality', reason: 'brak lokalnyId lub nazwy' } };
+  const localId = readField(f, m.localId) ?? f.gmlId;
+  const nameRaw = readField(f, m.name);
+  if (!localId || !nameRaw) {
+    return { kind: 'skipped', warning: { featureId: localId, kind: 'locality', reason: 'brak lokalnyId lub nazwy' } };
   }
 
-  const nazwa = titleCasePl(cleanText(nazwaRaw));
-  const rodzajRaw = readField(f, m.rodzaj);
+  const name = titleCasePl(cleanText(nameRaw));
+  const kindRaw = readField(f, m.kind);
   // SIMC to CharacterString z wiodacymi zerami - NIE parsowac do liczby
   const simc = (m.identyfikatorSIMC ? readField(f, m.identyfikatorSIMC) : readField(f, m.idTERYT ?? []))
     ?.trim()
@@ -152,15 +152,15 @@ function mapLocality(f: RawFeature): MapResult {
   return {
     kind: 'locality',
     record: {
-      prgLocalId: lokalnyId,
-      wersjaId: readField(f, m.wersjaId ?? []),
+      prgLocalId: localId,
+      versionId: readField(f, m.versionId ?? []),
       simc: simc && /^\d{7}$/.test(simc) ? simc : undefined,
-      nazwa,
-      nazwaNorm: normalizeText(nazwa),
-      rodzaj: rodzajRaw ? RODZAJ_MIEJSCOWOSCI[rodzajRaw] : undefined,
-      rodzajRaw,
-      tercGminy: m.tercGminy ? readField(f, m.tercGminy)?.trim().padStart(7, '0') : undefined,
-      identyfikatorPRNG: m.identyfikatorPRNG ? readField(f, m.identyfikatorPRNG) : undefined,
+      name,
+      nameNorm: normalizeText(name),
+      kind: kindRaw ? LOCALITY_KINDS[kindRaw] : undefined,
+      kindRaw,
+      gminaTerc: m.gminaTerc ? readField(f, m.gminaTerc)?.trim().padStart(7, '0') : undefined,
+      prngId: m.prngId ? readField(f, m.prngId) : undefined,
       lon: f.lon,
       lat: f.lat,
     },
@@ -169,19 +169,19 @@ function mapLocality(f: RawFeature): MapResult {
 
 function mapStreet(f: RawFeature): MapResult {
   const m = f.profile.street.fields;
-  const lokalnyId = readField(f, m.lokalnyId) ?? f.gmlId;
+  const localId = readField(f, m.localId) ?? f.gmlId;
   // 2021: nazwaPelna, 2012: nazwa
-  const nazwaRaw = readField(f, m.nazwaPelna ?? m.nazwa ?? []);
-  if (!lokalnyId || !nazwaRaw) {
-    return { kind: 'skipped', warning: { featureId: lokalnyId, kind: 'street', reason: 'brak lokalnyId lub nazwy' } };
+  const nameRaw = readField(f, m.fullName ?? m.name ?? []);
+  if (!localId || !nameRaw) {
+    return { kind: 'skipped', warning: { featureId: localId, kind: 'street', reason: 'brak lokalnyId lub nazwy' } };
   }
 
-  const rodzajRaw = readField(f, m.rodzaj ?? m.typ ?? []);
+  const kindRaw = readField(f, m.kind ?? m.typ ?? []);
   // 2012 mial osobne pole przedrostek1Czesc/przedrostek2Czesc; 2021 juz nie
-  const przedrostek = m.przedrostek ? readField(f, m.przedrostek) : undefined;
-  const cecha = rodzajRaw ? RODZAJ_OBIEKTU_CECHA[rodzajRaw] : undefined;
+  const streetTypePrefix = m.streetTypePrefix ? readField(f, m.streetTypePrefix) : undefined;
+  const streetType = kindRaw ? OBJECT_KIND_TO_STREET_TYPE[kindRaw] : undefined;
 
-  const nazwaClean = titleCasePl(cleanText(nazwaRaw));
+  const nameClean = titleCasePl(cleanText(nameRaw));
   const symUl = (m.identyfikatorULIC ? readField(f, m.identyfikatorULIC) : readField(f, m.idTERYT ?? []))
     ?.trim()
     .padStart(5, '0');
@@ -189,16 +189,16 @@ function mapStreet(f: RawFeature): MapResult {
   return {
     kind: 'street',
     record: {
-      prgLocalId: lokalnyId,
-      wersjaId: readField(f, m.wersjaId ?? []),
+      prgLocalId: localId,
+      versionId: readField(f, m.versionId ?? []),
       symUl: symUl && /^\d{5}$/.test(symUl) ? symUl : undefined,
-      simcRef: m.miejscowosc ? readField(f, m.miejscowosc) : undefined,
-      cecha: cecha || przedrostek || undefined,
-      rodzajRaw,
-      nazwa: nazwaClean,
-      nazwaNorm: normalizeText(nazwaClean),
-      nazwa1: m.terytNazwa1 ? readField(f, m.terytNazwa1) : readField(f, m.nazwaGlownaCzesc ?? []),
-      nazwa2: m.terytNazwa2 ? readField(f, m.terytNazwa2) : readField(f, m.nazwaCzesc ?? []),
+      simcRef: m.locality ? readField(f, m.locality) : undefined,
+      streetType: streetType || streetTypePrefix || undefined,
+      kindRaw,
+      name: nameClean,
+      nameNorm: normalizeText(nameClean),
+      name1: m.terytName1 ? readField(f, m.terytName1) : readField(f, m.mainNamePart ?? []),
+      name2: m.terytName2 ? readField(f, m.terytName2) : readField(f, m.namePart ?? []),
     },
   };
 }

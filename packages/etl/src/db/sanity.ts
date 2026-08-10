@@ -66,22 +66,22 @@ export function thresholdsFromEnv(env = process.env): SanityThresholds {
 }
 
 export interface SanityCheck {
-  nazwa: string;
+  name: string;
   ok: boolean;
-  poziom: 'blokujacy' | 'ostrzezenie';
-  komunikat: string;
-  szczegoly?: unknown;
+  level: 'blokujacy' | 'ostrzezenie';
+  message: string;
+  details?: unknown;
 }
 
 export interface SanityReport {
   passed: boolean;
   checks: SanityCheck[];
   delta: {
-    przed: number;
-    po: number;
-    dodane: number;
-    usuniete: number;
-    zmienione: number;
+    before: number;
+    after: number;
+    added: number;
+    removed: number;
+    changed: number;
   };
 }
 
@@ -113,134 +113,134 @@ export async function runSanityChecks(
   // wiec ponowne wywolanie w publikuj_zrzut() nic nie kosztuje.
   await pool.query('SELECT staging.resolve_refs()');
 
-  const { rows: [counts] } = await pool.query<{ przed: string; po: string }>(`
+  const { rows: [counts] } = await pool.query<{ before: string; after: string }>(`
     SELECT
-      (SELECT count(*) FROM adres.punkt_adresowy WHERE wycofany_od IS NULL) AS przed,
-      (SELECT count(*) FROM staging.punkt_adresowy)                          AS po
+      (SELECT count(*) FROM address.address_point WHERE withdrawn_at IS NULL) AS before,
+      (SELECT count(*) FROM staging.address_point)                          AS after
   `);
-  const przed = Number(counts.przed);
-  const po = Number(counts.po);
+  const before = Number(counts.before);
+  const after = Number(counts.after);
 
-  const { rows: [d] } = await pool.query<{ dodane: string; usuniete: string; zmienione: string }>(`
+  const { rows: [d] } = await pool.query<{ added: string; removed: string; changed: string }>(`
     SELECT
-      (SELECT count(*) FROM staging.punkt_adresowy s
-         LEFT JOIN adres.punkt_adresowy p ON p.prg_local_id = s.prg_local_id
-        WHERE p.prg_local_id IS NULL)                                         AS dodane,
-      (SELECT count(*) FROM adres.punkt_adresowy p
-         LEFT JOIN staging.punkt_adresowy s ON s.prg_local_id = p.prg_local_id
-        WHERE s.prg_local_id IS NULL AND p.wycofany_od IS NULL)               AS usuniete,
-      (SELECT count(*) FROM staging.punkt_adresowy s
-         JOIN adres.punkt_adresowy p ON p.prg_local_id = s.prg_local_id
-        WHERE p.tresc_hash <> s.tresc_hash)                                   AS zmienione
+      (SELECT count(*) FROM staging.address_point s
+         LEFT JOIN address.address_point p ON p.prg_local_id = s.prg_local_id
+        WHERE p.prg_local_id IS NULL) AS added,
+      (SELECT count(*) FROM address.address_point p
+         LEFT JOIN staging.address_point s ON s.prg_local_id = p.prg_local_id
+        WHERE s.prg_local_id IS NULL AND p.withdrawn_at IS NULL) AS removed,
+      (SELECT count(*) FROM staging.address_point s
+         JOIN address.address_point p ON p.prg_local_id = s.prg_local_id
+        WHERE p.content_hash <> s.content_hash)                                   AS changed
   `);
   const delta = {
-    przed, po,
-    dodane: Number(d.dodane),
-    usuniete: Number(d.usuniete),
-    zmienione: Number(d.zmienione),
+    before, after,
+    added: Number(d.added),
+    removed: Number(d.removed),
+    changed: Number(d.changed),
   };
 
   // --- 1. minimum rekordow -------------------------------------------
   checks.push({
-    nazwa: 'MINIMUM_REKORDOW',
-    ok: po >= thresholds.minPoints,
-    poziom: 'blokujacy',
-    komunikat: po >= thresholds.minPoints
-      ? `${po.toLocaleString('pl')} punktow - w normie.`
-      : `Tylko ${po.toLocaleString('pl')} punktow, oczekiwano >= ${thresholds.minPoints.toLocaleString('pl')}. ` +
+    name: 'MINIMUM_REKORDOW',
+    ok: after >= thresholds.minPoints,
+    level: 'blokujacy',
+    message: after >= thresholds.minPoints
+      ? `${after.toLocaleString('pl')} punktow - w normie.`
+      : `Tylko ${after.toLocaleString('pl')} punktow, oczekiwano >= ${thresholds.minPoints.toLocaleString('pl')}. ` +
         `Prawdopodobnie zmienil sie format pliku albo zrzut jest niekompletny.`,
   });
 
   // --- 2. wielkosc delty ---------------------------------------------
-  const deltaFrac = przed > 0 ? Math.abs(po - przed) / przed : 0;
+  const deltaFrac = before > 0 ? Math.abs(after - before) / before : 0;
   checks.push({
-    nazwa: 'WIELKOSC_DELTY',
-    ok: przed === 0 || deltaFrac <= thresholds.maxDeltaFrac,
-    poziom: 'blokujacy',
-    komunikat: `Zmiana ${(deltaFrac * 100).toFixed(2)}% (prog ${(thresholds.maxDeltaFrac * 100).toFixed(0)}%): ` +
-      `+${delta.dodane.toLocaleString('pl')} / -${delta.usuniete.toLocaleString('pl')} / ~${delta.zmienione.toLocaleString('pl')}`,
-    szczegoly: delta,
+    name: 'WIELKOSC_DELTY',
+    ok: before === 0 || deltaFrac <= thresholds.maxDeltaFrac,
+    level: 'blokujacy',
+    message: `Zmiana ${(deltaFrac * 100).toFixed(2)}% (prog ${(thresholds.maxDeltaFrac * 100).toFixed(0)}%): ` +
+      `+${delta.added.toLocaleString('pl')} / -${delta.removed.toLocaleString('pl')} / ~${delta.changed.toLocaleString('pl')}`,
+    details: delta,
   });
 
   // --- 3. spadek w pojedynczej gminie --------------------------------
   // To jest kontrola na "zrzut bez Wroclawia".
-  const { rows: drops } = await pool.query<{ terc: string; przed: string; po: string; spadek: string }>(`
-    WITH przed AS (
-      SELECT m.terc_gminy terc, count(*) n
-        FROM adres.punkt_adresowy p JOIN adres.miejscowosc m ON m.simc = p.simc
-       WHERE p.wycofany_od IS NULL GROUP BY 1
-    ), po AS (
-      SELECT m.terc_gminy terc, count(*) n
-        FROM staging.punkt_adresowy s JOIN adres.miejscowosc m ON m.simc = s.simc
+  const { rows: drops } = await pool.query<{ terc: string; before: string; after: string; spadek: string }>(`
+    WITH before AS (
+      SELECT m.gmina_terc terc, count(*) n
+        FROM address.address_point p JOIN address.locality m ON m.simc = p.simc
+       WHERE p.withdrawn_at IS NULL GROUP BY 1
+    ), after AS (
+      SELECT m.gmina_terc terc, count(*) n
+        FROM staging.address_point s JOIN address.locality m ON m.simc = s.simc
        GROUP BY 1
     )
-    SELECT przed.terc, przed.n::text przed, COALESCE(po.n,0)::text po,
-           round((1 - COALESCE(po.n,0)::numeric / przed.n) * 100, 1)::text spadek
-      FROM przed LEFT JOIN po USING (terc)
-     WHERE przed.n > 100
-       AND COALESCE(po.n,0)::numeric / przed.n < 1 - $1::numeric
-     ORDER BY przed.n DESC LIMIT 20
+    SELECT before.terc, before.n::text before, COALESCE(after.n,0)::text after,
+           round((1 - COALESCE(after.n,0)::numeric / before.n) * 100, 1)::text spadek
+      FROM before LEFT JOIN after USING (terc)
+     WHERE before.n > 100
+       AND COALESCE(after.n,0)::numeric / before.n < 1 - $1::numeric
+     ORDER BY before.n DESC LIMIT 20
   `, [thresholds.maxGminaDropFrac]);
 
   checks.push({
-    nazwa: 'SPADEK_W_GMINIE',
+    name: 'SPADEK_W_GMINIE',
     ok: drops.length === 0,
-    poziom: 'blokujacy',
-    komunikat: drops.length === 0
+    level: 'blokujacy',
+    message: drops.length === 0
       ? 'Zadna gmina nie stracila znaczacej liczby punktow.'
       : `${drops.length} gmin ze spadkiem > ${(thresholds.maxGminaDropFrac * 100).toFixed(0)}%. ` +
         `To wzorzec "zrzut bez miasta" - zweryfikuj recznie przed publikacja.`,
-    szczegoly: drops,
+    details: drops,
   });
 
   // --- 4. dane zamrozone ---------------------------------------------
-  const { rows: [stale] } = await pool.query<{ dni: string | null }>(`
-    SELECT EXTRACT(DAY FROM now() - max(pobrano))::text AS dni
-      FROM adres.zrzut WHERE zrodlo = 'prg' AND status = 'opublikowany'
+  const { rows: [stale] } = await pool.query<{ days: string | null }>(`
+    SELECT EXTRACT(DAY FROM now() - max(fetched_at))::text AS days
+      FROM address.snapshot WHERE source = 'prg' AND status = 'opublikowany'
   `);
-  const dni = stale?.dni ? Number(stale.dni) : null;
-  const zeroDelta = delta.dodane === 0 && delta.usuniete === 0 && delta.zmienione === 0;
+  const days = stale?.days ? Number(stale.days) : null;
+  const zeroDelta = delta.added === 0 && delta.removed === 0 && delta.changed === 0;
   checks.push({
-    nazwa: 'DELTA_ZERO',
-    ok: !(zeroDelta && dni !== null && dni > thresholds.staleDays),
-    poziom: 'ostrzezenie',
-    komunikat: zeroDelta
-      ? `Zrzut identyczny z poprzednim${dni !== null ? ` (ostatnia zmiana ${dni} dni temu)` : ''}. ` +
+    name: 'DELTA_ZERO',
+    ok: !(zeroDelta && days !== null && days > thresholds.staleDays),
+    level: 'ostrzezenie',
+    message: zeroDelta
+      ? `Zrzut identyczny z poprzednim${days !== null ? ` (lastOne change ${days} days ago)` : ''}. ` +
         `PRG aktualizuje sie na biezaco - brak zmian przez ${thresholds.staleDays}+ dni oznacza ` +
         `najpewniej problem po stronie zrodla, tak jak w czerwcu 2024.`
       : 'Zrzut zawiera zmiany.',
   });
 
   // --- 5. geometria ---------------------------------------------------
-  const { rows: [geo] } = await pool.query<{ brak: string; poza: string }>(`
+  const { rows: [geo] } = await pool.query<{ missing: string; outside: string }>(`
     SELECT
-      count(*) FILTER (WHERE geom IS NULL)::text AS brak,
+      count(*) FILTER (WHERE geom IS NULL)::text AS missing,
       count(*) FILTER (WHERE geom IS NOT NULL AND NOT ST_Within(
-        geom::geometry, ST_MakeEnvelope(13.9, 48.9, 24.3, 55.0, 4326)))::text AS poza
-      FROM staging.punkt_adresowy
+        geom::geometry, ST_MakeEnvelope(13.9, 48.9, 24.3, 55.0, 4326)))::text AS outside
+      FROM staging.address_point
   `);
-  const brakGeo = Number(geo.brak);
-  const pozaPL = Number(geo.poza);
+  const missingGeo = Number(geo.missing);
+  const outsidePl = Number(geo.outside);
   checks.push({
-    nazwa: 'GEOMETRIA',
-    ok: pozaPL === 0 && brakGeo / Math.max(po, 1) < 0.02,
-    poziom: pozaPL > 0 ? 'blokujacy' : 'ostrzezenie',
-    komunikat: pozaPL > 0
-      ? `${pozaPL.toLocaleString('pl')} punktow poza granicami Polski. ` +
+    name: 'GEOMETRIA',
+    ok: outsidePl === 0 && missingGeo / Math.max(after, 1) < 0.02,
+    level: outsidePl > 0 ? 'blokujacy' : 'ostrzezenie',
+    message: outsidePl > 0
+      ? `${outsidePl.toLocaleString('pl')} punktow poza granicami Polski. ` +
         `Najczestsza przyczyna: odwrocona kolejnosc osi w srsName (patrz gml/parser.ts).`
-      : `Bez geometrii: ${brakGeo.toLocaleString('pl')} (${((brakGeo / Math.max(po, 1)) * 100).toFixed(2)}%).`,
+      : `Bez geometrii: ${missingGeo.toLocaleString('pl')} (${((missingGeo / Math.max(after, 1)) * 100).toFixed(2)}%).`,
   });
 
-  const passed = checks.every((c) => c.ok || c.poziom !== 'blokujacy');
+  const passed = checks.every((c) => c.ok || c.level !== 'blokujacy');
   return { passed, checks, delta };
 }
 
 export function formatSanityReport(r: SanityReport): string {
-  const lines = [`Delta: +${r.delta.dodane} / -${r.delta.usuniete} / ~${r.delta.zmienione}` +
-    `  (${r.delta.przed.toLocaleString('pl')} -> ${r.delta.po.toLocaleString('pl')})`, ''];
+  const lines = [`Delta: +${r.delta.added} / -${r.delta.removed} / ~${r.delta.changed}` +
+    `  (${r.delta.before.toLocaleString('pl')} -> ${r.delta.after.toLocaleString('pl')})`, ''];
   for (const c of r.checks) {
-    const mark = c.ok ? 'OK  ' : c.poziom === 'blokujacy' ? 'STOP' : 'UWAGA';
-    lines.push(`  [${mark}] ${c.nazwa.padEnd(20)} ${c.komunikat}`);
+    const mark = c.ok ? 'OK  ' : c.level === 'blokujacy' ? 'STOP' : 'UWAGA';
+    lines.push(`  [${mark}] ${c.name.padEnd(20)} ${c.message}`);
   }
   lines.push('');
   lines.push(r.passed ? '  => publikacja dozwolona' : '  => PUBLIKACJA WSTRZYMANA');

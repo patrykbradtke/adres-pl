@@ -9,7 +9,7 @@
  *
  * iMPA to system, w ktorym okolo 1400 gmin FAKTYCZNIE PROWADZI ewidencje
  * adresowa. Jest wiec zrodlem ZASILAJACYM rejestr PRG, a nie jego kopia.
- * Prowadzi go podmiot komercyjny, wiec profil ryzyka jest inny niz po
+ * Prowadzi go podmiot komercyjny, wiec profile ryzyka jest inny niz po
  * stronie administracji - i o to chodzi w dywersyfikacji.
  *
  * STAN WIEDZY
@@ -20,7 +20,7 @@
  *  - licencja NIE jest jasno okreslona i wymaga pisemnego potwierdzenia
  *    od Geo-System przed wykorzystaniem komercyjnym
  *
- * Dlatego profil ponizej zawiera SZEROKI zestaw kandydujacych nazw kolumn,
+ * Dlatego profile ponizej zawiera SZEROKI zestaw kandydujacych nazw kolumn,
  * a przy pierwszym uruchomieniu nalezy uzyc trybu rozpoznawania:
  *
  *     npm run etl -- impa discover <plik.csv>
@@ -45,25 +45,25 @@ export const IMPA_ADRUNI: TabularProfile = {
   columns: {
     id:            ['ID', 'IDENTYFIKATOR', 'GML_ID', 'LOKALNYID', 'IDPUNKTU', 'ID_PUNKTU'],
     simc:          ['SIMC', 'IDTERYT', 'TERYT_SIMC', 'ID_SIMC', 'SYM', 'IDENTYFIKATORSIMC'],
-    miejscowosc:   ['MIEJSCOWOSC', 'MIEJSC', 'NAZWA_MIEJSCOWOSCI', 'CITY', 'MIASTO'],
-    czescMiejscowosci: ['CZESCMIEJSCOWOSCI', 'CZESC_MIEJSC', 'CZESCMIEJSC'],
+    locality:   ['MIEJSCOWOSC', 'MIEJSC', 'NAZWA_MIEJSCOWOSCI', 'CITY', 'MIASTO'],
+    localityPart: ['CZESCMIEJSCOWOSCI', 'CZESC_MIEJSC', 'CZESCMIEJSC'],
     symUl:         ['SYMUL', 'SYM_UL', 'ULIC', 'TERYT_ULIC', 'IDENTYFIKATORULIC', 'ID_ULICY'],
-    cecha:         ['CECHA', 'TYP_ULICY', 'RODZAJ', 'PRZEDROSTEK', 'TYP'],
-    ulica:         ['ULICA', 'NAZWA_ULICY', 'STREET', 'NAZWAULICY', 'NAZWA_UL'],
-    nrBudynku:     ['NUMER', 'NR', 'NUMERPORZADKOWY', 'NR_PORZADKOWY', 'HOUSENUMBER', 'NR_DOMU', 'NRDOMU'],
-    nrLokalu:      ['NRLOKALU', 'NR_LOKALU', 'LOKAL', 'MIESZKANIE'],
-    kodPocztowy:   ['KODPOCZTOWY', 'KOD_POCZTOWY', 'KOD', 'PNA', 'POSTCODE', 'KODPOCZ'],
+    streetType:         ['CECHA', 'TYP_ULICY', 'RODZAJ', 'PRZEDROSTEK', 'TYP'],
+    street:         ['ULICA', 'NAZWA_ULICY', 'STREET', 'NAZWAULICY', 'NAZWA_UL'],
+    buildingNumber:     ['NUMER', 'NR', 'NUMERPORZADKOWY', 'NR_PORZADKOWY', 'HOUSENUMBER', 'NR_DOMU', 'NRDOMU'],
+    unitNumber:      ['NRLOKALU', 'NR_LOKALU', 'LOKAL', 'MIESZKANIE'],
+    postalCode:   ['KODPOCZTOWY', 'KOD_POCZTOWY', 'KOD', 'PNA', 'POSTCODE', 'KODPOCZ'],
     terc:          ['TERC', 'TERYT_TERC', 'IDGMINY', 'ID_GMINY', 'TERYTGMINY'],
     gmina:         ['GMINA', 'NAZWA_GMINY'],
     powiat:        ['POWIAT', 'NAZWA_POWIATU'],
-    wojewodztwo:   ['WOJEWODZTWO', 'WOJ', 'NAZWA_WOJEWODZTWA'],
+    voivodeship:   ['WOJEWODZTWO', 'WOJ', 'NAZWA_WOJEWODZTWA'],
     x:             ['X', 'WSP_X', 'EASTING', 'X_1992', 'WSPX'],
     y:             ['Y', 'WSP_Y', 'NORTHING', 'Y_1992', 'WSPY'],
     lat:           ['LAT', 'SZEROKOSC', 'LATITUDE', 'B'],
     lon:           ['LON', 'LNG', 'DLUGOSC', 'LONGITUDE', 'L'],
     srid:          ['SRID', 'EPSG', 'UKLAD'],
     status:        ['STATUS', 'STATUSBUDYNKU', 'STAN'],
-    dataAktualizacji: ['DATAAKTUALIZACJI', 'DATA_AKTUALIZACJI', 'DATA', 'WERSJA', 'DATAMODYFIKACJI'],
+    updatedAt: ['DATAAKTUALIZACJI', 'DATA_AKTUALIZACJI', 'DATA', 'WERSJA', 'DATAMODYFIKACJI'],
   },
 };
 
@@ -77,7 +77,7 @@ export const IMPA_ADRUNI: TabularProfile = {
  */
 export const IMPA_PRECEDENCE = {
   /** Punkt obecny w obu zrodlach: wygrywa PRG. */
-  wObu: 'prg' as const,
+  inBoth: 'prg' as const,
   /** Punkt tylko w iMPA: przyjmujemy, ale oznaczamy zrodlo. */
   tylkoImpa: 'przyjmij-oznacz' as const,
   /** Punkt tylko w PRG: zostaje bez zmian. */
@@ -87,7 +87,7 @@ export const IMPA_PRECEDENCE = {
    * iMPA bywa w ukladach lokalnych PL-2000, co zwieksza ryzyko bledu
    * przy przeliczaniu.
    */
-  geometria: 'prg' as const,
+  geometry: 'prg' as const,
 };
 
 /**
@@ -102,6 +102,6 @@ export const IMPA_PRECEDENCE = {
  */
 export const IMPA_MAX_ONLY_FRAC = 0.05;
 
-export function impaUrl(plik = 'adruni.zip'): string {
-  return IMPA_BASE + plik;
+export function impaUrl(file = 'adruni.zip'): string {
+  return IMPA_BASE + file;
 }

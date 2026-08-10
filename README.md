@@ -28,15 +28,15 @@ npm run etl -- probe                   # czy źródło się zmieniło (tanio)
 npm run etl -- download --all          # pobierz do archiwum
 npm run etl -- discover <plik>         # rozpoznaj strukturę nieznanego GML
 npm run etl -- parse <plik>            # statystyki bez zapisu do bazy
-npm run etl -- load <plik> --woj 14    # do obszaru przejściowego
+npm run etl -- load <plik> --voivodeship 14    # do obszaru przejściowego
 npm run etl -- check                   # kontrole jakości
-npm run etl -- publish --woj 14        # kontrole + atomowa podmiana
+npm run etl -- publish --voivodeship 14        # kontrole + atomowa podmiana
 npm run etl -- build-index             # artefakt wyszukiwania
 
 # PEŁNY CYKL bez nadzoru — to uruchamia CronJob
 npm run etl -- cycle
 npm run etl -- cycle --dry-run                 # bez publikacji
-npm run etl -- cycle --z-archiwum 2026-08-06   # ponownie z archiwum, bez pobierania
+npm run etl -- cycle --from-archive 2026-08-06   # ponownie z archiwum, bez pobierania
 
 # źródło zapasowe
 npm run etl -- impa discover <plik>    # rozpoznaj układ kolumn
@@ -62,7 +62,7 @@ Nowa struktura **traci trzy atrybuty**, które są w tym projekcie używane:
 **Zróbcie to w tym tygodniu:**
 
 ```bash
-npm run etl -- download --all --wersja 2026-08-ostatni-stary
+npm run etl -- download --all --version 2026-08-ostatni-stary
 # archiwum trafia do data/archive/prg/<wersja>/ i zostaje na zawsze
 ```
 
@@ -151,14 +151,14 @@ npm run etl -- teryt pobierz && npm run etl -- teryt data/archive/teryt/<data>
 npm run etl -- probe
 
 # 3. jedno województwo na próbę
-npm run etl -- download --woj 14
+npm run etl -- download --voivodeship 14
 
 # 4. NAJPIERW rozpoznanie — namespace nowej struktury nie jest znany z góry
 npm run etl -- discover data/archive/prg/<wersja>/14_Punkty_Adresowe.zip
 
 # 5. załadowanie, kontrole jakości, atomowa publikacja
-npm run etl -- load data/archive/prg/<wersja>/14_Punkty_Adresowe.zip --woj 14
-npm run etl -- publish --woj 14
+npm run etl -- load data/archive/prg/<wersja>/14_Punkty_Adresowe.zip --voivodeship 14
+npm run etl -- publish --voivodeship 14
 
 # 6. artefakt wyszukiwania i serwis
 npm run etl -- build-index
@@ -178,10 +178,10 @@ Czas pierwszego przebiegu — zmierzony 6.08.2026, Docker Desktop na macOS,
 | parsowanie miejscowości i ulic | ~460 rekordów/s (więcej pól na rekord) |
 | `load` mazowieckiego (1,27 mln punktów) | ~38 min |
 | cała Polska, sekwencyjnie | ~4 h |
-| cała Polska, `--rownolegle 4` | ~1–1,5 h |
+| cała Polska, `--parallel 4` | ~1–1,5 h |
 
 Parsowanie jest związane procesorem i zajmuje jeden wątek, więc opłaca się
-rozdać województwa na procesy: `npm run etl -- cycle --rownolegle 4`.
+rozdać województwa na procesy: `npm run etl -- cycle --parallel 4`.
 Zmierzone na czterech plikach naraz: 3266 rek/s łącznie wobec 902 w jednym
 procesie (3,6×), przy spadku pojedynczego procesu o 10–20%. Kosztuje ~400 MB
 RAM na proces, więc dobierz wartość do pamięci poda, a nie do liczby rdzeni.
@@ -387,7 +387,7 @@ który monitoring może rozróżnić:
 Rozróżnienie 3 od 1 jest istotne: wstrzymanie publikacji to poprawne działanie
 systemu, a nie awaria. Manifesty w `deploy/cronjob.yaml`.
 
-Tryb `--z-archiwum WERSJA` przetwarza ponownie pliki już pobrane — potrzebny po
+Tryb `--from-archive WERSJA` przetwarza ponownie pliki już pobrane — potrzebny po
 poprawce parsera, żeby nie ściągać 900 MB drugi raz.
 
 ## Źródło zapasowe i raport rozbieżności
@@ -502,7 +502,7 @@ Trasy `/admin` mają **odrębny** mechanizm — `Authorization: Bearer <ADMIN_TO
 i istnieją w routerze wyłącznie przy ustawionym tokenie. Klucz kliencki ich nie
 otwiera, bo byłaby to eskalacja uprawnień z klienta na operatora.
 
-Najważniejsza metryka to `adres_dane_wiek_dni`. PRG aktualizuje się na bieżąco,
+Najważniejsza metryka to `adres_data_age_days`. PRG aktualizuje się na bieżąco,
 więc rosnący wiek danych oznacza zatrzymany pipeline albo problem po stronie
 źródła. Reguły alertów: `deploy/alerty.yaml`.
 
@@ -539,7 +539,7 @@ npm test
 
 `npm test` obejmuje trzy zestawy sprawdzające **mechanikę**: obejście limitu
 zapytań, podmianę artefaktu indeksu i zgodność `openapi.yaml` z trasami Fastify.
-Budują sobie własną atrapę artefaktu (`packages/api/test/atrapa-indeksu.ts`),
+Budują sobie własną atrapę artefaktu (`packages/api/test/index-stub.ts`),
 więc przechodzą w świeżo sklonowanym repozytorium — bez uruchamiania ETL,
 bez katalogu `data/` i bez bazy.
 

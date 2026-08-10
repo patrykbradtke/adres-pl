@@ -24,7 +24,7 @@
  * jakosc-wyszukiwania.ts wymaga pelnych danych i bazy; atrapa sluzy trzem
  * pozostalym zestawom, ktore sprawdzaja mechanike, nie jakosc wynikow.
  *
- *   node --experimental-strip-types packages/api/test/atrapa-indeksu.ts [sciezka]
+ *   node --experimental-strip-types packages/api/test/index-stub.ts [sciezka]
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -34,7 +34,7 @@ import { dirname } from 'node:path';
 import { buildIndex, type IndexDoc } from '../../etl/src/index-builder/build.ts';
 
 /** Wersja danych atrapy - CELOWO inna niz jakakolwiek wersja produkcyjna. */
-export const WERSJA_ATRAPY = 'atrapa-testowa';
+export const STUB_VERSION = 'atrapa-testowa';
 
 /**
  * Dokumenty dobrane pod istniejace testy, nie pod realizm.
@@ -45,56 +45,56 @@ export const WERSJA_ATRAPY = 'atrapa-testowa';
  */
 const DOKUMENTY: IndexDoc[] = [
   {
-    type: 'locality', label: 'Warszawa', simc: '0918123', liczbaPunktow: 500_000,
-    gmina: 'Warszawa', powiat: 'Warszawa', wojewodztwo: 'mazowieckie',
-    maUlice: true, lat: 52.2297, lon: 21.0122,
+    type: 'locality', label: 'Warszawa', simc: '0918123', addressPointCount: 500_000,
+    gmina: 'Warszawa', powiat: 'Warszawa', voivodeship: 'mazowieckie',
+    hasStreets: true, lat: 52.2297, lon: 21.0122,
   },
   {
-    type: 'locality', label: 'Krakow', simc: '0950960', liczbaPunktow: 200_000,
-    gmina: 'Krakow', powiat: 'Krakow', wojewodztwo: 'malopolskie',
-    maUlice: true, lat: 50.0647, lon: 19.945,
+    type: 'locality', label: 'Krakow', simc: '0950960', addressPointCount: 200_000,
+    gmina: 'Krakow', powiat: 'Krakow', voivodeship: 'malopolskie',
+    hasStreets: true, lat: 50.0647, lon: 19.945,
   },
   {
-    type: 'locality', label: 'Wolka Pelkinska', simc: '0603632', liczbaPunktow: 300,
-    gmina: 'Jaroslaw', powiat: 'jaroslawski', wojewodztwo: 'podkarpackie',
-    maUlice: false, lat: 50.05, lon: 22.72,
+    type: 'locality', label: 'Wolka Pelkinska', simc: '0603632', addressPointCount: 300,
+    gmina: 'Jaroslaw', powiat: 'jaroslawski', voivodeship: 'podkarpackie',
+    hasStreets: false, lat: 50.05, lon: 22.72,
   },
   {
     type: 'street', label: 'Marszalkowska, Warszawa', simc: '0918123', ulicId: 1,
-    liczbaPunktow: 900, gmina: 'Warszawa', powiat: 'Warszawa',
-    wojewodztwo: 'mazowieckie', lat: 52.2297, lon: 21.0122,
+    addressPointCount: 900, gmina: 'Warszawa', powiat: 'Warszawa',
+    voivodeship: 'mazowieckie', lat: 52.2297, lon: 21.0122,
   },
   {
     type: 'street', label: 'Tadeusza Kosciuszki, Krakow', simc: '0950960', ulicId: 2,
-    liczbaPunktow: 400, gmina: 'Krakow', powiat: 'Krakow',
-    wojewodztwo: 'malopolskie', lat: 50.0647, lon: 19.945,
+    addressPointCount: 400, gmina: 'Krakow', powiat: 'Krakow',
+    voivodeship: 'malopolskie', lat: 50.0647, lon: 19.945,
     aliases: ['Kosciuszki, Krakow'],
   },
   {
     type: 'street', label: 'Skrytkowa, Warszawa', simc: '0918123', ulicId: 3,
-    liczbaPunktow: 12, gmina: 'Warszawa', powiat: 'Warszawa',
-    wojewodztwo: 'mazowieckie', lat: 52.24, lon: 21.02,
+    addressPointCount: 12, gmina: 'Warszawa', powiat: 'Warszawa',
+    voivodeship: 'mazowieckie', lat: 52.24, lon: 21.02,
   },
 ];
 
 /** Zwraca gotowy artefakt w pamieci. */
-export function zbudujAtrapeIndeksu(wersjaDanych = WERSJA_ATRAPY): Buffer {
-  return buildIndex(DOKUMENTY, wersjaDanych).buffer;
+export function buildIndexStub(dataVersion = STUB_VERSION): Buffer {
+  return buildIndex(DOKUMENTY, dataVersion).buffer;
 }
 
 /** Zapisuje artefakt pod wskazana sciezke, tworzac katalogi po drodze. */
-export async function zapiszAtrapeIndeksu(
-  sciezka: string,
-  wersjaDanych = WERSJA_ATRAPY,
+export async function writeIndexStub(
+  path: string,
+  dataVersion = STUB_VERSION,
 ): Promise<string> {
-  await mkdir(dirname(sciezka), { recursive: true });
-  await writeFile(sciezka, zbudujAtrapeIndeksu(wersjaDanych));
-  return sciezka;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, buildIndexStub(dataVersion));
+  return path;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const cel = process.argv[2] ?? './data/index/current.bin';
-  const { buffer, stats } = buildIndex(DOKUMENTY, WERSJA_ATRAPY);
+  const { buffer, stats } = buildIndex(DOKUMENTY, STUB_VERSION);
   await mkdir(dirname(cel), { recursive: true });
   await writeFile(cel, buffer);
   console.log(`Atrapa artefaktu: ${cel} (${buffer.length} B)`);

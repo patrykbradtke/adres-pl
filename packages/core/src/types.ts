@@ -1,111 +1,111 @@
 /**
- * @adres-pl/core — wspólne typy dla serwisu i klienta.
+ * @adres-pl/core - wspolne typy dla serwisu i klienta.
  *
- * Ten pakiet jest IZOMORFICZNY i nie ma zależności runtime.
- * Te same reguły normalizacji muszą działać w przeglądarce i na serwerze —
- * inaczej podpowiedzi i walidacja wsadowa zaczną się rozjeżdżać.
+ * Ten pakiet jest IZOMORFICZNY i nie ma zaleznosci runtime.
+ * Te same reguly normalizacji musza dzialac w przegladarce i na serwerze -
+ * inaczej podpowiedzi i walidacja wsadowa zaczna sie rozjezdzac.
  */
 
-/** Poziom pewności dopasowania adresu do rejestru. */
+/** Poziom pewnosci dopasowania adresu do rejestru. */
 export type Confidence =
-  /** Pełne dopasowanie do PRG — mamy prgLocalId i współrzędne. */
-  | 'zweryfikowany_rejestr'
-  /** Miejscowość i ulica z rejestru, numer nie. */
-  | 'zweryfikowany_czesciowo'
-  /** Użytkownik świadomie potwierdził adres spoza bazy (nowe budownictwo). */
-  | 'poza_rejestrem'
-  /** Tryb ręczny: skrytka pocztowa, adres tymczasowy, nietypowy. */
-  | 'nietypowy'
+  /** Pelne dopasowanie do PRG - mamy prgLocalId i wspolrzedne. */
+  | 'verified_registry'
+  /** Miejscowosc i ulica z rejestru, numer nie. */
+  | 'verified_partial'
+  /** Uzytkownik swiadomie potwierdzil adres spoza bazy (nowe budownictwo). */
+  | 'outside_registry'
+  /** Tryb reczny: skrytka pocztowa, adres tymczasowy, nietypowy. */
+  | 'irregular'
   /** Import bez walidacji. */
-  | 'niezweryfikowany';
+  | 'unverified';
 
 /** Kanoniczny adres polski. */
 export interface PlAddress {
   /** Zawsze 'PL' w tej wersji. */
-  kraj: 'PL';
-  /** Identyfikator SIMC miejscowości (7 znaków, wiodące zera znaczące). */
+  country: 'PL';
+  /** Identyfikator SIMC miejscowosci (7 znakow, wiodace zera znaczace). */
   simc?: string;
-  miejscowosc: string;
-  /** Identyfikator ULIC (5 znaków) — NULL dla ulic obecnych tylko w PRG. */
+  locality: string;
+  /** Identyfikator ULIC (5 znakow) - NULL dla ulic obecnych tylko w PRG. */
   symUl?: string;
-  /** Cecha ulicy: 'ul.', 'al.', 'pl.', 'os.', 'rondo'… */
-  cecha?: string;
-  /** Nazwa ulicy w formie oficjalnej, np. 'Tadeusza Kościuszki'. */
-  ulica?: string;
-  nrBudynku: string;
+  /** Cecha ulicy: 'ul.', 'al.', 'pl.', 'os.', 'rondo'... */
+  streetType?: string;
+  /** Nazwa ulicy w formie oficjalnej, np. 'Tadeusza Kosciuszki'. */
+  street?: string;
+  buildingNumber: string;
   /**
-   * Numer lokalu — ZAWSZE wolny tekst.
-   * PRG traci atrybut `numerLokalu` wraz ze zmianą struktury 1.09.2026,
-   * więc nie ma i nie będzie sensownej walidacji rejestrowej tego pola.
+   * Numer lokalu - ZAWSZE wolny tekst.
+   * PRG traci atrybut `numerLokalu` wraz ze zmiana struktury 1.09.2026,
+   * wiec nie ma i nie bedzie sensownej walidacji rejestrowej tego pola.
    */
-  nrLokalu?: string;
+  unitNumber?: string;
   /** Format NN-NNN. */
-  kodPocztowy?: string;
-  /** TERC gminy (7 znaków) — wyprowadzany z SIMC. */
-  tercGminy?: string;
+  postalCode?: string;
+  /** TERC gminy (7 znakow) - wyprowadzany z SIMC. */
+  gminaTerc?: string;
   lat?: number;
   lon?: number;
-  /** lokalnyId z PRG — trwały klucz między kolejnymi zrzutami. */
+  /** lokalnyId z PRG - trwaly klucz miedzy kolejnymi zrzutami. */
   prgLocalId?: string;
   confidence: Confidence;
-  /** Oryginalny, niezmodyfikowany input użytkownika. Do audytu. */
+  /** Oryginalny, niezmodyfikowany input uzytkownika. Do audytu. */
   raw?: string;
 }
 
-/** Wynik parsowania adresu podanego jednym ciągiem. */
+/** Wynik parsowania adresu podanego jednym ciagiem. */
 export interface ParsedAddressLine {
-  kodPocztowy?: string;
-  miejscowosc?: string;
-  cecha?: string;
-  ulica?: string;
-  nrBudynku?: string;
-  nrLokalu?: string;
-  /** Fragmenty, których nie udało się zakwalifikować. */
-  reszta: string[];
+  postalCode?: string;
+  locality?: string;
+  streetType?: string;
+  street?: string;
+  buildingNumber?: string;
+  unitNumber?: string;
+  /** Fragmenty, ktorych nie udalo sie zakwalifikowac. */
+  unparsed: string[];
   raw: string;
   /**
-   * Adres nie jest punktem adresowym i nie ma odpowiednika w rejestrze —
-   * dziś wyłącznie skrytka pocztowa.
+   * Adres nie jest punktem adresowym i nie ma odpowiednika w rejestrze -
+   * dzis wylacznie skrytka pocztowa.
    *
-   * Bez tego sygnału „skr. poczt. 15, Warszawa" przechodziło ścieżką zwykłego
-   * adresu: marker był odrzucany jako nierozpoznany, numer skrytki trafiał
-   * w pole numeru budynku i adres dostawał `zweryfikowany_rejestr` — najwyższy
-   * poziom pewności dla miejsca, które nie istnieje.
+   * Bez tego sygnalu "skr. poczt. 15, Warszawa" przechodzilo sciezka zwyklego
+   * adresu: marker byl odrzucany jako nierozpoznany, numer skrytki trafial
+   * w pole numeru budynku i adres dostawal `verified_registry` - najwyzszy
+   * poziom pewnosci dla miejsca, ktore nie istnieje.
    */
-  nietypowy?: 'skrytka_pocztowa';
+  irregular?: 'post_office_box';
 }
 
 /** Rozbicie numeru na budynek i lokal. */
 export interface ParsedNumber {
-  nrBudynku: string;
-  nrLokalu?: string;
+  buildingNumber: string;
+  unitNumber?: string;
   /**
-   * true, gdy zapis jest z natury dwuznaczny (np. `12/14`) i rozstrzygnięcie
-   * wymaga sprawdzenia w rejestrze: jeśli punkt `12/14` istnieje w PRG,
+   * true, gdy zapis jest z natury dwuznaczny (np. `12/14`) i rozstrzygniecie
+   * wymaga sprawdzenia w rejestrze: jesli punkt `12/14` istnieje w PRG,
    * to jest to numer budynku, a nie budynek 12 / lokal 14.
    */
   ambiguous: boolean;
   /**
    * Alternatywne odczyty do sprawdzenia w rejestrze, gdy `ambiguous === true`.
-   * Kolejność: od najbardziej do najmniej prawdopodobnego.
+   * Kolejnosc: od najbardziej do najmniej prawdopodobnego.
    */
-  alternatives?: Array<{ nrBudynku: string; nrLokalu?: string }>;
+  alternatives?: Array<{ buildingNumber: string; unitNumber?: string }>;
 }
 
-/** Kod problemu wykrytego przez walidację. */
+/** Kod problemu wykrytego przez walidacje. */
 export type IssueCode =
-  | 'BRAK_MIEJSCOWOSCI'
-  | 'BRAK_NUMERU'
-  | 'ZLY_FORMAT_KODU'
-  | 'ZLY_FORMAT_NUMERU'
-  | 'ULICA_W_MIEJSCOWOSCI_BEZ_ULIC'
-  | 'BRAK_ULICY_W_MIEJSCOWOSCI_Z_ULICAMI'
-  | 'MIEJSCOWOSC_SPOZA_REJESTRU'
-  | 'ULICA_SPOZA_REJESTRU'
-  | 'NUMER_SPOZA_REJESTRU'
-  | 'KOD_NIEZGODNY_Z_REJESTREM'
-  | 'NUMER_PROGNOZOWANY'
-  | 'WIELE_KANDYDATOW';
+  | 'MISSING_LOCALITY'
+  | 'MISSING_BUILDING_NUMBER'
+  | 'INVALID_POSTAL_CODE_FORMAT'
+  | 'INVALID_BUILDING_NUMBER_FORMAT'
+  | 'STREET_IN_LOCALITY_WITHOUT_STREETS'
+  | 'MISSING_STREET_IN_LOCALITY_WITH_STREETS'
+  | 'LOCALITY_OUTSIDE_REGISTRY'
+  | 'STREET_OUTSIDE_REGISTRY'
+  | 'BUILDING_NUMBER_OUTSIDE_REGISTRY'
+  | 'POSTAL_CODE_CONFLICTS_WITH_REGISTRY'
+  | 'BUILDING_NUMBER_PROJECTED'
+  | 'MULTIPLE_CANDIDATES';
 
 export interface Issue {
   code: IssueCode;
@@ -113,7 +113,7 @@ export interface Issue {
   severity: 'error' | 'warning' | 'info';
   field: keyof PlAddress | 'adres';
   message: string;
-  /** Wartość sugerowana przez rejestr, jeśli istnieje. */
+  /** Wartosc sugerowana przez rejestr, jesli istnieje. */
   suggested?: string;
 }
 
@@ -123,23 +123,23 @@ export interface ValidationResult {
   confidence: Confidence;
 }
 
-/** Rekord miejscowości zwracany przez API. */
+/** Rekord miejscowosci zwracany przez API. */
 export interface Locality {
   simc: string;
-  nazwa: string;
+  name: string;
   /** Kod WMRODZ. */
-  rodzaj: number;
-  rodzajNazwa: string;
-  tercGminy: string;
+  kind: number;
+  kindName: string;
+  gminaTerc: string;
   gmina: string;
   powiat: string;
-  wojewodztwo: string;
+  voivodeship: string;
   /**
-   * Czy w tej miejscowości w ogóle istnieją ulice.
-   * Steruje pokazaniem/ukryciem pola ulicy w UI — bez tego użytkownik
-   * ze wsi wpatruje się w puste, wymagane pole „ulica".
+   * Czy w tej miejscowosci w ogole istnieja ulice.
+   * Steruje pokazaniem/ukryciem pola ulicy w UI - bez tego uzytkownik
+   * ze wsi wpatruje sie w puste, wymagane pole "ulica".
    */
-  maUlice: boolean;
+  hasStreets: boolean;
   lat?: number;
   lon?: number;
 }
@@ -148,10 +148,10 @@ export interface Street {
   ulicId: number;
   simc: string;
   symUl?: string;
-  cecha?: string;
-  nazwa: string;
-  /** Forma potoczna do matchowania: 'Kościuszki' dla 'Tadeusza Kościuszki'. */
-  nazwaSkrocona?: string;
+  streetType?: string;
+  name: string;
+  /** Forma potoczna do matchowania: 'Kosciuszki' dla 'Tadeusza Kosciuszki'. */
+  shortName?: string;
 }
 
 export interface AddressPoint {
@@ -159,29 +159,29 @@ export interface AddressPoint {
   prgLocalId?: string;
   simc: string;
   ulicId?: number;
-  nrBudynku: string;
-  kodPocztowy?: string;
+  buildingNumber: string;
+  postalCode?: string;
   lat?: number;
   lon?: number;
-  /** Zamrożony snapshot sprzed 1.09.2026 — po tej dacie PRG go nie publikuje. */
+  /** Zamrozony snapshot sprzed 1.09.2026 - po tej dacie PRG go nie publikuje. */
   status?: string;
 }
 
-/** Podpowiedź z wyszukiwarki. */
+/** Podpowiedz z wyszukiwarki. */
 export interface Suggestion {
   type: 'locality' | 'street';
-  /** Etykieta do wyświetlenia, np. 'ul. Tadeusza Kościuszki, Warszawa'. */
+  /** Etykieta do wyswietlenia, np. 'ul. Tadeusza Kosciuszki, Warszawa'. */
   label: string;
   score: number;
   simc: string;
   ulicId?: number;
   locality: string;
   street?: string;
-  cecha?: string;
+  streetType?: string;
   gmina?: string;
   powiat?: string;
-  wojewodztwo?: string;
-  maUlice?: boolean;
-  /** Ile punktów adresowych kryje się pod tą pozycją. */
-  liczbaPunktow?: number;
+  voivodeship?: string;
+  hasStreets?: boolean;
+  /** Ile punktow adresowych kryje sie pod ta pozycja. */
+  addressPointCount?: number;
 }

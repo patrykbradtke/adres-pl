@@ -27,8 +27,8 @@ import {
 export interface ImpaLoadOptions {
   pool: pg.Pool;
   profile: TabularProfile;
-  zrodlo: string;
-  zrodloWersja: string;
+  source: string;
+  sourceVersion: string;
   /**
    * Gdy false (domyslnie), dane trafiaja WYLACZNIE do tabeli porownawczej
    * i nie modyfikuja danych produktowych.
@@ -38,13 +38,13 @@ export interface ImpaLoadOptions {
 }
 
 export interface ImpaLoadStats {
-  wierszy: number;
-  zaladowane: number;
-  odrzucone: number;
-  powodyOdrzucen: Record<string, number>;
-  bezGeometrii: number;
+  rows: number;
+  loaded: number;
+  rejected: number;
+  rejectReasons: Record<string, number>;
+  geometryMissing: number;
   tabular: TabularStats;
-  czasS: number;
+  durationSeconds: number;
 }
 
 /** Tabela porownawcza - tworzona na zadanie, nie w migracji podstawowej. */
@@ -53,24 +53,24 @@ CREATE SCHEMA IF NOT EXISTS porownanie;
 
 CREATE TABLE IF NOT EXISTS porownanie.punkt_zewnetrzny (
   id            bigserial PRIMARY KEY,
-  zrodlo        text NOT NULL,
-  zrodlo_wersja text NOT NULL,
+  source        text NOT NULL,
+  source_version text NOT NULL,
   zrodlo_id     text,
   simc          char(7),
-  miejscowosc   text,
+  locality   text,
   miejscowosc_norm text,
-  ulica         text,
-  ulica_norm    text,
-  cecha         text,
-  nr_budynku    text NOT NULL,
-  nr_key        text NOT NULL,
-  kod_pocztowy  char(6),
+  street         text,
+  street_norm    text,
+  street_type         text,
+  building_number    text NOT NULL,
+  building_number_key        text NOT NULL,
+  postal_code  char(6),
   geom          geography(Point, 4326),
-  pobrano       timestamptz NOT NULL DEFAULT now(),
+  fetched_at       timestamptz NOT NULL DEFAULT now(),
   -- DWA klucze dopasowania, nie jeden.
   --
   -- Zrodla zewnetrzne bywaja niekompletne: jedne podaja SIMC, inne tylko
-  -- nazwe miejscowosci. Pojedynczy klucz zmusza do wyboru, ktory oznacza
+  -- nazwe localities. Pojedynczy klucz zmusza do wyboru, ktory oznacza
   -- ciche zgubienie dopasowan dla drugiej grupy.
   --
   -- Dopasowujemy najpierw po SIMC (jednoznaczne, odporne na duplikaty nazw
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS porownanie.punkt_zewnetrzny (
 );
 CREATE INDEX IF NOT EXISTS ix_pz_ksimc  ON porownanie.punkt_zewnetrzny(klucz_simc);
 CREATE INDEX IF NOT EXISTS ix_pz_knazwa ON porownanie.punkt_zewnetrzny(klucz_nazwa);
-CREATE INDEX IF NOT EXISTS ix_pz_zrodlo ON porownanie.punkt_zewnetrzny(zrodlo, zrodlo_wersja);
+CREATE INDEX IF NOT EXISTS ix_pz_zrodlo ON porownanie.punkt_zewnetrzny(source, source_version);
 CREATE INDEX IF NOT EXISTS ix_pz_simc   ON porownanie.punkt_zewnetrzny(simc);
 
 COMMENT ON SCHEMA porownanie IS
@@ -98,21 +98,21 @@ COMMENT ON SCHEMA porownanie IS
  */
 export function matchKeySimc(
   simc: string,
-  ulica: string | undefined,
-  nrBudynku: string,
+  street: string | undefined,
+  buildingNumber: string,
 ): string {
-  return [simc, ulica ? normalizeText(ulica) : '', buildingNumberKey(nrBudynku)].join('|');
+  return [simc, street ? normalizeText(street) : '', buildingNumberKey(buildingNumber)].join('|');
 }
 
-export function matchKeyNazwa(
-  miejscowosc: string,
-  ulica: string | undefined,
-  nrBudynku: string,
+export function matchKeyName(
+  locality: string,
+  street: string | undefined,
+  buildingNumber: string,
 ): string {
   return [
-    normalizeText(miejscowosc),
-    ulica ? normalizeText(ulica) : '',
-    buildingNumberKey(nrBudynku),
+    normalizeText(locality),
+    street ? normalizeText(street) : '',
+    buildingNumberKey(buildingNumber),
   ].join('|');
 }
 
@@ -122,8 +122,8 @@ export async function loadTabularSource(
 ): Promise<ImpaLoadStats> {
   const t0 = Date.now();
   const stats: ImpaLoadStats = {
-    wierszy: 0, zaladowane: 0, odrzucone: 0, powodyOdrzucen: {},
-    bezGeometrii: 0, tabular: null as any, czasS: 0,
+    rows: 0, loaded: 0, rejected: 0, rejectReasons: {},
+    geometryMissing: 0, tabular: null as any, durationSeconds: 0,
   };
 
   await opts.pool.query(SQL_COMPARE_TABLE);
@@ -132,26 +132,26 @@ export async function loadTabularSource(
   try {
     await client.query('BEGIN');
     await client.query(
-      `DELETE FROM porownanie.punkt_zewnetrzny WHERE zrodlo = $1 AND zrodlo_wersja = $2`,
-      [opts.zrodlo, opts.zrodloWersja],
+      `DELETE FROM porownanie.punkt_zewnetrzny WHERE source = $1 AND source_version = $2`,
+      [opts.source, opts.sourceVersion],
     );
 
-    const odrzuc = (powod: string) => {
-      stats.odrzucone++;
-      stats.powodyOdrzucen[powod] = (stats.powodyOdrzucen[powod] ?? 0) + 1;
+    const reject = (reason: string) => {
+      stats.rejected++;
+      stats.rejectReasons[reason] = (stats.rejectReasons[reason] ?? 0) + 1;
     };
 
     stats.tabular = await readTabular(await openStream(), opts.profile, async (row) => {
       const nrRaw = row.get('nrBudynku');
-      if (!nrRaw) { odrzuc('brak numeru'); return; }
+      if (!nrRaw) { reject('brak numeru'); return; }
 
-      const miejscowoscRaw = row.get('miejscowosc');
+      const localityRaw = row.get('miejscowosc');
       const simc = row.get('simc')?.replace(/\D/g, '').padStart(7, '0');
-      if (!miejscowoscRaw && !simc) { odrzuc('brak miejscowosci i SIMC'); return; }
+      if (!localityRaw && !simc) { reject('brak miejscowosci i SIMC'); return; }
 
-      const miejscowosc = miejscowoscRaw ? titleCasePl(cleanText(miejscowoscRaw)) : '';
-      const ulicaRaw = row.get('ulica');
-      const ulica = ulicaRaw ? titleCasePl(cleanText(ulicaRaw)) : undefined;
+      const locality = localityRaw ? titleCasePl(cleanText(localityRaw)) : '';
+      const streetRaw = row.get('ulica');
+      const street = streetRaw ? titleCasePl(cleanText(streetRaw)) : undefined;
       const nr = normalizeBuildingNumber(cleanText(nrRaw));
 
       // Wspolrzedne: albo gotowe lat/lon, albo X/Y w ukladzie lokalnym
@@ -168,35 +168,35 @@ export async function loadTabularSource(
           if (w) { lat = w.lat; lon = w.lon; }
         }
       }
-      if (lat === undefined || lon === undefined) stats.bezGeometrii++;
+      if (lat === undefined || lon === undefined) stats.geometryMissing++;
 
-      const kod = row.get('kodPocztowy')?.replace(/\s/g, '');
-      const kSimc = simc && /^\d{7}$/.test(simc) ? matchKeySimc(simc, ulica, nr) : null;
-      const kNazwa = matchKeyNazwa(miejscowosc, ulica, nr);
+      const code = row.get('kodPocztowy')?.replace(/\s/g, '');
+      const kSimc = simc && /^\d{7}$/.test(simc) ? matchKeySimc(simc, street, nr) : null;
+      const nameKey = matchKeyName(locality, street, nr);
 
       await client.query(
         `INSERT INTO porownanie.punkt_zewnetrzny
-           (zrodlo, zrodlo_wersja, zrodlo_id, simc, miejscowosc, miejscowosc_norm,
-            ulica, ulica_norm, cecha, nr_budynku, nr_key, kod_pocztowy, geom,
+           (source, source_version, zrodlo_id, simc, locality, miejscowosc_norm,
+            street, street_norm, street_type, building_number, building_number_key, postal_code, geom,
             klucz_simc, klucz_nazwa)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [
-          opts.zrodlo, opts.zrodloWersja, row.get('id') ?? null,
+          opts.source, opts.sourceVersion, row.get('id') ?? null,
           simc && /^\d{7}$/.test(simc) ? simc : null,
-          miejscowosc || null, miejscowosc ? normalizeText(miejscowosc) : null,
-          ulica ?? null, ulica ? normalizeText(ulica) : null,
+          locality || null, locality ? normalizeText(locality) : null,
+          street ?? null, street ? normalizeText(street) : null,
           row.get('cecha') ?? null,
           nr, buildingNumberKey(nr),
-          kod && /^\d{2}-\d{3}$/.test(kod) ? kod : null,
+          code && /^\d{2}-\d{3}$/.test(code) ? code : null,
           lat !== undefined && lon !== undefined ? `SRID=4326;POINT(${lon} ${lat})` : null,
-          kSimc, kNazwa,
+          kSimc, nameKey,
         ],
       );
-      stats.zaladowane++;
-      if (stats.zaladowane % 50_000 === 0) opts.onProgress?.(stats.zaladowane);
+      stats.loaded++;
+      if (stats.loaded % 50_000 === 0) opts.onProgress?.(stats.loaded);
     });
 
-    stats.wierszy = stats.tabular.wierszy;
+    stats.rows = stats.tabular.rows;
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK');
@@ -205,27 +205,27 @@ export async function loadTabularSource(
     client.release();
   }
 
-  stats.czasS = Math.round((Date.now() - t0) / 1000);
+  stats.durationSeconds = Math.round((Date.now() - t0) / 1000);
   return stats;
 }
 
 export interface DiffReport {
-  zrodlo: string;
-  wersja: string;
-  wZrodle: number;
+  source: string;
+  version: string;
+  inSource: number;
   wPrg: number;
   /** Punkty obecne w obu zrodlach. */
-  wspolne: number;
+  shared: number;
   /** Obecne tylko w zrodle zapasowym - potencjalne luki w PRG. */
-  tylkoZrodlo: number;
-  tylkoZrodloFrac: number;
+  sourceOnly: number;
+  sourceOnlyFrac: number;
   /** Rozbieznosci kodu pocztowego dla tego samego adresu. */
-  rozneKody: number;
+  differentCodes: number;
   /** Reprezentatywna probka luk do przegladu recznego. */
-  probka: Array<{ miejscowosc: string; ulica: string | null; nr: string; kod: string | null }>;
+  sample: Array<{ locality: string; street: string | null; nr: string; code: string | null }>;
   /** Gminy z najwieksza liczba luk - wskazuja, gdzie PRG nie nadaza. */
   gminy: Array<{ gmina: string; luk: number }>;
-  ostrzezenia: string[];
+  warnings: string[];
 }
 
 /**
@@ -236,18 +236,18 @@ export interface DiffReport {
  */
 export async function diffAgainstPrg(
   pool: pg.Pool,
-  zrodlo: string,
-  wersja: string,
+  source: string,
+  version: string,
 ): Promise<DiffReport> {
   // Widok PRG z OBOMA kluczami - odpowiedniki matchKeySimc / matchKeyNazwa
   const PRG_KEYS = `
     SELECT
-      concat_ws('|', p.simc, COALESCE(u.nazwa_norm,''), p.nr_key)     AS klucz_simc,
-      concat_ws('|', m.nazwa_norm, COALESCE(u.nazwa_norm,''), p.nr_key) AS klucz_nazwa
-      FROM adres.punkt_adresowy p
-      JOIN adres.miejscowosc m ON m.simc = p.simc
-      LEFT JOIN adres.ulica u  ON u.ulic_id = p.ulic_id
-     WHERE p.wycofany_od IS NULL`;
+      concat_ws('|', p.simc, COALESCE(u.name_norm,''), p.building_number_key)     AS klucz_simc,
+      concat_ws('|', m.name_norm, COALESCE(u.name_norm,''), p.building_number_key) AS klucz_nazwa
+      FROM address.address_point p
+      JOIN address.locality m ON m.simc = p.simc
+      LEFT JOIN address.street u  ON u.ulic_id = p.ulic_id
+     WHERE p.withdrawn_at IS NULL`;
 
   /** Warunek "ten punkt zrodla ma odpowiednik w PRG". */
   const MATCH = `EXISTS (
@@ -255,59 +255,59 @@ export async function diffAgainstPrg(
        WHERE (z.klucz_simc IS NOT NULL AND k.klucz_simc = z.klucz_simc)
           OR (z.klucz_simc IS NULL     AND k.klucz_nazwa = z.klucz_nazwa))`;
 
-  const { rows: [c] } = await pool.query<{ w_zrodle: string; w_prg: string; wspolne: string }>(`
+  const { rows: [c] } = await pool.query<{ in_source: string; w_prg: string; shared: string }>(`
     SELECT
       (SELECT count(*) FROM porownanie.punkt_zewnetrzny z
-        WHERE z.zrodlo = $1 AND z.zrodlo_wersja = $2)::text AS w_zrodle,
+        WHERE z.source = $1 AND z.source_version = $2)::text AS in_source,
       (SELECT count(*) FROM (${PRG_KEYS}) q)::text          AS w_prg,
       (SELECT count(*) FROM porownanie.punkt_zewnetrzny z
-        WHERE z.zrodlo = $1 AND z.zrodlo_wersja = $2 AND ${MATCH})::text AS wspolne
-  `, [zrodlo, wersja]);
+        WHERE z.source = $1 AND z.source_version = $2 AND ${MATCH})::text AS wspolne
+  `, [source, version]);
 
-  const wZrodle = Number(c.w_zrodle);
+  const inSource = Number(c.in_source);
   const wPrg = Number(c.w_prg);
-  const wspolne = Number(c.wspolne);
-  const tylkoZrodlo = wZrodle - wspolne;
+  const shared = Number(c.shared);
+  const sourceOnly = inSource - shared;
 
-  const { rows: probka } = await pool.query<{
-    miejscowosc: string; ulica: string | null; nr_budynku: string; kod_pocztowy: string | null;
+  const { rows: sample } = await pool.query<{
+    locality: string; street: string | null; building_number: string; postal_code: string | null;
   }>(`
-    SELECT z.miejscowosc, z.ulica, z.nr_budynku, z.kod_pocztowy
+    SELECT z.locality, z.street, z.building_number, z.postal_code
       FROM porownanie.punkt_zewnetrzny z
-     WHERE z.zrodlo = $1 AND z.zrodlo_wersja = $2 AND NOT ${MATCH}
+     WHERE z.source = $1 AND z.source_version = $2 AND NOT ${MATCH}
      ORDER BY z.miejscowosc, z.ulica, z.nr_budynku
      LIMIT 25
-  `, [zrodlo, wersja]);
+  `, [source, version]);
 
   const { rows: gminy } = await pool.query<{ gmina: string; luk: string }>(`
-    SELECT COALESCE(g.nazwa, z.miejscowosc, '(nieznana)') AS gmina, count(*)::text AS luk
+    SELECT COALESCE(g.name, z.locality, '(nieznana)') AS gmina, count(*)::text AS luk
       FROM porownanie.punkt_zewnetrzny z
-      LEFT JOIN adres.miejscowosc m ON m.simc = z.simc
-      LEFT JOIN adres.teryt_jednostka g ON g.terc = m.terc_gminy
-     WHERE z.zrodlo = $1 AND z.zrodlo_wersja = $2 AND NOT ${MATCH}
+      LEFT JOIN address.locality m ON m.simc = z.simc
+      LEFT JOIN address.teryt_unit g ON g.terc = m.gmina_terc
+     WHERE z.source = $1 AND z.source_version = $2 AND NOT ${MATCH}
      GROUP BY 1 ORDER BY count(*) DESC LIMIT 10
-  `, [zrodlo, wersja]);
+  `, [source, version]);
 
   const { rows: [k] } = await pool.query<{ n: string }>(`
     SELECT count(*)::text n
       FROM porownanie.punkt_zewnetrzny z
-      JOIN adres.punkt_adresowy p ON p.wycofany_od IS NULL
-      JOIN adres.miejscowosc m ON m.simc = p.simc
-      LEFT JOIN adres.ulica u  ON u.ulic_id = p.ulic_id
-     WHERE z.zrodlo = $1 AND z.zrodlo_wersja = $2
+      JOIN address.address_point p ON p.withdrawn_at IS NULL
+      JOIN address.locality m ON m.simc = p.simc
+      LEFT JOIN address.street u  ON u.ulic_id = p.ulic_id
+     WHERE z.source = $1 AND z.source_version = $2
        AND ((z.klucz_simc IS NOT NULL
-             AND concat_ws('|', p.simc, COALESCE(u.nazwa_norm,''), p.nr_key) = z.klucz_simc)
+             AND concat_ws('|', p.simc, COALESCE(u.name_norm,''), p.building_number_key) = z.klucz_simc)
          OR (z.klucz_simc IS NULL
-             AND concat_ws('|', m.nazwa_norm, COALESCE(u.nazwa_norm,''), p.nr_key) = z.klucz_nazwa))
-       AND z.kod_pocztowy IS NOT NULL AND p.kod_pocztowy IS NOT NULL
-       AND z.kod_pocztowy <> p.kod_pocztowy
-  `, [zrodlo, wersja]);
+             AND concat_ws('|', m.name_norm, COALESCE(u.name_norm,''), p.building_number_key) = z.klucz_nazwa))
+       AND z.postal_code IS NOT NULL AND p.postal_code IS NOT NULL
+       AND z.postal_code <> p.postal_code
+  `, [source, version]);
 
-  const frac = wZrodle > 0 ? tylkoZrodlo / wZrodle : 0;
-  const ostrzezenia: string[] = [];
+  const frac = inSource > 0 ? sourceOnly / inSource : 0;
+  const warnings: string[] = [];
 
   if (frac > IMPA_MAX_ONLY_FRAC) {
-    ostrzezenia.push(
+    warnings.push(
       `${(frac * 100).toFixed(1)}% punktow zrodla nie ma odpowiednika w PRG ` +
       `(prog ${(IMPA_MAX_ONLY_FRAC * 100).toFixed(0)}%). ` +
       `Przy tej skali bardziej prawdopodobne jest rozjechane dopasowanie kluczy ` +
@@ -316,55 +316,55 @@ export async function diffAgainstPrg(
     );
   }
   if (Number(k.n) > 0) {
-    ostrzezenia.push(
+    warnings.push(
       `${Number(k.n).toLocaleString('pl')} adresow ma rozny kod pocztowy w obu zrodlach. ` +
       `To zjawisko normalne - kody w PRG pochodza z ewidencji gminnych, nie od Poczty Polskiej.`,
     );
   }
-  if (stats0(wZrodle)) {
-    ostrzezenia.push('Zrodlo nie zawiera zadnych punktow - sprawdz profil kolumn trybem rozpoznawania.');
+  if (statsBefore(inSource)) {
+    warnings.push('Zrodlo nie zawiera zadnych punktow - sprawdz profile kolumn trybem rozpoznawania.');
   }
 
   return {
-    zrodlo, wersja, wZrodle, wPrg, wspolne, tylkoZrodlo,
-    tylkoZrodloFrac: frac,
-    rozneKody: Number(k.n),
-    probka: probka.map((p) => ({
-      miejscowosc: p.miejscowosc, ulica: p.ulica, nr: p.nr_budynku, kod: p.kod_pocztowy,
+    source, version, inSource, wPrg, shared, sourceOnly,
+    sourceOnlyFrac: frac,
+    differentCodes: Number(k.n),
+    sample: sample.map((p) => ({
+      locality: p.locality, street: p.street, nr: p.building_number, code: p.postal_code,
     })),
     gminy: gminy.map((g) => ({ gmina: g.gmina, luk: Number(g.luk) })),
-    ostrzezenia,
+    warnings,
   };
 }
 
-function stats0(n: number): boolean { return n === 0; }
+function statsBefore(n: number): boolean { return n === 0; }
 
 export function formatDiffReport(r: DiffReport): string {
   const l: string[] = [];
-  l.push(`Porownanie: ${r.zrodlo} (${r.wersja}) vs PRG`);
+  l.push(`Porownanie: ${r.source} (${r.version}) vs PRG`);
   l.push('');
-  l.push(`  punktow w zrodle:      ${r.wZrodle.toLocaleString('pl')}`);
+  l.push(`  punktow w zrodle:      ${r.inSource.toLocaleString('pl')}`);
   l.push(`  punktow w PRG:         ${r.wPrg.toLocaleString('pl')}`);
-  l.push(`  wspolnych:             ${r.wspolne.toLocaleString('pl')}`);
-  l.push(`  tylko w zrodle:        ${r.tylkoZrodlo.toLocaleString('pl')} (${(r.tylkoZrodloFrac * 100).toFixed(2)}%)`);
-  l.push(`  rozny kod pocztowy:    ${r.rozneKody.toLocaleString('pl')}`);
+  l.push(`  wspolnych:             ${r.shared.toLocaleString('pl')}`);
+  l.push(`  tylko w zrodle:        ${r.sourceOnly.toLocaleString('pl')} (${(r.sourceOnlyFrac * 100).toFixed(2)}%)`);
+  l.push(`  rozny kod pocztowy:    ${r.differentCodes.toLocaleString('pl')}`);
 
   if (r.gminy.length) {
     l.push('');
     l.push('  Gminy z najwieksza liczba luk:');
     for (const g of r.gminy) l.push(`    ${String(g.luk).padStart(8)}  ${g.gmina}`);
   }
-  if (r.probka.length) {
+  if (r.sample.length) {
     l.push('');
     l.push('  Probka adresow nieobecnych w PRG:');
-    for (const p of r.probka.slice(0, 10)) {
-      l.push(`    ${[p.miejscowosc, p.ulica, p.nr].filter(Boolean).join(', ')}${p.kod ? '  ' + p.kod : ''}`);
+    for (const p of r.sample.slice(0, 10)) {
+      l.push(`    ${[p.locality, p.street, p.nr].filter(Boolean).join(', ')}${p.code ? '  ' + p.code : ''}`);
     }
   }
-  if (r.ostrzezenia.length) {
+  if (r.warnings.length) {
     l.push('');
     l.push('  Ostrzezenia:');
-    for (const o of r.ostrzezenia) l.push(`    ! ${o}`);
+    for (const o of r.warnings) l.push(`    ! ${o}`);
   }
   return l.join('\n');
 }

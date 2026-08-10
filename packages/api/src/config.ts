@@ -30,16 +30,16 @@ export interface ServerConfig {
   /** Etap 8A. Domyslnie wylaczony - wlaczenie jest osobna decyzja (8.9). */
   apiKeyMode: ApiKeyMode;
   /** Limit na minute z jednego adresu dla ruchu bez waznego klucza. */
-  rateLimitNieuwierzytelniony: number;
-  kluczeOdswiezanieMs: number;
+  rateLimitUnauthenticated: number;
+  keysRefreshMs: number;
   /**
    * Po ilu sekundach bez UDANEGO odswiezenia repliki instancja przestaje
    * meldowac gotowosc. Uwierzytelnianie dziala dalej (fail-open) - to jest
    * decyzja o KIEROWANIU RUCHU, nie o wpuszczaniu klientow.
    */
-  kluczeMaxWiekS: number;
+  keysMaxAgeSeconds: number;
   /** Co ile zrzucac agregat zuzycia do bazy. */
-  zuzycieFlushMs: number;
+  usageFlushMs: number;
   /**
    * Token operatora. Pusty = trasy /admin NIE ISTNIEJA w routerze, wiec nie
    * da sie ich znalezc sondowaniem.
@@ -55,10 +55,10 @@ export interface ServerConfig {
    * OSTRZEZENIE przy kazdym starcie z niezerowa wartoscia - furtka nie moze
    * byc wlaczona po cichu.
    */
-  debugOpoznienieUs: number;
+  debugDelayUs: number;
   /** Pieprze jako zwykle dane - konfiguracja pozostaje serializowalna. */
-  pieprze: Array<[number, string]>;
-  pieprzAktywny: number | null;
+  peppers: Array<[number, string]>;
+  activePepper: number | null;
 }
 
 /**
@@ -94,23 +94,23 @@ export function loadConfig(env = process.env): ServerConfig {
     // (np. tryb wymagany bez pieprza). Kontrola spojnosci siedzi w buildServer -
     // dzieki temu da sie zbadac sama konfiguracje, nie stawiajac serwera.
     apiKeyMode: parseApiKeyMode(env.API_KEY_MODE),
-    rateLimitNieuwierzytelniony: Number(env.RATE_LIMIT_NIEUWIERZYTELNIONY ?? 60),
-    kluczeOdswiezanieMs: Number(env.KLUCZE_ODSWIEZANIE_MS ?? 10_000),
-    kluczeMaxWiekS: Number(env.KLUCZE_MAX_WIEK_S ?? 900),
-    zuzycieFlushMs: Number(env.ZUZYCIE_FLUSH_MS ?? 60_000),
+    rateLimitUnauthenticated: Number(env.RATE_LIMIT_UNAUTHENTICATED ?? 60),
+    keysRefreshMs: Number(env.KEYS_REFRESH_MS ?? 10_000),
+    keysMaxAgeSeconds: Number(env.KEYS_MAX_AGE_S ?? 900),
+    usageFlushMs: Number(env.USAGE_FLUSH_MS ?? 60_000),
     adminToken: env.ADMIN_TOKEN ?? '',
-    debugOpoznienieUs: env.NODE_ENV === 'production'
+    debugDelayUs: env.NODE_ENV === 'production'
       ? 0
-      : Number(env.AUTH_DEBUG_OPOZNIENIE_US ?? 0),
-    ...(() => { const { sekrety, aktywna } = pepperEntriesFromEnv(env); return { pieprze: sekrety, pieprzAktywny: aktywna }; })(),
+      : Number(env.AUTH_DEBUG_DELAY_US ?? 0),
+    ...(() => { const { sekrety, aktywna } = pepperEntriesFromEnv(env); return { peppers: sekrety, activePepper: aktywna }; })(),
   };
 }
 
-/** Nieznana wartosc daje 'wylaczony' - najbezpieczniejsza wobec zgodnosci wstecz. */
+/** Nieznana wartosc daje 'disabled' - najbezpieczniejsza wobec zgodnosci wstecz. */
 export function parseApiKeyMode(v?: string): ApiKeyMode {
-  if (v === 'wymagany' || v === 'opcjonalny' || v === 'wylaczony') return v;
+  if (v === 'required' || v === 'optional' || v === 'disabled') return v;
   /**
-   * DOMYSLKA ZMIENIONA 10.08.2026 z 'wylaczony' na 'wymagany' (zadanie 8.9).
+   * DOMYSLKA ZMIENIONA 10.08.2026 z 'disabled' na 'required' (zadanie 8.9).
    *
    * To jedyna zmiana ZACHOWANIA w calym etapie 8A - cala reszta byla dokladana
    * pod wylaczonym przelacznikiem. Celowo osobny, jednolinijkowy i odwracalny
@@ -120,8 +120,8 @@ export function parseApiKeyMode(v?: string): ApiKeyMode {
    * Wszystkie zestawy testow maja tryb przypiety jawnie od zadania 8.4b, wiec
    * przelaczenie ich nie dotyka. To byla cala pointa trybu przejsciowego.
    *
-   * Nieznana wartosc daje 'wymagany', nie 'wylaczony': literowka w konfiguracji
+   * Nieznana wartosc daje 'required', nie 'disabled': literowka w konfiguracji
    * wdrozenia nie moze po cichu OTWIERAC serwisu.
    */
-  return 'wymagany';
+  return 'required';
 }

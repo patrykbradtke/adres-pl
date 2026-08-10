@@ -13,13 +13,13 @@
     "build": "npm run build --workspaces --if-present",
     "etl": "node --experimental-strip-types packages/etl/src/cli.ts",
     "api": "node --experimental-strip-types packages/api/src/server.ts",
-    "raport": "node docs/build-report.js",
-    "test": "node --experimental-strip-types packages/core/test/klucz-api.ts && node --experimental-strip-types packages/api/test/pieprz.ts && node --experimental-strip-types packages/api/test/koszt-uwierzytelnienia.ts && node --experimental-strip-types packages/api/test/limit-obejscie.ts && node --experimental-strip-types packages/api/test/loader-podmiana.ts && node --experimental-strip-types packages/api/test/openapi-zgodnosc.ts",
-    "test:baza": "node --experimental-strip-types packages/api/test/schemat-licencje.ts && node --experimental-strip-types packages/api/test/replika-kluczy.ts && node --experimental-strip-types packages/api/test/uwierzytelnianie.ts && node --experimental-strip-types packages/api/test/cykl-zycia-klucza.ts && node --experimental-strip-types packages/api/test/kwoty.ts && node --experimental-strip-types packages/api/test/admin.ts",
-    "jakosc": "node --experimental-strip-types packages/api/test/jakosc-wyszukiwania.ts",
-    "atrapa": "node --experimental-strip-types packages/api/test/atrapa-indeksu.ts",
+    "report": "node docs/build-report.js",
+    "test": "node --experimental-strip-types packages/core/test/api-key.ts && node --experimental-strip-types packages/api/test/pepper.ts && node --experimental-strip-types packages/api/test/auth-cost.ts && node --experimental-strip-types packages/api/test/rate-limit-bypass.ts && node --experimental-strip-types packages/api/test/loader-swap.ts && node --experimental-strip-types packages/api/test/openapi-conformance.ts",
+    "test:db": "node --experimental-strip-types packages/api/test/licensing-schema.ts && node --experimental-strip-types packages/api/test/key-replica.ts && node --experimental-strip-types packages/api/test/authentication.ts && node --experimental-strip-types packages/api/test/key-lifecycle.ts && node --experimental-strip-types packages/api/test/quotas.ts && node --experimental-strip-types packages/api/test/admin.ts",
+    "quality": "node --experimental-strip-types packages/api/test/search-quality.ts",
+    "stub": "node --experimental-strip-types packages/api/test/index-stub.ts",
     "bench": "node --experimental-strip-types packages/api/test/bench-http.ts",
-    "klucze": "node --experimental-strip-types packages/api/src/keys/cli.ts"
+    "keys": "node --experimental-strip-types packages/api/src/keys/cli.ts"
   },
   "devDependencies": {
     "docx": "^9.7.1",
