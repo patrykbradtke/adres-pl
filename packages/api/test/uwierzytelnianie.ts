@@ -1,7 +1,7 @@
 /**
  * Uwierzytelnianie kluczem API i dwupoziomowe limitowanie (zadanie 8.4b).
  *
- * WYMAGA BAZY z migracja 003. Artefakt indeksu buduje sobie sam (atrapa).
+ * WYMAGA BAZY z migracja 004_licencje.sql. Artefakt indeksu buduje sobie sam (atrapa).
  *
  * NAJWAZNIEJSZA KONTROLA CALEGO ETAPU to nr 11: kubelek limitu jest PER
  * ZWERYFIKOWANY KLIENT. Etap 8A przywraca klucze API jako klucz limitowania,

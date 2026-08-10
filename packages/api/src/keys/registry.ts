@@ -31,6 +31,7 @@
  * puli to 10% pojemnosci.
  */
 import pg from 'pg';
+import { NotifyListener } from './notify-listener.ts';
 
 export interface KeyEntry {
   kluczId: number;
@@ -85,15 +86,6 @@ const SQL_WPISY = `
  * jego limitu nie dotykaja ani jednego wiersza klucza, wiec instancja nigdy by
  * sie o nich nie dowiedziala. Klient zawieszony pracowalby do restartu poda.
  */
-/*
- * Rzutowanie na ::text jest KONIECZNE, nie kosmetyczne. Sterownik pg zamienia
- * timestamptz na obiekt Date, a wtedy `poprzedni !== biezacy` porownuje
- * REFERENCJE - zawsze rozne. Warunek "nic sie nie zmienilo" nie zatrzymywalby
- * niczego i replika przeladowywalaby sie przy kazdym odpytaniu, co 10 s,
- * w kazdej instancji. Ten sam blad co w loaderze artefaktu przed 9.08.2026
- * (porownanie wersji danych z nazwa pliku) - objaw jest cichy, bo wszystko
- * dziala, tylko drozej.
- */
 /**
  * Zuzycie biezacego okresu rozliczeniowego, zsumowane per klient.
  *
@@ -108,6 +100,15 @@ const SQL_ZUZYCIE = `
    WHERE z.okres = date_trunc('month', now() AT TIME ZONE 'UTC')::date
    GROUP BY k.klient_id`;
 
+/*
+ * Rzutowanie na ::text jest KONIECZNE, nie kosmetyczne. Sterownik pg zamienia
+ * timestamptz na obiekt Date, a wtedy `poprzedni !== biezacy` porownuje
+ * REFERENCJE - zawsze rozne. Warunek "nic sie nie zmienilo" nie zatrzymywalby
+ * niczego i replika przeladowywalaby sie przy kazdym odpytaniu, co 10 s,
+ * w kazdej instancji. Ten sam blad co w loaderze artefaktu przed 9.08.2026
+ * (porownanie wersji danych z nazwa pliku) - objaw jest cichy, bo wszystko
+ * dziala, tylko drozej.
+ */
 const SQL_ZNACZNIK = `
   SELECT GREATEST(
            coalesce((SELECT max(zmieniony) FROM licencje.klucz_api), '-infinity'::timestamptz),
@@ -117,19 +118,17 @@ const SQL_ZNACZNIK = `
 export class KeyRegistry {
   private wpisy: ReadonlyMap<string, KeyEntry> = new Map();
   private cfg: RegistryConfig;
-  private sluchacz: pg.Client | null = null;
   private timer: NodeJS.Timeout | null = null;
-  private ponowienie: NodeJS.Timeout | null = null;
   private znacznik: string | null = null;
-  private zatrzymany = false;
+  private nasluch: NotifyListener | null = null;
   private odswiezaTrwa = false;
 
   /** Diagnostyka - wystawiana w /metrics i /status. */
   private ostatnieUdaneMs = 0;
   liczbaOdswiezen = 0;
   liczbaBledow = 0;
-  liczbaPowiadomien = 0;
-  liczbaPonowien = 0;
+  get liczbaPowiadomien(): number { return this.nasluch?.liczbaPowiadomien ?? 0; }
+  get liczbaPonowien(): number { return this.nasluch?.liczbaPonowien ?? 0; }
   zaladowana = false;
 
   constructor(cfg: RegistryConfig) {
@@ -158,8 +157,8 @@ export class KeyRegistry {
       `SELECT to_regclass('licencje.klucz_api')::text AS jest`);
     if (!r?.jest) {
       throw new Error(
-        'Migracja 003_licencje.sql nie zostala wgrana do tej bazy. Uruchom:\n' +
-        '  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/003_licencje.sql');
+        'Migracja 004_licencje.sql nie zostala wgrana do tej bazy. Uruchom:\n' +
+        '  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/004_licencje.sql');
     }
   }
 
@@ -183,18 +182,28 @@ export class KeyRegistry {
     // Czekamy na zestawienie nasluchu, zamiast puszczac go w tle: inaczej
     // powiadomienia z pierwszych setek milisekund po starcie przepadaja,
     // a uniewaznienie wykonane tuz po wdrozeniu czeka na pelny okres
-    // odpytywania. Niepowodzenie nie blokuje startu - podlaczNasluch
-    // sam planuje ponowienie.
-    await this.podlaczNasluch();
+    // odpytywania. Niepowodzenie nie blokuje startu - nasluch sam planuje
+    // ponowienie.
+    this.nasluch = new NotifyListener({
+      connectionString: this.cfg.connectionString,
+      kanal: 'licencje_zmiana',
+      onPowiadomienie: () => {
+        void this.odswiez().catch((e) => this.cfg.onError?.(e as Error, 'odswiezanie po NOTIFY'));
+      },
+      // Powiadomienia z czasu przerwy przepadly bezpowrotnie, wiec po powrocie
+      // przeladowujemy replike w calosci, nie ogladajac sie na znacznik.
+      onPrzywrocenie: () => {
+        void this.odswiez(true).catch(() => { /* zglosi sie przy odpytywaniu */ });
+      },
+      onError: this.cfg.onError,
+      onInfo: this.cfg.onInfo,
+    });
+    await this.nasluch.start();
   }
 
   stop(): void {
-    this.zatrzymany = true;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    if (this.ponowienie) { clearTimeout(this.ponowienie); this.ponowienie = null; }
-    const s = this.sluchacz;
-    this.sluchacz = null;
-    if (s) void s.end().catch(() => { /* zamykamy, blad bez znaczenia */ });
+    this.nasluch?.stop();
   }
 
   /**
@@ -299,49 +308,4 @@ export class KeyRegistry {
     this.timer.unref();
   }
 
-  /** Nasluch na wlasnym polaczeniu, z ponawianiem o narastajacym odstepie. */
-  private async podlaczNasluch(proba = 0): Promise<void> {
-    if (this.zatrzymany) return;
-    const klient = new pg.Client({ connectionString: this.cfg.connectionString });
-    try {
-      await klient.connect();
-      klient.on('notification', () => {
-        this.liczbaPowiadomien++;
-        void this.odswiez().catch((e) => this.cfg.onError?.(e as Error, 'odswiezanie po NOTIFY'));
-      });
-      klient.on('error', (e) => {
-        this.cfg.onError?.(e, 'nasluch');
-        void this.ponowNasluch();
-      });
-      await klient.query('LISTEN licencje_zmiana');
-      this.sluchacz = klient;
-      if (proba > 0) {
-        // Powiadomienia z czasu przerwy przepadly bezpowrotnie.
-        this.cfg.onInfo?.('Nasluch przywrocony - pelne przeladowanie repliki');
-        await this.odswiez(true).catch(() => { /* zglosi sie przy odpytywaniu */ });
-      }
-    } catch (e) {
-      await klient.end().catch(() => { /* i tak nie wstalo */ });
-      if (this.zatrzymany) return;
-      this.cfg.onError?.(e as Error, 'podlaczenie nasluchu');
-      this.zaplanujPonowienie(proba);
-    }
-  }
-
-  private async ponowNasluch(): Promise<void> {
-    if (this.zatrzymany || this.sluchacz === null) return;
-    const s = this.sluchacz;
-    this.sluchacz = null;
-    await s.end().catch(() => { /* juz zerwane */ });
-    this.zaplanujPonowienie(0);
-  }
-
-  private zaplanujPonowienie(proba: number): void {
-    if (this.zatrzymany) return;
-    this.liczbaPonowien++;
-    const podstawa = Math.min(30_000, 1_000 * 2 ** Math.min(proba, 5));
-    const odstep = Math.round(podstawa * (0.75 + Math.random() * 0.5));
-    this.ponowienie = setTimeout(() => { void this.podlaczNasluch(proba + 1); }, odstep);
-    this.ponowienie.unref();
-  }
 }

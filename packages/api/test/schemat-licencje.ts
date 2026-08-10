@@ -1,9 +1,9 @@
 /**
  * Schemat licencji - ksztalt, wiezy i kanal powiadomien (zadanie 8.2).
  *
- * WYMAGA BAZY z wgrana migracja 003_licencje.sql. Nie wymaga danych krajowych:
+ * WYMAGA BAZY z wgrana migracja 004_licencje.sql. Nie wymaga danych krajowych:
  *
- *   psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/003_licencje.sql
+ *   psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/004_licencje.sql
  *   node --experimental-strip-types packages/api/test/schemat-licencje.ts
  *
  * Kazdy przebieg zaklada WLASNEGO klienta i WLASNE klucze o losowych skrotach,
@@ -40,7 +40,7 @@ const brakuje = Object.entries(obiekty).filter(([, v]) => v === null).map(([k]) 
 zglos(brakuje.length === 0,
   `tabele licencje.klient, klucz_api, zuzycie istnieja${brakuje.length ? ' - brakuje: ' + brakuje.join(', ') : ''}`);
 if (brakuje.length) {
-  console.log('\n  Wgraj migracje: psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/003_licencje.sql');
+  console.log('\n  Wgraj migracje: psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/004_licencje.sql');
   await pool.end();
   process.exit(1);
 }

@@ -141,7 +141,7 @@ klucz obcy do słowników.
 # w środku pliku, więc „migracja przeszła" nic nie znaczy.
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/001_init.sql
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/002_staging.sql
-psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/003_licencje.sql
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/004_licencje.sql
 
 # 1. TERYT — konto testowe GUS wystarczy do próby, produkcja wymaga rejestracji
 npm run etl -- teryt test

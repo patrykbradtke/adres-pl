@@ -1,7 +1,7 @@
 /**
  * Cykl zycia klucza i pieprza (zadanie 8.6).
  *
- * WYMAGA BAZY z migracja 003. Artefakt buduje sobie sam.
+ * WYMAGA BAZY z migracja 004_licencje.sql. Artefakt buduje sobie sam.
  *
  * Trzy rzeczy, ktorych nie sprawdza zaden inny zestaw:
  *   - rotacja BEZPRZERWOWA: przez okres przejsciowy dzialaja OBA klucze,

@@ -31,7 +31,7 @@
 --
 --  WGRYWANIE - RECZNE I DOKLADNIE RAZ:
 --
---    psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/003_licencje.sql
+--    psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/004_licencje.sql
 --
 --  ON_ERROR_STOP=1 jest ISTOTNE: bez niego psql konczy sie kodem 0 mimo
 --  bledow w srodku pliku, wiec "migracja przeszla" nic nie znaczy.

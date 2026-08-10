@@ -1,7 +1,7 @@
 /**
  * Endpointy administracyjne (zadanie 8.7b).
  *
- * WYMAGA BAZY z migracja 003.
+ * WYMAGA BAZY z migracja 004_licencje.sql.
  *
  * NAJWAZNIEJSZA JEST KONTROLA 4: klucz kliencki nie otwiera zadnej trasy
  * /admin, a token operatora nie otwiera zadnej trasy /v1. Gdyby jeden mechanizm

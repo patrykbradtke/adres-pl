@@ -1,7 +1,7 @@
 /**
  * Limity per klient i kwota miesieczna (zadanie 8.5).
  *
- * WYMAGA BAZY z migracja 003.
+ * WYMAGA BAZY z migracja 004_licencje.sql.
  *
  * Zestaw pilnuje rozroznienia, ktore plan produkcyjny sklein w jedno zdanie
  * ("limity i kwoty per klient, magazyn wspoldzielony"):

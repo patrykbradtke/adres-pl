@@ -1,7 +1,7 @@
 /**
  * Replika rejestru kluczy - zbieznosc obiema drogami (zadanie 8.4a).
  *
- * WYMAGA BAZY z migracja 003. Nie wymaga danych krajowych ani artefaktu.
+ * WYMAGA BAZY z migracja 004_licencje.sql. Nie wymaga danych krajowych ani artefaktu.
  *
  * Sedno tego zestawu: udowodnic, ze DWA zrodla odswiezania sa potrzebne i ze
  * kazde dziala osobno. NOTIFY jest przyspieszaczem, odpytywanie gwarancja -
@@ -180,7 +180,7 @@ try {
     query: async () => ({ rows: [{ jest: null }] }),
   } as unknown as pg.Pool);
 } catch (e) { komunikat = (e as Error).message; }
-zglos(komunikat.includes('003_licencje.sql') && komunikat.includes('psql'),
+zglos(komunikat.includes('004_licencje.sql') && komunikat.includes('psql'),
   'brak schematu daje komunikat wskazujacy plik migracji i polecenie');
 
 rejestr.stop();

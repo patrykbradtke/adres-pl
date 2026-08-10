@@ -29,7 +29,7 @@ krok "0. Migracje i czyszczenie"
 # a `set -e` na gorze skryptu nie ma czego zlapac.
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/001_init.sql
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/002_staging.sql
-psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/003_licencje.sql
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -q -f db/migrations/004_licencje.sql
 # TRUNCATE, nie DELETE - przy wiekszej bazie DELETE 8,5 mln wierszy
 # potrafi trwac minuty i generuje ogromna ilosc martwych krotek.
 psql "$DATABASE_URL" -q -c "
