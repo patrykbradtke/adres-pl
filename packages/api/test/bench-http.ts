@@ -26,6 +26,23 @@
  * niz caly prog, ktory mamy wykryc. Koszt hooka jest kosztem po stronie
  * aplikacji i tam go mierzymy.
  *
+ * SUFIT PROBY: app.inject PRZECIEKA
+ *
+ * Zmierzone 10.08.2026: goly Fastify z jedna trasa, 50 tys. wywolan app.inject
+ * podnosi sterte z 10 MB do 468 MB i nic nie jest zwalniane - okolo 10 kB
+ * zatrzymane na zadanie. Ta sama trasa odpytana przez PRAWDZIWE GNIAZDO nie
+ * rosnie wcale (469 -> 38 MB, bo odsmiecanie zebralo poprzednia serie).
+ *
+ * Wyciek siedzi wiec w light-my-request, czyli w bibliotece TESTOWEJ, a nie
+ * w sciezce produkcyjnej - to wazne i uspokajajace ustalenie, bo 10 kB na
+ * zadanie zabijaloby pod w ciagu godziny.
+ *
+ * Konsekwencja praktyczna: w jednym procesie miesci sie okolo 400 tys. wywolan
+ * przy domyslnym limicie sterty. Przy trzech seriach daje to okolo 120 tys. na
+ * serie - za malo, zeby p99 byl rozdzielczy (patrz krzywa czulosci nizej).
+ * Rozwiazaniem docelowym jest osobny proces na serie; do tego czasu prog
+ * egzekwujemy na p50 i p95, a p99 raportujemy informacyjnie.
+ *
  * JAK MIERZYMY CZULOSC PRZYRZADU
  *
  * Puszczamy DWIE IDENTYCZNE serie przeplotem. Skoro roznia sie wylacznie
@@ -107,7 +124,10 @@ interface Seria {
  * opoznieniem, ktora ma dowiesc, ze przyrzad rzeczywiscie cokolwiek wykrywa.
  */
 const SERIE: Seria[] = [
-  { id: 'A', opis: 'bez uwierzytelniania (odniesienie)', env: {} },
+  // Tryb przypiety JAWNIE. Bez tego seria A dziedziczy domyslke z zadania 8.9
+  // ('wymagany'), strzela bez klucza i mierzy koszt ODRZUCEN zamiast obslugi -
+  // a odrzucenie jest rzedu 0,05 ms, wiec porownanie B-A traci sens.
+  { id: 'A', opis: 'bez uwierzytelniania (odniesienie)', env: { API_KEY_MODE: 'wylaczony' } },
   { id: 'B', opis: 'z waznym kluczem', env: { API_KEY_MODE: 'wymagany' }, wymagaKlucza: true },
   {
     id: 'C',

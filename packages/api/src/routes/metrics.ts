@@ -127,9 +127,20 @@ export function registerMetricsRoutes(
   let stanDanych = { wiekDni: -1, punkty: 0, miejscowosci: 0, ulice: 0 };
   let staneDanychTs = 0;
 
-  app.get('/metrics', async (_req, reply) => {
+  /**
+   * Piec niezaleznych zrodel metryk, kazde w osobnej funkcji.
+   *
+   * Wczesniej caly handler byl jednym cialem o 165 liniach: piec blokow
+   * z wlasna obsluga bledow, wspolna zmienna bazaOk i domknieciem cache'u.
+   * Dodanie szostego zrodla oznaczalo wejscie w srodek tego bloku i zgadywanie,
+   * co jeszcze od czego zalezy.
+   *
+   * Jedyne wspoldzielenie, ktore zostalo, jest jawne: stan danych ZWRACA
+   * bazaOk, bo dostepnosc bazy jest sygnalem samym w sobie i sonduje sie ja
+   * przy okazji zapytania, ktore i tak wykonujemy.
+   */
+  async function metrykiStanuDanych(): Promise<{ linie: string[]; bazaOk: number }> {
     const lines: string[] = [];
-
     // --- stan danych -------------------------------------------------
     //
     // Zliczenia sa CACHOWANE, dostepnosc bazy NIE.
@@ -194,6 +205,11 @@ export function registerMetricsRoutes(
     lines.push('# TYPE adres_ulice_total gauge');
     lines.push(`adres_ulice_total ${ulice}`);
 
+    return { linie: lines, bazaOk };
+  }
+
+  async function metrykiEtl(): Promise<string[]> {
+    const lines: string[] = [];
     // --- stan ETL ----------------------------------------------------
     try {
       const { rows } = await pool.query<{ status: string; n: string }>(
@@ -218,6 +234,11 @@ export function registerMetricsRoutes(
       }
     } catch { /* brak tabeli etl_run nie moze wywalic metryk */ }
 
+    return lines;
+  }
+
+  async function metrykiIndeksu(): Promise<string[]> {
+    const lines: string[] = [];
     // --- stan indeksu -------------------------------------------------
     lines.push('# HELP adres_indeks_zaladowany Czy artefakt indeksu jest w pamieci (1/0).');
     lines.push('# TYPE adres_indeks_zaladowany gauge');
@@ -255,6 +276,11 @@ export function registerMetricsRoutes(
       lines.push(`adres_indeks_niespojny ${niespojny}`);
     }
 
+    return lines;
+  }
+
+  function metrykiProcesu(): string[] {
+    const lines: string[] = [];
     // --- proces --------------------------------------------------------
     const mem = process.memoryUsage();
     lines.push('# HELP adres_proces_rss_bajty Zuzycie pamieci procesu.');
@@ -264,6 +290,11 @@ export function registerMetricsRoutes(
     lines.push('# TYPE adres_proces_uptime_s gauge');
     lines.push(`adres_proces_uptime_s ${Math.round(process.uptime())}`);
 
+    return lines;
+  }
+
+  function metrykiRejestruKluczy(): string[] {
+    const lines: string[] = [];
     /**
      * Stan repliki rejestru kluczy.
      *
@@ -293,6 +324,18 @@ export function registerMetricsRoutes(
       lines.push('# TYPE adres_klucze_zaladowany gauge');
       lines.push(`adres_klucze_zaladowany ${rejestr.zaladowana ? 1 : 0}`);
     }
+    return lines;
+  }
+
+  app.get('/metrics', async (_req, reply) => {
+    const stan = await metrykiStanuDanych();
+    const lines: string[] = [
+      ...stan.linie,
+      ...await metrykiEtl(),
+      ...await metrykiIndeksu(),
+      ...metrykiProcesu(),
+      ...metrykiRejestruKluczy(),
+    ];
 
     lines.push(...metrics.render());
 
