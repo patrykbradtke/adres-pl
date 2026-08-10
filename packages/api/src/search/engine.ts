@@ -308,8 +308,21 @@ export class SearchIndex {
     s += (matched / qTokens.length) * 600;
     s -= fuzzyPenalty;
 
+    // Popularnosc: wielkosc samego obiektu ORAZ miejscowosci, w ktorej lezy.
+    //
+    // Sama liczba adresow przy ulicy to slaby sygnal waznosci - ulica we wsi
+    // miewa ich tyle samo, co fragment ulicy w miescie. Zapytanie
+    // "marszalkowska" dawalo Cmolas (67 adresow przy ulicy) i Warszawe (70)
+    // w praktycznym remisie, rozstrzyganym dlugoscia etykiety, choc same
+    // miejscowosci roznia sie o trzy rzedy wielkosci.
+    //
+    // Waga miejscowosci jest nizsza niz waga samego obiektu: ma przewazac przy
+    // remisie, a nie przykrywac dopasowania nazwy. Roznica miedzy Warszawa
+    // (126 566 adresow) a wsia na kilkaset wychodzi na ok. 60 punktow, przy
+    // premii za trafienie prefiksowe rownej 1000.
     const punktow = this.field(docId, DOC.PUNKTOW);
     s += Math.log10(punktow + 1) * 30;
+    s += Math.log10(this.field(docId, DOC.PUNKTOW_MIEJSCOWOSCI) + 1) * 25;
 
     // Kara za dlugosc liczona bez slowa rodzajowego - inaczej etykieta
     // "ulica Pulawska, Warszawa" placi za szesc znakow, ktorych uzytkownik

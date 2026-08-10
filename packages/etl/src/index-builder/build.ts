@@ -22,6 +22,8 @@ export interface IndexDoc {
   simc: string;
   ulicId?: number;
   liczbaPunktow: number;
+  /** Punkty CALEJ miejscowosci. Dla miejscowosci rowne liczbaPunktow. */
+  liczbaPunktowMiejscowosci?: number;
   gmina?: string;
   powiat?: string;
   wojewodztwo?: string;
@@ -104,6 +106,8 @@ export function buildIndex(docs: Iterable<IndexDoc>, dataVersion: string): Build
     docFields[base + DOC.FLAGS] = d.maUlice ? FLAG_MA_ULICE : 0;
     docFields[base + DOC.LAT_E6] = d.lat ? Math.round(d.lat * 1e6) : 0;
     docFields[base + DOC.LON_E6] = d.lon ? Math.round(d.lon * 1e6) : 0;
+    docFields[base + DOC.PUNKTOW_MIEJSCOWOSCI] =
+      Math.min((d.liczbaPunktowMiejscowosci ?? d.liczbaPunktow) | 0, 2_000_000_000);
 
     const seen = new Set<string>();
     for (const k of rotationalKeys(d.label)) {
@@ -189,6 +193,7 @@ export const SQL_INDEX_DOCS = `
     m.simc,
     NULL::bigint       AS ulic_id,
     m.liczba_punktow,
+    m.liczba_punktow   AS liczba_punktow_miejscowosci,
     g.nazwa            AS gmina,
     pw.nazwa           AS powiat,
     w.nazwa            AS wojewodztwo,
@@ -201,6 +206,23 @@ export const SQL_INDEX_DOCS = `
   LEFT JOIN adres.teryt_jednostka pw ON pw.terc = g.parent_terc
   LEFT JOIN adres.teryt_jednostka w  ON w.terc = pw.parent_terc
   WHERE m.wycofany_od IS NULL
+    -- Pomijamy miejscowosci, w ktorych zadna sciezka nie prowadzi do adresu:
+    -- zero punktow adresowych I zero ulic. Jest ich 49 079, czyli 48% slownika.
+    --
+    -- To nie sa bledy w danych - to glownie jednostki typu "czesc" i "czesc
+    -- miasta", ktore w TERYT z definicji nie sa adresowalne, bo adresy naleza
+    -- do miejscowosci nadrzednej. W polu adresowym sa jednak slepym zaulkiem:
+    -- uzytkownik wybiera "Gdansk" w gminie Lidzbark i nie ma czego wybrac dalej.
+    --
+    -- Filtr jest FUNKCJONALNY, nie slownikowy, i to celowo: 921 wpisow typu
+    -- "czesc" ma wlasne adresy (do 688), wiec wykluczanie po rodzaju bylo by
+    -- bledem. Zostaja tez 246 miejscowosci bez punktow, ale z ulicami -
+    -- np. dzielnica Targowek z 409 ulicami, gdzie punkty wisza przy Warszawie.
+    --
+    -- Same rekordy zostaja w bazie i sa dostepne przez /v1/locality/{simc}.
+    AND (m.liczba_punktow > 0
+         OR EXISTS (SELECT 1 FROM adres.ulica u
+                     WHERE u.simc = m.simc AND u.wycofany_od IS NULL))
 
   UNION ALL
 
@@ -210,6 +232,7 @@ export const SQL_INDEX_DOCS = `
     m.simc,
     u.ulic_id,
     u.liczba_punktow,
+    m.liczba_punktow,
     g.nazwa, pw.nazwa, w.nazwa,
     m.ma_ulice,
     NULL, NULL,

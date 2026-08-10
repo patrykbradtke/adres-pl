@@ -407,6 +407,7 @@ async function main(): Promise<void> {
         simc: r.simc,
         ulicId: r.ulic_id ? Number(r.ulic_id) : undefined,
         liczbaPunktow: Number(r.liczba_punktow ?? 0),
+        liczbaPunktowMiejscowosci: Number(r.liczba_punktow_miejscowosci ?? r.liczba_punktow ?? 0),
         gmina: r.gmina, powiat: r.powiat, wojewodztwo: r.wojewodztwo,
         maUlice: r.ma_ulice,
         lat: r.lat ?? undefined, lon: r.lon ?? undefined,

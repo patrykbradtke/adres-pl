@@ -197,9 +197,9 @@ występować, zestaw upomina się o zdjęcie znacznika.
 | 6.16 | ~~Słowo rodzajowe wtopione w nazwę ulicy~~ **NAPRAWIONE 9.08.2026** — punktacja pomija wiodące słowo rodzajowe. Marszałkowska poz. 2, Grójecka poz. 4, Puławska poz. 1 (było: poza pierwszą 25). Zostaje warstwa danych — patrz niżej | — | — |
 | 6.17 | ~~Skrytka pocztowa dostaje `zweryfikowany_rejestr`~~ **NAPRAWIONE 9.08.2026** — marker rozpoznawany przed resztą parsowania, numer skrytki nie trafia w numer budynku | — |
 | 6.18 | ~~Parser wymaga przecinka jako separatora pól~~ **NAPRAWIONE 9.08.2026** — przy braku przecinka podział w miejscu kodu pocztowego | — |
-| 6.19 | **Ranking prawie nie uwzględnia wielkości miejscowości** | Ulica we wsi z 67 punktami wygrywa z ulicą w mieście z 126 tys. Wymaga decyzji: czy i jak ważyć | 0,5 d + decyzja |
+| 6.19 | ~~Ranking prawie nie uwzględnia wielkości miejscowości~~ **NAPRAWIONE 9.08.2026** — do indeksu doszło pole z liczbą adresów całej miejscowości (format 1→2). „marszalkowska" i „grojecka" zwracają Warszawę na pierwszym miejscu, przy zachowanej znajdywalności wsi | — |
 | 6.20 | ~~Pięciocyfrowy numer budynku czytany jako kod pocztowy~~ **NAPRAWIONE 9.08.2026** — kod bez myślnika odrzucany, gdy wychodzi na zaślepkę | — |
-| 6.21 | Miejscowości-widma z zerową liczbą punktów w podpowiedziach | „gdansk" zwraca Gdańsk właściwy i drugi Gdańsk z 0 punktami — szum w liście | 0,25 d |
+| 6.21 | ~~Miejscowości-widma z zerową liczbą punktów~~ **NAPRAWIONE 9.08.2026** — z indeksu wypadają miejscowości bez punktów I bez ulic (49 079, 48% słownika). Filtr funkcjonalny, nie słownikowy: 921 wpisów typu „część" ma własne adresy | — |
 
 **6.16 — co naprawiono, a co zostaje.** Naprawiona jest warstwa wyszukiwania:
 `score()` traktuje wiodące słowo rodzajowe jako przezroczyste — nie przyznaje
@@ -269,7 +269,7 @@ zbierania wygląda identycznie jak stan zdrowy.
 | 7.5 | Sonda syntetyczna: cykliczne zapytanie kontrolne z weryfikacją treści odpowiedzi | 0,5 d | wykrywa „usługa odpowiada, ale zwraca bzdury” |
 | 7.6 | Centralne logi z korelacją do metryk | 1 d | dziś logi żyją w kontenerze |
 | 7.7 | Cele poziomu usługi (SLO) i alerty oparte na budżecie błędu | 1 d | zamiast progów sztywnych, mniej fałszywych alarmów |
-| 7.8 | Zasady eskalacji: kto dostaje alert, co budzi w nocy, co czeka do rana | 0,5 d | alert bez adresata jest bezużyteczny |
+| 7.8 | ~~Zasady eskalacji: kto dostaje alert, co budzi w nocy, co czeka do rana~~ **WYKONANE 9.08.2026** — podział wyegzekwowany konfiguracją, nie opisem: `critical` do dyżuru natychmiast, `warning` wyciszone pon–pt 18:00–08:00 i przez weekend, dostarczane rano. Zostaje uzupełnienie adresów po wskazaniu osoby odpowiedzialnej | — |
 
 **Zasada dla alertów:** reagować na objawy odczuwalne dla użytkownika, a nie na
 przyczyny techniczne. Istniejące trzy reguły są dobrym wzorcem — każda mówi
