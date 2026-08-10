@@ -1,7 +1,10 @@
 /**
  * Generator raportu dla Klienta i analityków.
  *
- * Wydanie 1.3. Ten plik jest zrodlem prawdy dla dokumentu — plik .docx
+ * Numer wydania trzyma stala WERSJA nizej i tylko ona - w komentarzu
+ * zdazyl sie juz zdezaktualizowac.
+ *
+ * Ten plik jest zrodlem prawdy dla dokumentu — plik .docx
  * powstaje wylacznie stad. Recznych poprawek w Wordzie nie wprowadzac,
  * bo znikaja przy kolejnym przebiegu.
  *
@@ -186,13 +189,14 @@ children.push(table(
     ['1.5', '9.08.2026', 'Uruchomiony odbiorca metryk i pulpit operacyjny. Podpięcie monitoringu ujawniło w pierwszej godzinie dwa kolejne defekty i wykazało, że próg jednego z alertów odpaliłby się natychmiast po wdrożeniu'],
     ['1.6', '9.08.2026', 'Formalny kontrakt interfejsu, zbiór wzorcowy jakości wyszukiwania i cztery naprawy, które z niego wynikły — w tym wyszukiwanie ulic w Warszawie i skrytka pocztowa uznawana za adres zweryfikowany'],
     ['1.7', '9–10.08.2026', 'Archiwum wyniesione poza maszynę roboczą wraz z weryfikacją sum kontrolnych po stronie odbiorcy — zamknięte ryzyko bezpowrotnej utraty danych w strukturze sprzed 1 września 2026, jedyne z terminem nieprzesuwalnym. Powtórny pełny przebieg przetwarzania potwierdził, że publikacja nie odtwarza usuniętych duplikatów. Rozpoczęte równoległe prace nad uwierzytelnianiem klientów. Sprostowane wielkości artefaktu i katalogu ulic oraz pochodzenie liczb czasu odpowiedzi dla ścieżki HTTP'],
+    ['1.8', '10.08.2026', 'Zamknięte uwierzytelnianie klientów: klucze API z terminem ważności, limitami per klient i kwotami miesięcznymi, unieważnianiem docierającym do wszystkich instancji poniżej sekundy i rotacją bez przerwy w dostępie. Kluczem limitowania jest odtąd zweryfikowana tożsamość, a nie wartość przysłana w żądaniu — zdjęte ograniczenie „wyłącznie sieć wewnętrzna”. Zmierzony koszt weryfikacji: 34–36 mikrosekund przy budżecie 300, potwierdzony dwiema niezależnymi metodami'],
   ],
-  { rowFill: (r) => r[0] === '1.7' ? C.ok : undefined },
+  { rowFill: (r) => r[0] === '1.8' ? C.ok : undefined },
 ));
 
 children.push(SPACER());
 children.push(...box(
-  'Co zmieniło się w wydaniach 1.4–1.7',
+  'Co zmieniło się w wydaniach 1.4–1.8',
   [
     'Archiwum plików źródłowych przestało istnieć w jednym egzemplarzu. Komplet 16 archiwów PRG — wraz z plikami w strukturze sprzed 1 września 2026 — zrzuty bazy i artefakt wyszukiwania znajdują się od 9 sierpnia 2026 na osobnym serwerze, a ich integralność potwierdzono sumami kontrolnymi obliczonymi ponownie po stronie odbiorcy. Było to jedyne ryzyko w projekcie z terminem nieprzesuwalnym.',
     'Rozwiązanie działa na komplecie danych: 8 605 682 punkty adresowe ze wszystkich 16 województw, wobec 1 990 483 z czterech w wydaniu 1.3. Pozycja „uruchomienie na pełnym zbiorze” jest zamknięta.',
@@ -201,15 +205,21 @@ children.push(...box(
     'Łącznie ujawniono i naprawiono czternaście usterek, z których żadnej nie wykryłyby testy na próbkach. Klasyfikację według warunku wykrycia zawiera rozdział 8.4; jest ona głównym wnioskiem dla harmonogramu wdrożenia.',
     'Czasy odpowiedzi zmierzono na danych rzeczywistych dwiema metodami. Wyniki są znacznie lepsze od podanych w wydaniach 1.2–1.3, a rozbieżność ma źródło metodyczne — rozdział 8.6.',
     'Wydanie 1.7 prostuje trzy wielkości, które zdezaktualizowały się w trakcie prac: rozmiar artefaktu wyszukiwania i liczbę pozycji w nim (scalenie zduplikowanych ulic zmniejszyło go o połowę), liczbę ulic w katalogu oraz zużycie pamięci przez proces. Osobno opisano, że liczby czasu odpowiedzi dla pełnej ścieżki HTTP nie były odtwarzalne narzędziem, któremu je przypisywano — rozdział 8.6.',
+    'Wydanie 1.8 zamyka uwierzytelnianie klientów — brak, który kazał trzymać usługę wyłącznie w sieci wewnętrznej Zamawiającego. Serwis weryfikuje tożsamość kluczem API, a limity i kwoty rozliczeniowe liczone są po tej tożsamości, nie po adresie sieciowym. Zmierzony koszt weryfikacji, 34–36 mikrosekund przy budżecie 300, nie zmienia obrazu wydajności z rozdziału 8.6 — szczegóły w rozdziale 5.5.',
   ],
   C.head,
 ));
 
 children.push(P(
-  'Dwa wcześniejsze szacunki okazały się zbyt optymistyczne i zostały skorygowane w górę ' +
-  'pod wpływem pomiarów: mediana czasu odpowiedzi z 0,49 ms do ok. 4 ms oraz czas pełnego ' +
-  'przebiegu dla kraju z zakładanych 40 minut do ok. 4 godzin, czyli 1–1,5 godziny po ' +
-  'zrównolegleniu. Zmiany merytoryczne względem wydania 1.0 zebrano w rozdziałach 8.3–8.6.'));
+  'Dwa szacunki z wydania 1.0 zostały po drodze skorygowane w górę, a po pomiarach na ' +
+  'pełnym kraju — częściowo z powrotem w dół. Mediana czasu odpowiedzi: 0,49 ms na zbiorze ' +
+  'syntetycznym, ok. 4 ms w wydaniach 1.2–1.3, ostatecznie 0,81 ms dla samego silnika ' +
+  'i orientacyjnie 1,71 ms dla pełnej ścieżki HTTP. Poprawa względem wydań 1.2–1.3 wynika ' +
+  'z metodyki pomiaru, nie z przyspieszenia silnika — rozdział 8.6. Czas pełnego przebiegu ' +
+  'dla kraju: zakładane 40 minut, ok. 4 godzin w wydaniach 1.2–1.3, zmierzone 3 godziny ' +
+  '25 minut. Samo ładowanie danych to z tego 17 minut; resztę pochłaniają dwie aktualizacje ' +
+  'obszaru przejściowego, więc dalsze zrównoleglanie ładowania cyklu już nie skróci — ' +
+  'rozdział 8.5. Zmiany merytoryczne względem wydania 1.0 zebrano w rozdziałach 8.3–8.6.'));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 

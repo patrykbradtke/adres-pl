@@ -294,13 +294,15 @@ Narzędzia pomocnicze w `scripts/`:
 |---|---|
 | `docs/plan-produkcyjny.md` | **plan zadań** — od tego zacząć |
 | `docs/STAN-PRAC.md` | ten dokument |
-| `docs/raport/raport-baza-mikroserwis-v1.6.docx` | raport dla analityków i klienta |
+| `docs/raport/raport-baza-mikroserwis-v1.8.docx` | raport dla analityków i klienta |
 | `docs/build-report.js` | **generator raportu** — źródło prawdy, `npm run raport` |
 | `README.md` | dokumentacja techniczna, zaktualizowane czasy przebiegów |
 
-Raport dla analityków jest w wersji **1.6** (9.08.2026): pełny kraj, czternaście
+Raport dla analityków jest w wersji **1.8** (10.08.2026): pełny kraj, czternaście
 naprawionych usterek z klasyfikacją według warunku wykrycia, formalny kontrakt
-interfejsu, zmierzone czasy odpowiedzi i przetwarzania. Wydanie 1.3 uzgodniło
+interfejsu, zmierzone czasy odpowiedzi i przetwarzania, archiwum wyniesione poza
+maszynę roboczą (1.7) oraz zamknięte uwierzytelnianie klientów wraz ze zmierzonym
+kosztem weryfikacji klucza (1.8, rozdz. 5.5). Wydanie 1.3 uzgodniło
 treść ze stanem repozytorium — skorygowało zakres mikroserwisu, oznaczyło Redis
 i magazyn obiektowy jako niewdrożone, ujawniło braki blokujące produkcję
 i przepisało plan prac na 11–15 tygodni. Wszystkie wydania leżą w `docs/raport/`.
