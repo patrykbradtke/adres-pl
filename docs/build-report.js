@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const WERSJA = '1.7';
+const WERSJA = '1.8';
 const DATA = '10 sierpnia 2026';
 
 const W = 9026;                 // szerokosc kolumny tekstu A4 przy marginesach 1"
@@ -185,19 +185,22 @@ children.push(table(
     ['1.4', '9.08.2026', 'Uruchomienie na całym kraju: 8 605 682 punkty ze wszystkich 16 województw. Trzy kolejne usterki wykryte dopiero przy pełnej skali, w tym kontrola jakości, która nigdy nie działała. Nowe pomiary czasów odpowiedzi i przetwarzania'],
     ['1.5', '9.08.2026', 'Uruchomiony odbiorca metryk i pulpit operacyjny. Podpięcie monitoringu ujawniło w pierwszej godzinie dwa kolejne defekty i wykazało, że próg jednego z alertów odpaliłby się natychmiast po wdrożeniu'],
     ['1.6', '9.08.2026', 'Formalny kontrakt interfejsu, zbiór wzorcowy jakości wyszukiwania i cztery naprawy, które z niego wynikły — w tym wyszukiwanie ulic w Warszawie i skrytka pocztowa uznawana za adres zweryfikowany'],
+    ['1.7', '9–10.08.2026', 'Archiwum wyniesione poza maszynę roboczą wraz z weryfikacją sum kontrolnych po stronie odbiorcy — zamknięte ryzyko bezpowrotnej utraty danych w strukturze sprzed 1 września 2026, jedyne z terminem nieprzesuwalnym. Powtórny pełny przebieg przetwarzania potwierdził, że publikacja nie odtwarza usuniętych duplikatów. Rozpoczęte równoległe prace nad uwierzytelnianiem klientów. Sprostowane wielkości artefaktu i katalogu ulic oraz pochodzenie liczb czasu odpowiedzi dla ścieżki HTTP'],
   ],
-  { rowFill: (r) => r[0] === '1.6' ? C.ok : undefined },
+  { rowFill: (r) => r[0] === '1.7' ? C.ok : undefined },
 ));
 
 children.push(SPACER());
 children.push(...box(
-  'Co zmieniło się w wydaniach 1.4–1.6',
+  'Co zmieniło się w wydaniach 1.4–1.7',
   [
+    'Archiwum plików źródłowych przestało istnieć w jednym egzemplarzu. Komplet 16 archiwów PRG — wraz z plikami w strukturze sprzed 1 września 2026 — zrzuty bazy i artefakt wyszukiwania znajdują się od 9 sierpnia 2026 na osobnym serwerze, a ich integralność potwierdzono sumami kontrolnymi obliczonymi ponownie po stronie odbiorcy. Było to jedyne ryzyko w projekcie z terminem nieprzesuwalnym.',
     'Rozwiązanie działa na komplecie danych: 8 605 682 punkty adresowe ze wszystkich 16 województw, wobec 1 990 483 z czterech w wydaniu 1.3. Pozycja „uruchomienie na pełnym zbiorze” jest zamknięta.',
     'Uruchomiono odbiorcę metryk i pulpit operacyjny. Awarie przestały być wykrywane wyłącznie przez człowieka — to był jeden z trzech braków blokujących produkcję.',
     'Powstał formalny kontrakt interfejsu oraz zbiór wzorcowy jakości wyszukiwania — dwa mechanizmy, których brak pozwalał wadom pozostawać niewidocznymi.',
     'Łącznie ujawniono i naprawiono czternaście usterek, z których żadnej nie wykryłyby testy na próbkach. Klasyfikację według warunku wykrycia zawiera rozdział 8.4; jest ona głównym wnioskiem dla harmonogramu wdrożenia.',
     'Czasy odpowiedzi zmierzono na danych rzeczywistych dwiema metodami. Wyniki są znacznie lepsze od podanych w wydaniach 1.2–1.3, a rozbieżność ma źródło metodyczne — rozdział 8.6.',
+    'Wydanie 1.7 prostuje trzy wielkości, które zdezaktualizowały się w trakcie prac: rozmiar artefaktu wyszukiwania i liczbę pozycji w nim (scalenie zduplikowanych ulic zmniejszyło go o połowę), liczbę ulic w katalogu oraz zużycie pamięci przez proces. Osobno opisano, że liczby czasu odpowiedzi dla pełnej ścieżki HTTP nie były odtwarzalne narzędziem, któremu je przypisywano — rozdział 8.6.',
   ],
   C.head,
 ));
@@ -242,7 +245,8 @@ children.push(table(
     ['Uruchomienie na pełnym zbiorze', 'Gotowe', 'Wszystkie 16 województw opublikowane 9.08.2026: 8 605 682 punkty — patrz 8.3'],
     ['Powiadomienia i zasady eskalacji', 'Do zrobienia', 'Zbieranie i pulpit działają; brakuje realnego kanału powiadomień i ustalenia, co budzi w nocy'],
     ['Uwierzytelnianie klientów API', 'Gotowe', 'Klucze API z licencjami, limitami i kwotami — wdrożone 10.08.2026, patrz 5.5'],
-    ['Kopie zapasowe poza maszyną', 'Do zrobienia', 'Archiwum i zrzut bazy leżą wyłącznie na dysku lokalnym — patrz 7.3'],
+    ['Kopie zapasowe poza maszyną', 'Częściowo', 'Kopia poza maszyną wykonana 9.08.2026 i zweryfikowana sumami kontrolnymi. Brakuje cykliczności, retencji i testu odtworzenia — patrz 7.3'],
+
     ['Automatyzacja cyklu aktualizacji', 'Do zrobienia', 'Uruchomienie zadania cyklicznego, wznawianie przerwanych przebiegów'],
     ['Drugie źródło danych (iMPA)', 'Do zrobienia', 'Zabezpieczenie na wypadek awarii źródła podstawowego'],
   ],
@@ -267,7 +271,8 @@ children.push(table(
   { head: ['Brak', 'Na czym polega', 'Nakład'], widths: [2500, 4926, 1600] },
   [
     ['Uwierzytelnianie klientów API — ZAMKNIĘTE', 'Zamknięte 10.08.2026. Klucze API z terminem ważności, limitami per klient i kwotami miesięcznymi. Limitowanie idzie po zweryfikowanej tożsamości — patrz 5.5', 'wykonane'],
-    ['Kopie zapasowe nie opuszczają maszyny', 'Archiwum plików źródłowych i zrzut bazy leżą wyłącznie na dysku roboczym. Deklarowany czwarty poziom odporności na awarię źródła nie istnieje jeszcze fizycznie', '5–7 dni'],
+    ['Kopie zapasowe nie są procesem', 'Kopia poza maszyną powstała 9.08.2026 i zdjęła ryzyko utraty archiwum, ale jest jednorazowa i wykonana ręcznie. Brakuje harmonogramu, retencji, blokady zapisu na zamrożonym archiwum oraz — co najistotniejsze — choćby jednego przeprowadzonego odtworzenia. Do czasu takiego testu poprawność kopii pozostaje założeniem', '4,5–6,5 dni'],
+
     ['Alerty nie mają adresata', 'Zbieranie metryk i pulpit operacyjny uruchomiono 9.08.2026, więc awarie są już widoczne. Brakuje realnego kanału powiadomień oraz ustalenia, kto co dostaje i co budzi w nocy', '3–5 dni'],
   ],
   { rowFill: () => C.warn },
@@ -277,8 +282,10 @@ children.push(SPACER());
 children.push(LEAD('Kolejność ma znaczenie. ',
   'Trzy braki są od siebie niezależne i można je prowadzić równolegle. Żaden nie wymaga ' +
   'rozstrzygnięcia pozostałych, więc harmonogram zależy wyłącznie od dostępności ludzi ' +
-  'i od decyzji Zamawiającego z rozdziału 11. Najpilniejszy jest drugi: archiwum sprzed ' +
-  '1 września 2026 nadal istnieje w jednej kopii, a terminu nie da się przesunąć.'));
+  'i od decyzji Zamawiającego z rozdziału 11. Do 9 sierpnia 2026 najpilniejszy był drugi, ' +
+  'ponieważ jako jedyny miał termin nieprzesuwalny — 1 września 2026. Termin ten został ' +
+  'zdjęty wraz z wyniesieniem archiwum poza maszynę, więc o kolejności decyduje dziś ' +
+  'wyłącznie decyzja Zamawiającego co do komercjalizacji.'));
 
 children.push(H2('1.3. Wrześniowa zmiana formatu danych — ryzyko zamknięte'));
 
@@ -294,10 +301,13 @@ children.push(...box(
 ));
 
 children.push(LEAD('Uwaga do trwałości zabezpieczenia: ',
-  'archiwum spełnia swoją rolę tylko dopóki istnieje. Dziś jest to jedna kopia na dysku ' +
-  'roboczym — po 1 września 2026 danych w starej strukturze nie da się pobrać ponownie ' +
-  'z żadnego źródła. Wyniesienie tej kopii poza maszynę jest zadaniem pilnym, nie ' +
-  'porządkowym (rozdz. 7.3 i 10).'));
+  'archiwum spełnia swoją rolę tylko dopóki istnieje, a po 1 września 2026 danych ' +
+  'w starej strukturze nie da się pobrać ponownie z żadnego źródła. Do 9 sierpnia 2026 ' +
+  'była to jedna kopia na dysku roboczym; tego dnia wyniesiono ją na osobny serwer wraz ' +
+  'z weryfikacją sum kontrolnych po stronie odbiorcy oraz potwierdzeniem, że w każdym ' +
+  'z 16 archiwów rzeczywiście znajduje się plik w starej strukturze. Ryzyko jest zamknięte ' +
+  'także w wymiarze trwałości. Pozostaje uczynić z kopii proces, nie zdarzenie — ' +
+  'rozdz. 7.3 i 10.'));
 
 children.push(H2('1.4. Rekomendacja'));
 children.push(P(
@@ -500,7 +510,7 @@ children.push(table(
     ['PostgreSQL + PostGIS', 'Źródło prawdy, numery budynków, geokodowanie odwrotne', 'Wdrożone — dane adresowe są ściśle relacyjne i przestrzenne'],
     ['Indeks w pamięci procesu', 'Podpowiedzi adresowe', 'Wdrożone — ok. 30× szybciej niż zapytanie do bazy z indeksem tekstowym'],
     ['Redis', 'Limitowanie zapytań współdzielone między instancjami, pamięć podręczna, powiadamianie o nowej wersji', 'NIEWDROŻONE — licznik limitera działa dziś w pamięci pojedynczej instancji, więc przy N replikach efektywny limit jest N-krotnie wyższy'],
-    ['Magazyn obiektowy', 'Archiwum plików źródłowych i artefaktów indeksu poza maszyną roboczą', 'NIEWDROŻONE — usługa zadeklarowana w konfiguracji uruchomieniowej, ale nic z niej nie korzysta. Archiwum leży na dysku lokalnym'],
+    ['Magazyn obiektowy', 'Archiwum plików źródłowych i artefaktów indeksu poza maszyną roboczą', 'NIEWDROŻONE — usługa zadeklarowana w konfiguracji uruchomieniowej, ale nic z niej nie korzysta. Funkcję pełni od 9.08.2026 kopia na osobnym serwerze, przenoszona ręcznie; docelowy magazyn i automatyzacja pozostają do wykonania'],
   ],
   { rowFill: (r) => String(r[2]).startsWith('NIEWDROŻONE') ? C.warn : C.ok },
 ));
@@ -610,6 +620,28 @@ children.push(LEAD('Co pozostaje do wykonania. ',
   'wydań i dziennika zmian (etapy 4 i 5). Kopia zapasowa sekretu użytego do skrótów ' +
   'kluczy jest pozycją etapu 8C i wymaga uwagi: jego utrata unieważnia wszystkie klucze ' +
   'bez możliwości odtworzenia z kopii bazy danych.'));
+
+children.push(SPACER());
+children.push(...box(
+  'Prace rozpoczęte 9.08.2026 — fundament gotowy, obsługa żądania nietknięta',
+  [
+    'Powstał model danych klientów i kluczy w wydzielonym obszarze bazy, celowo bez powiązań w stronę danych adresowych: rutynowe czyszczenie danych testowych kasowałoby przez zależność poświadczenia klientów.',
+    'Ustalono postać klucza — stała długość, rozpoznawalny przedrostek i suma kontrolna pozwalająca odrzucić błędny klucz bez sięgania do bazy. Suma jest liczona bez sekretu, celowo: zewnętrzne usługi wykrywające wycieki poświadczeń w publicznych repozytoriach muszą umieć rozpoznać nasz klucz, nie znając naszego sekretu.',
+    'Klucze są przechowywane jako skrót z sekretem trzymanym poza bazą, w postaci pozwalającej na wymianę sekretu bez przerwy w działaniu. Zrzut bazy jest z założenia bezużyteczny do podszycia się pod klienta.',
+    'Powstała replika rejestru kluczy w pamięci procesu, dzięki czemu sprawdzenie klucza nie wymaga zapytania do bazy. Ma to trzy konsekwencje: zgadywanie kluczy nie obciąża bazy, awaria bazy nie zatrzymuje weryfikacji, a unieważnienie klucza dociera do instancji dwiema niezależnymi drogami — natychmiastową i gwarantowaną.',
+    'Wykonano też pomiar kosztu, zanim powstał kod, którego koszt ma być mierzony. Wynik jest sam w sobie istotny: wymaganie „nie więcej niż +0,3 ms do 99. percentyla” jest niemierzalne przy krótkich seriach — próg leży poniżej szumu przyrządu. Wiarygodny pomiar wymaga ok. 180 tysięcy żądań na serię, a i wtedy zapas nad progiem waha się kilkukrotnie między przebiegami.',
+  ],
+  C.head,
+));
+
+children.push(SPACER());
+children.push(LEAD('Przy okazji zamknięto dwie luki spoza zakresu tych prac: ',
+  'plik z poświadczeniami nie był wykluczony ani z repozytorium, ani z obrazu ' +
+  'kontenera — pojedyncze rutynowe polecenie wystarczyłoby, żeby sekrety trafiły ' +
+  'do historii repozytorium, a budowanie obrazu wpiekłoby je w warstwę wysyłaną ' +
+  'do rejestru. Osobno okazało się, że narzędzie wgrywające zmiany schematu bazy ' +
+  'kończyło się powodzeniem mimo błędów w środku pliku, więc kryterium „migracja ' +
+  'przeszła” dawało się spełnić przez pomyłkę.'));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -785,7 +817,7 @@ children.push(table(
     ['1', 'PRG (GUGiK)', 'Domyślny', 'Działa'],
     ['2', 'iMPA (Geo-System)', 'Niedostępność PRG powyżej 7 dni lub brak zmian powyżej 30 dni', 'Zaplanowany — wymaga wyjaśnienia licencji'],
     ['3', 'Otwarte dane miast', 'Uzupełnienie luk w dużych ośrodkach', 'Zaplanowany'],
-    ['4', 'Własne archiwum plików źródłowych', 'Awaria wszystkich źródeł zewnętrznych', 'Częściowo — archiwum istnieje, ale nie opuszcza maszyny roboczej'],
+    ['4', 'Własne archiwum plików źródłowych', 'Awaria wszystkich źródeł zewnętrznych', 'Działa — archiwum poza maszyną od 9.08.2026, sumy zweryfikowane u odbiorcy'],
   ],
   { rowFill: (r) => r[3] === 'Działa' ? C.ok : C.warn },
 ));
@@ -802,10 +834,10 @@ children.push(...box(
   'Zastrzeżenie: dziś działają dwa poziomy z czterech',
   [
     'Poziomy 2 i 3 są zaprojektowane, ale nie zbudowane. Faktyczne zabezpieczenie stanowią dziś rejestr PRG i własne archiwum.',
-    'Archiwum jest przy tym pojedynczą kopią na dysku roboczym. Awaria tego dysku oznacza jednoczesną utratę poziomu 4 i — co ważniejsze — bezpowrotną utratę zrzutu w strukturze sprzed 1 września 2026, którego po tej dacie nie da się odtworzyć z żadnego źródła.',
-    'Wyniesienie archiwum do magazynu poza maszyną jest z tego powodu pozycją o wyższym priorytecie niż wynikałoby to z jej nakładu.',
+    'Archiwum przestało być pojedynczą kopią 9 sierpnia 2026 — awaria dysku roboczego nie oznacza już utraty poziomu 4 ani bezpowrotnej utraty zrzutu w strukturze sprzed 1 września 2026.',
+    'Pozostaje natomiast zastrzeżenie innego rodzaju: odtworzenia z tej kopii nie przeprowadzono ani razu. Kopia zweryfikowana sumami kontrolnymi dowodzi, że pliki dotarły bez uszkodzenia — nie dowodzi, że da się z nich odtworzyć działającą bazę. Do czasu takiego testu poziom 4 należy uznawać za prawdopodobny, a nie potwierdzony.',
   ],
-  C.stop,
+  C.warn,
 ));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
@@ -855,12 +887,12 @@ children.push(SPACER());
 children.push(table(
   { head: ['Parametr', 'Zbiór syntetyczny', 'Dane rzeczywiste (8.3, 8.6)'], widths: [3200, 2900, 2926] },
   [
-    ['Mediana czasu odpowiedzi', '0,49 ms', 'ok. 4 ms'],
-    ['95. percentyl', '1,11 ms', 'nie przeliczono'],
-    ['99. percentyl', '1,84 ms', 'nie przeliczono'],
-    ['Rozmiar artefaktu indeksu', '53 MB', '66,4 MB'],
-    ['Liczba pozycji w indeksie', '373 tys.', '487 301'],
-    ['Czas budowy artefaktu', '12 s', '3,5 min'],
+    ['Mediana czasu odpowiedzi', '0,49 ms', '0,81 ms (silnik)'],
+    ['95. percentyl', '1,11 ms', '4,63 ms (silnik)'],
+    ['99. percentyl', '1,84 ms', '9,38 ms (silnik)'],
+    ['Rozmiar artefaktu indeksu', '53 MB', '54,5 MB'],
+    ['Liczba pozycji w indeksie', '373 tys.', '378 399'],
+    ['Czas budowy artefaktu', '12 s', '55 s'],
     ['Odporność na literówki', 'Zapytanie „mickievicza” zwraca „Mickiewicza”', 'Zachowana, koszt 27 ms'],
   ],
 ));
@@ -885,8 +917,8 @@ children.push(table(
     ['Punkty z przypisaną ulicą', '5 532 383 (64,3%)', '1 324 563'],
     ['Punkty z kodem pocztowym', '8 604 962 (99,99%)', '—'],
     ['Miejscowości w słowniku', '101 883', '101 865'],
-    ['Ulice w katalogu', '689 328', '385 436'],
-    ['Artefakt wyszukiwania', '791 211 pozycji, 109,3 MB', '487 301 pozycji, 66,4 MB'],
+    ['Ulice w katalogu', '325 595 — po scaleniu duplikatów, przed nim 689 328', '385 436'],
+    ['Artefakt wyszukiwania', '378 399 pozycji, 54,5 MB', '487 301 pozycji, 66,4 MB'],
     ['Rozmiar bazy danych', '12 GB', '3 GB'],
     ['Zakres', '16 województw z 16 — cały kraj', '4 z 16, ok. 23% kraju'],
   ],
@@ -1028,7 +1060,7 @@ children.push(table(
     ['Rozwiązanie referencji', '~49 minut', 'Do naprawy — patrz uwaga poniżej'],
     ['Kontrole jakości', '~2 minuty', 'Pięć kontroli na pełnym zbiorze'],
     ['Publikacja transakcyjna', '2 godz. 16 minut', 'Dodane 6 615 199 punktów, wycofane 0'],
-    ['Budowa artefaktu wyszukiwania', '55 sekund', '791 211 pozycji, 109,3 MB'],
+    ['Budowa artefaktu wyszukiwania', '55 sekund', '378 399 pozycji, 54,5 MB'],
     ['RAZEM', 'ok. 3 godz. 25 minut', 'Komputer przenośny, 8 rdzeni, przetwarzanie w kontenerach'],
   ],
   { rowFill: (r) => r[0] === 'RAZEM' ? C.head : undefined },
@@ -1056,10 +1088,24 @@ children.push(LEAD('Kosztem zrównoleglenia jest pamięć: ',
   'około 400 MB na proces. Liczbę procesów dobiera się do pamięci dostępnej dla zadania, ' +
   'nie do liczby rdzeni.'));
 
+children.push(SPACER());
+children.push(...box(
+  'Powtórny przebieg z 10.08.2026: koszt cyklu jest stały, nie zależy od liczby zmian',
+  [
+    'Pełne przetwarzanie uruchomiono ponownie na tym samym zestawie danych źródłowych, aby sprawdzić, czy publikacja nie odtwarza usuniętych wcześniej duplikatów katalogu ulic. Nie odtwarza — wynik jest pozytywny i zamyka tę wątpliwość.',
+    'Przy okazji ujawniła się jednak istotna właściwość eksploatacyjna. Przebieg nie wprowadził ani jednej zmiany do danych opublikowanych — a mimo to trwał 3 godziny 57 minut, czyli dłużej niż pierwsza publikacja całego kraju, która wprowadzała 6,6 miliona punktów.',
+    'Oznacza to, że koszt cyklu jest niemal w całości stały: wynika z przeładowania i przeliczenia całego zbioru, a nie z liczby faktycznych zmian. Przy zakładanym cyklu tygodniowym jest to możliwe do przyjęcia, ale wyklucza częstsze odświeżanie bez wcześniejszej optymalizacji.',
+    'Rozbicia czasu na etapy nie da się dziś przedstawić dokładniej niż dwie pozycje — odtworzenie indeksów obszaru przejściowego (44,5 min) i budowa artefaktu (50 s). Pozostałe ponad trzy godziny nie są mierzone w rozbiciu, ponieważ rozwiązanie nie raportuje postępu etapów. Jest to osobna pozycja planu i warunek sensownej optymalizacji: bez niej skracanie cyklu byłoby zgadywaniem.',
+  ],
+  C.warn,
+));
+
 children.push(H2('8.6. Czasy odpowiedzi na pełnym kraju'));
 children.push(P(
-  'Pomiar powtórzono na komplecie danych krajowych — 791 211 pozycji w indeksie wobec ' +
-  '487 301 w wydaniu 1.3. Zastosowano dwie metody, ponieważ dają istotnie różne liczby ' +
+  'Pomiar powtórzono na komplecie danych krajowych — 378 399 pozycji w indeksie wobec ' +
+  '487 301 w wydaniu 1.3; spadek liczby pozycji przy dwukrotnie większym zbiorze punktów ' +
+  'wynika ze scalenia zduplikowanych ulic i usunięcia miejscowości bez adresów. ' +
+  'Zastosowano dwie metody, ponieważ dają istotnie różne liczby ' +
   'i każda odpowiada na inne pytanie. Każde zapytanie wykonano wielokrotnie po rozgrzewce, ' +
   'a podane wartości to mediany i percentyle z serii pomiarów.'));
 
@@ -1094,6 +1140,30 @@ children.push(LEAD('Która liczba jest właściwa: ',
   'i złożenie odpowiedzi, nie wyszukiwanie. Przy dalszym strojeniu to tam, a nie w indeksie, ' +
   'jest dziś więcej do zyskania.'));
 
+children.push(SPACER());
+children.push(...box(
+  'Sprostowanie do wiersza HTTP — wykryte 9.08.2026 przy pracach nad uwierzytelnianiem',
+  [
+    'Wiersz „pełna ścieżka HTTP” był w dokumentacji technicznej i w konfiguracji alertów przypisany narzędziu pomiarowemu, które tej ścieżki nie mierzy: importuje ono silnik wyszukiwania i wywołuje go bezpośrednio, z pominięciem routingu, mechanizmów pośredniczących i składania odpowiedzi. Liczby pochodzą z pomiaru doraźnego, którego nie zachowano w repozytorium, więc nie da się ich odtworzyć.',
+    'Wartości pozostają w raporcie jako orientacyjne — są zgodne z rzędem wielkości pomiarów wykonanych później — ale nie mają statusu pomiaru powtarzalnego. Wiersz „silnik bezpośrednio” jest odtwarzalny i pozostaje w mocy.',
+    'Znaczenie praktyczne dotyczy planowanego uwierzytelniania: jego koszt powstaje dokładnie w tej warstwie, którą tamto narzędzie pomija. Porównanie „przed i po” wykonane nim pokazałoby różnicę zerową przy dowolnym rzeczywistym koszcie, a wymaganie „nie więcej niż +0,3 ms do 99. percentyla” zostałoby uznane za spełnione bez żadnego pomiaru.',
+    'Przyrząd mierzący pełny cykl życia żądania powstał 9.08.2026 wraz z pomiarem własnej czułości — patrz rozdział 10, prace równoległe.',
+  ],
+  C.warn,
+));
+
+children.push(SPACER());
+children.push(...box(
+  'Dlaczego podane liczby należy traktować jako orientacyjne — pomiar z 10.08.2026',
+  [
+    'Powtórzenie pomiaru na maszynie deweloperskiej bez obciążenia użytkownika dało sześć kolejnych wyników 99. percentyla: 33, 41, 49, 66, 99 i 129 milisekund. Mediana pozostawała przy tym stabilna, w granicach 1,1–1,3 ms. Rozrzut dotyczy więc wyłącznie przypadków skrajnych — ale to właśnie one wyznaczają progi alarmowe.',
+    'Przyczyna jest znana i mierzalna: na tej samej maszynie działa równolegle osiem kontenerów rozwiązania, w tym pulpit operacyjny (31% procesora), baza danych (23%) i odbiorca metryk (10%). Warstwa uruchomieniowa kontenerów zajmowała w czasie pomiaru ponad pięć rdzeni z ośmiu.',
+    'Dwa z tych kontenerów — pamięć podręczna i magazyn obiektowy — nie są używane przez żadną część kodu, a zużywają zasoby. Zostały zadeklarowane w konfiguracji uruchomieniowej „na zapas”.',
+    'Wniosek dla odbioru prac: wiążący pomiar czasów odpowiedzi wymaga środowiska zbliżonego do docelowego, a nie maszyny deweloperskiej z pełnym zestawem narzędzi pomocniczych. Do tego czasu progi alarmowe należy traktować jako wstępne. Odpowiednia pozycja została dopisana do planu.',
+  ],
+  C.warn,
+));
+
 children.push(...box(
   'Wyniki są lepsze niż w wydaniu 1.3, mimo dwukrotnie większego zbioru — dlaczego',
   [
@@ -1106,9 +1176,10 @@ children.push(...box(
 ));
 
 children.push(LEAD('Zużycie pamięci: ',
-  'proces mikroserwisu z wczytanym artefaktem 109,3 MB zajmuje 239 MB pamięci operacyjnej. ' +
-  'Wydanie 1.0 szacowało 485 MB przy artefakcie 53 MB — rzeczywiste zużycie jest więc ' +
-  'dwukrotnie niższe przy dwukrotnie większym artefakcie.'));
+  'proces mikroserwisu z wczytanym artefaktem 54,5 MB zajmuje 55 MB pamięci operacyjnej ' +
+  'ponad stan wyjściowy. Wydanie 1.0 szacowało 485 MB przy artefakcie 53 MB, a wydania ' +
+  '1.4–1.6 podawały 239 MB przy artefakcie 109,3 MB — obie liczby są nieaktualne po ' +
+  'scaleniu katalogu ulic, które zmniejszyło artefakt o połowę.'));
 
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -1177,11 +1248,11 @@ children.push(table(
     ['Archiwizacja danych w dotychczasowej strukturze', 'WYKONANE 6.08.2026 — komplet 16 województw, 1,8 GB, sumy kontrolne'],
     ['Weryfikacja nowej struktury danych', 'WYKONANE 6.08.2026 — rozpoznanie i odwzorowanie pól potwierdzone na rzeczywistym pliku, zero odrzuconych rekordów'],
     ['Import słowników TERYT', 'WYKONANE 6.08.2026 — pliki pełne, bez konta w GUS. Zależność od rejestracji w GUS nieaktualna'],
-    ['Uruchomienie na pełnym zbiorze krajowym', 'WYKONANE 9.08.2026 — 16 województw, 8 605 682 punkty, artefakt 109,3 MB'],
+    ['Uruchomienie na pełnym zbiorze krajowym', 'WYKONANE 9.08.2026 — 16 województw, 8 605 682 punkty, artefakt 54,5 MB'],
     ['Zamknięcie luki w limitowaniu zapytań', 'WYKONANE 8.08.2026 — limitowanie po adresie klienta, test regresji'],
     ['Odbiorca metryk i pulpit operacyjny', 'WYKONANE 9.08.2026 — zbieranie metryk, 7 reguł alertów, jeden ekran stanu usługi'],
     ['Formalny kontrakt interfejsu (OpenAPI)', 'WYKONANE 9.08.2026 — 15 tras, test zgodności ze stanem kodu'],
-    ['Zbiór wzorcowy jakości wyszukiwania', 'WYKONANE 9.08.2026 — 24 przypadki; ujawnił sześć wad, wszystkie naprawione'],
+    ['Zbiór wzorcowy jakości wyszukiwania', 'WYKONANE 9.08.2026 — 28 przypadków; ujawnił sześć wad, wszystkie naprawione'],
   ],
   { rowFill: () => C.ok },
 ));
@@ -1191,14 +1262,14 @@ children.push(H2('10.2. Etapy do wykonania'));
 children.push(table(
   { head: ['Etap', 'Zakres', 'Nakład'], widths: [2500, 4926, 1600] },
   [
-    ['1. Dokończenie bazy produkcyjnej', 'Publikacja pełnego kraju i pomiary na komplecie danych — WYKONANE 9.08.2026. Pozostaje archiwum poza maszyną oraz kopie zapasowe bazy z testem odtworzenia', '2–3 dni'],
+    ['1. Dokończenie bazy produkcyjnej', 'Publikacja pełnego kraju i pomiary na komplecie danych — WYKONANE 9.08.2026. Archiwum wyniesione poza maszynę i zweryfikowane — WYKONANE 9.08.2026. Pozostaje jednorazowe odtworzenie z kopii, potwierdzające jej przydatność, oraz kopie zapasowe bazy z harmonogramem', '2–3 dni'],
     ['2. Wydajność i przetwarzanie równoległe', 'Raportowanie postępu, wznawianie przerwanych przebiegów, limit czasu i wykrywanie zawieszenia, strojenie bazy pod ładowanie masowe, testy regresji wydajności', '6–8 dni'],
     ['3. Podział na dwa serwisy', 'Rozdzielenie ról w bazie, osobne potoki budowania, kontrakt między serwisami, test skalowania poziomego', '3–5 dni'],
     ['4. Wersjonowanie wydań', 'Rejestr wydań, wersja danych w każdej odpowiedzi, procedura wycofania, wydanie kanarkowe, przypięcie klienta do wersji', '4–5 dni'],
     ['5. Audyt zmian i kontrola nadpisywania', 'Dziennik zmian rekordów, raport różnic między wydaniami, jawne reguły precedencji źródeł, ochrona zmian ręcznych przed nadpisaniem przez automat', '5–7 dni'],
     ['6. Braki blokujące wdrożenie', 'Specyfikacja OpenAPI oraz zbiór wzorcowy jakości — WYKONANE 9.08.2026. Pozostaje retencja i anonimizacja logów zapytań, rejestr czynności przetwarzania, cele dostępności, procedura przy awarii źródła', '4–5 dni'],
     ['7. Monitorowanie i obserwowalność', 'Odbiorca metryk i pulpit operacyjny — WYKONANE 9.08.2026. Pozostaje kanał powiadomień, sonda syntetyczna, centralne logi, cele poziomu usługi i zasady eskalacji', '3–5 dni'],
-    ['8. Komercjalizacja', 'Klucze API z licencjami i limitami per klient, model wielodostępności, kopie zapasowe na osobną maszynę z cotygodniowym testem odtworzenia', '18–24 dni'],
+    ['8. Komercjalizacja', 'Klucze API z licencjami i limitami per klient, model wielodostępności, kopie zapasowe na osobną maszynę z cotygodniowym testem odtworzenia (zamrożenie archiwum wykonane 9.08.2026)', '17,5–23,5 dni'],
     ['Narzędzie do migracji bazy (poza etapami)', 'Wersjonowanie schematu z rejestrem zastosowanych migracji', '1,5 dnia'],
   ],
 ));
@@ -1215,6 +1286,18 @@ children.push(...box(
     'Etapy 4 i 5 muszą poprzedzać prace nad panelem administracyjnym — bez rejestru wydań i dziennika zmian nie ma czym zarządzać.',
     'Z etapu 7 warto wykonać wcześnie dwie pierwsze pozycje (odbiorca metryk i pulpit operacyjny, ok. 3 dni). Zaczynają się zwracać już w trakcie etapów 1 i 2, bo dziś przebieg przetwarzania jest nieprzejrzysty.',
     'Etap 2 przed etapem 3, żeby nie przenosić problemów wydajnościowych do nowej struktury.',
+  ],
+  C.head,
+));
+
+children.push(SPACER());
+children.push(...box(
+  'Prace równoległe — uwierzytelnianie klientów, rozpoczęte 9.08.2026',
+  [
+    'Etap uwierzytelniania prowadzony jest na odrębnej gałęzi, z własną bazą danych, równolegle do prac nad danymi. Rozdzielenie jest celowe: obie linie dotykają tego samego serwisu, a łączenie ich w jednym przebiegu utrudniałoby ustalenie, co spowodowało ewentualną zmianę zachowania.',
+    'Ukończono podstawę: model danych klientów i kluczy, postać klucza wraz z jego weryfikacją, sposób przechowywania sekretów oraz replikę rejestru kluczy w pamięci procesu. Szczegóły w rozdziale 5.5.',
+    'Nie ruszono jeszcze obsługi żądania — serwis zachowuje się identycznie jak przed rozpoczęciem tych prac i nadal nie weryfikuje tożsamości klienta. Zmiana zachowania nastąpi dopiero po wpięciu mechanizmu w ścieżkę żądania.',
+    'Z prac tych wynikło jedno ustalenie wykraczające poza ich zakres: dotychczasowe liczby czasu odpowiedzi dla pełnej ścieżki HTTP nie były odtwarzalne narzędziem, któremu je przypisywano. Sprostowanie w rozdziale 8.6.',
   ],
   C.head,
 ));
